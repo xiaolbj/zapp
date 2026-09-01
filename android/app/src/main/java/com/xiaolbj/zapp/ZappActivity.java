@@ -26,8 +26,14 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class ZappActivity extends NativeActivity {
     private static final int PERMISSION_CAMERA = 0;
@@ -43,12 +49,19 @@ public final class ZappActivity extends NativeActivity {
     private static final int ACCESSIBILITY_ACTION_SET_TEXT = 5;
     private static final int ACCESSIBILITY_ACTION_EXPAND = 6;
     private static final int ACCESSIBILITY_ACTION_COLLAPSE = 7;
+    private static final int FILE_READ_ERROR_INVALID_URI = 1;
+    private static final int FILE_READ_ERROR_NOT_FOUND = 2;
+    private static final int FILE_READ_ERROR_PERMISSION_DENIED = 3;
+    private static final int FILE_READ_ERROR_IO = 4;
+    private static final int MAX_FILE_PREVIEW_BYTES = 4096;
 
     private final SparseArray<PermissionRequest> pendingPermissionRequests = new SparseArray<>();
     private ImeBridgeView imeBridgeView;
     private AccessibilityBridgeView accessibilityBridgeView;
     private int nextPermissionRequestCode = FIRST_PERMISSION_REQUEST_CODE;
     private long pendingFileRequestId;
+    private final ExecutorService fileReadExecutor = Executors.newSingleThreadExecutor();
+    private volatile boolean destroyed;
 
     static {
         // Associate the NativeActivity library with this application's class loader
@@ -64,6 +77,8 @@ public final class ZappActivity extends NativeActivity {
     private static native void nativePermissionResult(long requestId, int permission, boolean granted);
     private static native void nativeFileSelected(long requestId, String uri);
     private static native void nativeFileSelectionCancelled(long requestId);
+    private static native void nativeFileReadCompleted(long requestId, byte[] data, boolean truncated);
+    private static native void nativeFileReadFailed(long requestId, int errorKind);
     private static native int nativeAccessibilityNodeCount();
     private static native boolean nativeAccessibilityNodeAt(
         int index,
@@ -92,6 +107,13 @@ public final class ZappActivity extends NativeActivity {
         runOnUiThread(() -> {
             if (accessibilityBridgeView != null) accessibilityBridgeView.refreshSnapshot();
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        fileReadExecutor.shutdownNow();
+        super.onDestroy();
     }
 
     @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
@@ -227,6 +249,50 @@ public final class ZappActivity extends NativeActivity {
             }
         }
         nativeFileSelected(requestId, uri.toString());
+    }
+
+    @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
+    public void readFileFromNative(long requestId, String uriText, int requestedMaxBytes) {
+        final int maxBytes = Math.min(Math.max(requestedMaxBytes, 1), MAX_FILE_PREVIEW_BYTES);
+        fileReadExecutor.execute(() -> readFileInBackground(requestId, uriText, maxBytes));
+    }
+
+    private void readFileInBackground(long requestId, String uriText, int maxBytes) {
+        Uri uri = uriText == null ? null : Uri.parse(uriText);
+        String scheme = uri == null ? null : uri.getScheme();
+        if (scheme == null || !(scheme.equals("content") || scheme.equals("file") || scheme.equals("android.resource"))) {
+            if (!destroyed) nativeFileReadFailed(requestId, FILE_READ_ERROR_INVALID_URI);
+            return;
+        }
+
+        byte[] buffer = new byte[maxBytes + 1];
+        int length = 0;
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            if (input == null) {
+                if (!destroyed) nativeFileReadFailed(requestId, FILE_READ_ERROR_IO);
+                return;
+            }
+            while (length < buffer.length) {
+                int read = input.read(buffer, length, buffer.length - length);
+                if (read < 0) break;
+                if (read == 0) {
+                    int oneByte = input.read();
+                    if (oneByte < 0) break;
+                    buffer[length++] = (byte)oneByte;
+                } else {
+                    length += read;
+                }
+            }
+            boolean truncated = length > maxBytes;
+            byte[] result = Arrays.copyOf(buffer, Math.min(length, maxBytes));
+            if (!destroyed) nativeFileReadCompleted(requestId, result, truncated);
+        } catch (FileNotFoundException exception) {
+            if (!destroyed) nativeFileReadFailed(requestId, FILE_READ_ERROR_NOT_FOUND);
+        } catch (SecurityException exception) {
+            if (!destroyed) nativeFileReadFailed(requestId, FILE_READ_ERROR_PERMISSION_DENIED);
+        } catch (IOException | RuntimeException exception) {
+            if (!destroyed) nativeFileReadFailed(requestId, FILE_READ_ERROR_IO);
+        }
     }
 
     private int allocatePermissionRequestCode() {

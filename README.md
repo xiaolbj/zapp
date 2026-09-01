@@ -82,7 +82,7 @@ if (button.draw(&state.button_state, input, .{
 - Clay 是正式产品 UI 的布局层；ImGui 仅作为未来可选的开发调试层。
 - UI 发出 Action，由 AppModel/reducer 统一更新业务状态。
 - Android、iOS 等系统 API 通过异步平台桥接层接入。
-- Android 端已实现相机、麦克风、通知、媒体权限请求和 Storage Access Framework 文件选择；文件结果使用 `content://` URI，不假定存在真实文件路径。
+- Android 端已实现相机、麦克风、通知、媒体权限请求和 Storage Access Framework 文件选择；文件结果使用 `content://` URI，不假定存在真实文件路径。选中后会在后台自动读取最多 4096 字节预览，UTF-8 文本直接显示，二进制内容使用十六进制显示并标记截断。
 - Noto Sans SC 使用 OFL-1.1 许可证，许可证随字体保存在 `assets/fonts`。
 
 完整架构方案见 [docs/sokol-clay-app-plan.md](docs/sokol-clay-app-plan.md)。

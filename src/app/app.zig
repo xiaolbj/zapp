@@ -34,6 +34,19 @@ pub const App = struct {
                     reducer.update(&self.model, .{ .platform_file_selection_cancelled = request_id });
                 }
             },
+            .platform_file_selected => |selection| {
+                const read_request = platform.FileReadRequest.init(
+                    selection.request_id,
+                    selection.uri,
+                    platform.max_file_preview_bytes,
+                );
+                if (read_request == null or !self.enqueuePlatformRequest(.{ .read_file = read_request.? })) {
+                    reducer.update(&self.model, .{ .platform_file_read_failed = .{
+                        .request_id = selection.request_id,
+                        .error_kind = if (read_request == null) .invalid_uri else .unsupported,
+                    } });
+                }
+            },
             else => {},
         }
     }
@@ -57,6 +70,8 @@ pub const App = struct {
             .file_selection_cancelled => |request_id| self.dispatch(.{
                 .platform_file_selection_cancelled = request_id,
             }),
+            .file_read_completed => |result| self.dispatch(.{ .platform_file_read_completed = result }),
+            .file_read_failed => |failure| self.dispatch(.{ .platform_file_read_failed = failure }),
             .ime_composition_changed => |text| self.dispatch(.{ .text_composition_changed = text }),
             .ime_composition_committed => |text| self.dispatch(.{ .text_composition_committed = text }),
             .ime_composition_cancelled => self.dispatch(.text_composition_cancelled),
@@ -152,8 +167,19 @@ test "platform actions enqueue stable request identifiers and consume results" {
         .request_id = file_request.request_id,
         .uri = "content://zapp/example",
     } });
+    const read_request = app.takePlatformRequest().?.read_file;
+    try std.testing.expectEqual(file_request.request_id, read_request.request_id);
+    try std.testing.expectEqualStrings("content://zapp/example", read_request.uri());
+    try std.testing.expect(app.model.file_read_pending);
+
+    app.dispatchPlatformEvent(.{ .file_read_completed = .{
+        .request_id = read_request.request_id,
+        .data = "hello",
+        .truncated = false,
+    } });
     try std.testing.expect(app.model.last_permission_granted);
     try std.testing.expectEqualStrings("content://zapp/example", app.model.selectedFileUri());
+    try std.testing.expectEqualStrings("hello", app.model.filePreview());
 }
 
 test {

@@ -63,6 +63,8 @@ pub const Action = union(enum) {
     platform_file_picker_requested,
     platform_file_selected: platform.FileSelection,
     platform_file_selection_cancelled: platform.RequestId,
+    platform_file_read_completed: platform.FileReadResult,
+    platform_file_read_failed: platform.FileReadFailure,
     demo_navigation_selected: u8,
     demo_tree_toggled: u8,
     demo_tree_selected: u8,

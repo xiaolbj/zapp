@@ -103,11 +103,31 @@ pub fn update(model: *Model, action: Action) void {
             model.file_picker_pending = false;
             model.last_file_request_id = selection.request_id;
             setSelectedFileUri(model, selection.uri);
+            model.file_read_pending = true;
+            model.last_file_read_request_id = selection.request_id;
+            model.file_preview_length = 0;
+            model.file_preview_truncated = false;
+            model.file_read_error = null;
         },
         .platform_file_selection_cancelled => |request_id| {
             model.file_picker_pending = false;
             model.last_file_request_id = request_id;
             model.file_selection_cancel_count += 1;
+        },
+        .platform_file_read_completed => |result| {
+            if (result.request_id != model.last_file_read_request_id) return;
+            model.file_read_pending = false;
+            model.file_preview_length = @min(result.data.len, model.file_preview_buffer.len);
+            @memcpy(model.file_preview_buffer[0..model.file_preview_length], result.data[0..model.file_preview_length]);
+            model.file_preview_truncated = result.truncated or result.data.len > model.file_preview_buffer.len;
+            model.file_read_error = null;
+        },
+        .platform_file_read_failed => |failure| {
+            if (failure.request_id != model.last_file_read_request_id) return;
+            model.file_read_pending = false;
+            model.file_preview_length = 0;
+            model.file_preview_truncated = false;
+            model.file_read_error = failure.error_kind;
         },
         .demo_navigation_selected => |index| model.demo_navigation_index = index,
         .demo_tree_toggled => |index| {
@@ -336,10 +356,42 @@ test "platform results update permission and file picker state" {
     } });
     try std.testing.expect(!model.file_picker_pending);
     try std.testing.expectEqualStrings("content://documents/example/中文.txt", model.selectedFileUri());
+    try std.testing.expect(model.file_read_pending);
+
+    update(&model, .{ .platform_file_read_completed = .{
+        .request_id = 8,
+        .data = "文件内容",
+        .truncated = true,
+    } });
+    try std.testing.expect(!model.file_read_pending);
+    try std.testing.expectEqualStrings("文件内容", model.filePreview());
+    try std.testing.expect(model.file_preview_truncated);
+
+    update(&model, .{ .platform_file_read_failed = .{
+        .request_id = 7,
+        .error_kind = .permission_denied,
+    } });
+    try std.testing.expect(model.file_read_error == null);
 
     update(&model, .platform_file_picker_requested);
     update(&model, .{ .platform_file_selection_cancelled = 9 });
     try std.testing.expectEqual(@as(u32, 1), model.file_selection_cancel_count);
+}
+
+test "matching file read failures clear pending preview state" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .platform_file_selected = .{
+        .request_id = 11,
+        .uri = "content://documents/missing",
+    } });
+    update(&model, .{ .platform_file_read_failed = .{
+        .request_id = 11,
+        .error_kind = .not_found,
+    } });
+    try std.testing.expect(!model.file_read_pending);
+    try std.testing.expect(model.file_read_error == .not_found);
+    try std.testing.expectEqual(@as(usize, 0), model.filePreview().len);
 }
 
 fn insertSingleLine(model: *Model, text: []const u8) void {

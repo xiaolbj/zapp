@@ -8,7 +8,7 @@
 #include <string.h>
 
 #define ZAPP_ANDROID_EVENT_CAPACITY 64
-#define ZAPP_ANDROID_PAYLOAD_CAPACITY 1024
+#define ZAPP_ANDROID_PAYLOAD_CAPACITY 4096
 #define ZAPP_ACCESSIBILITY_NODE_CAPACITY 64
 #define ZAPP_ACCESSIBILITY_TEXT_CAPACITY 128
 #define ZAPP_LOG_TAG "zapp-platform"
@@ -23,17 +23,20 @@ enum zapp_android_event_kind {
     ZAPP_ANDROID_FILE_SELECTED = 7,
     ZAPP_ANDROID_FILE_SELECTION_CANCELLED = 8,
     ZAPP_ANDROID_ACCESSIBILITY_ACTION = 9,
+    ZAPP_ANDROID_FILE_READ_COMPLETED = 10,
+    ZAPP_ANDROID_FILE_READ_FAILED = 11,
 };
 
 typedef struct zapp_android_event {
     int32_t kind_value;
-    int32_t permission_value;
+    int32_t detail_value;
     uint64_t request_id;
     uint32_t count;
     uint32_t element_id;
     int32_t action_value;
     bool granted;
-    uint8_t reserved[3];
+    bool truncated;
+    uint8_t reserved[2];
     size_t text_length;
     uint8_t text_buffer[ZAPP_ANDROID_PAYLOAD_CAPACITY];
 } zapp_android_event;
@@ -55,7 +58,7 @@ typedef struct zapp_accessibility_node {
     uint8_t value_text[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
 } zapp_accessibility_node;
 
-_Static_assert(sizeof(zapp_android_event) == 1064, "Zig/C Android event ABI mismatch");
+_Static_assert(sizeof(zapp_android_event) == 4136, "Zig/C Android event ABI mismatch");
 _Static_assert(sizeof(zapp_accessibility_node) == 296, "Zig/C accessibility node ABI mismatch");
 
 typedef struct zapp_jni_scope {
@@ -129,7 +132,7 @@ static size_t zapp_string_to_utf8(JNIEnv *env, jstring text, uint8_t *output, si
 }
 
 static jstring zapp_utf8_to_string(JNIEnv *env, const uint8_t *text, size_t length) {
-    jchar utf16[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
+    jchar utf16[ZAPP_ANDROID_PAYLOAD_CAPACITY];
     size_t input = 0;
     jsize output = 0;
     while (input < length && output < (jsize)(sizeof(utf16) / sizeof(utf16[0]))) {
@@ -174,9 +177,22 @@ static jstring zapp_utf8_to_string(JNIEnv *env, const uint8_t *text, size_t leng
     return (*env)->NewString(env, utf16, output);
 }
 
+static void zapp_enqueue_event(const zapp_android_event *event) {
+    pthread_mutex_lock(&zapp_event_mutex);
+    if (zapp_event_count == ZAPP_ANDROID_EVENT_CAPACITY) {
+        zapp_event_head = (zapp_event_head + 1) % ZAPP_ANDROID_EVENT_CAPACITY;
+        zapp_event_count -= 1;
+        __android_log_print(ANDROID_LOG_WARN, ZAPP_LOG_TAG, "event queue full; dropped oldest event");
+    }
+    const size_t tail = (zapp_event_head + zapp_event_count) % ZAPP_ANDROID_EVENT_CAPACITY;
+    zapp_events[tail] = *event;
+    zapp_event_count += 1;
+    pthread_mutex_unlock(&zapp_event_mutex);
+}
+
 static void zapp_push_event(
     int32_t kind,
-    int32_t permission,
+    int32_t detail,
     uint64_t request_id,
     uint32_t count,
     uint32_t element_id,
@@ -188,7 +204,7 @@ static void zapp_push_event(
     zapp_android_event event;
     memset(&event, 0, sizeof(event));
     event.kind_value = kind;
-    event.permission_value = permission;
+    event.detail_value = detail;
     event.request_id = request_id;
     event.count = count;
     event.element_id = element_id;
@@ -198,16 +214,7 @@ static void zapp_push_event(
         event.text_length = zapp_string_to_utf8(env, text, event.text_buffer, sizeof(event.text_buffer));
     }
 
-    pthread_mutex_lock(&zapp_event_mutex);
-    if (zapp_event_count == ZAPP_ANDROID_EVENT_CAPACITY) {
-        zapp_event_head = (zapp_event_head + 1) % ZAPP_ANDROID_EVENT_CAPACITY;
-        zapp_event_count -= 1;
-        __android_log_print(ANDROID_LOG_WARN, ZAPP_LOG_TAG, "event queue full; dropped oldest event");
-    }
-    const size_t tail = (zapp_event_head + zapp_event_count) % ZAPP_ANDROID_EVENT_CAPACITY;
-    zapp_events[tail] = event;
-    zapp_event_count += 1;
-    pthread_mutex_unlock(&zapp_event_mutex);
+    zapp_enqueue_event(&event);
 }
 
 static bool zapp_begin_jni_scope(zapp_jni_scope *scope) {
@@ -318,6 +325,54 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeFileSelectionCancelled(
     (void)env;
     (void)clazz;
     zapp_push_event(ZAPP_ANDROID_FILE_SELECTION_CANCELLED, 0, (uint64_t)request_id, 0, 0, 0, false, NULL, NULL);
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeFileReadCompleted(
+    JNIEnv *env,
+    jclass clazz,
+    jlong request_id,
+    jbyteArray data,
+    jboolean truncated
+) {
+    (void)clazz;
+    zapp_android_event event;
+    memset(&event, 0, sizeof(event));
+    event.kind_value = ZAPP_ANDROID_FILE_READ_COMPLETED;
+    event.request_id = (uint64_t)request_id;
+    event.truncated = truncated == JNI_TRUE;
+    if (data != NULL) {
+        const jsize length = (*env)->GetArrayLength(env, data);
+        event.text_length = (size_t)(length < (jsize)sizeof(event.text_buffer) ? length : (jsize)sizeof(event.text_buffer));
+        if (event.text_length > 0) {
+            (*env)->GetByteArrayRegion(env, data, 0, (jsize)event.text_length, (jbyte *)event.text_buffer);
+            if ((*env)->ExceptionCheck(env)) return;
+        }
+        if ((size_t)length > sizeof(event.text_buffer)) event.truncated = true;
+    }
+    zapp_enqueue_event(&event);
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeFileReadFailed(
+    JNIEnv *env,
+    jclass clazz,
+    jlong request_id,
+    jint error_kind
+) {
+    (void)env;
+    (void)clazz;
+    zapp_push_event(
+        ZAPP_ANDROID_FILE_READ_FAILED,
+        (int32_t)error_kind,
+        (uint64_t)request_id,
+        0,
+        0,
+        0,
+        false,
+        NULL,
+        NULL
+    );
 }
 
 JNIEXPORT jint JNICALL
@@ -441,6 +496,41 @@ bool zapp_android_bridge_open_file(uint64_t request_id) {
         (*scope.env)->DeleteLocalRef(scope.env, activity_class);
     }
     return zapp_finish_jni_call(&scope) && activity_class != NULL;
+}
+
+bool zapp_android_bridge_read_file(
+    uint64_t request_id,
+    const uint8_t *uri,
+    size_t uri_length,
+    uint32_t max_bytes
+) {
+    if (uri == NULL || uri_length == 0 || uri_length > ZAPP_ANDROID_PAYLOAD_CAPACITY || max_bytes == 0) return false;
+    zapp_jni_scope scope;
+    if (!zapp_begin_jni_scope(&scope)) return false;
+    jobject activity = zapp_activity_object();
+    jclass activity_class = (*scope.env)->GetObjectClass(scope.env, activity);
+    jstring uri_string = zapp_utf8_to_string(scope.env, uri, uri_length);
+    if (activity_class != NULL && uri_string != NULL) {
+        jmethodID method = (*scope.env)->GetMethodID(
+            scope.env,
+            activity_class,
+            "readFileFromNative",
+            "(JLjava/lang/String;I)V"
+        );
+        if (method != NULL) {
+            (*scope.env)->CallVoidMethod(
+                scope.env,
+                activity,
+                method,
+                (jlong)request_id,
+                uri_string,
+                (jint)max_bytes
+            );
+        }
+    }
+    if (uri_string != NULL) (*scope.env)->DeleteLocalRef(scope.env, uri_string);
+    if (activity_class != NULL) (*scope.env)->DeleteLocalRef(scope.env, activity_class);
+    return zapp_finish_jni_call(&scope) && activity_class != NULL && uri_string != NULL;
 }
 
 void zapp_android_bridge_update_accessibility(const zapp_accessibility_node *nodes, size_t count) {

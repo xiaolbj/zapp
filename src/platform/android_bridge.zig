@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const semantics = @import("../ui/semantics.zig");
 
-pub const max_payload_bytes = 1024;
+pub const max_payload_bytes = 4096;
 pub const max_accessibility_nodes = semantics.max_nodes;
 pub const max_accessibility_text_bytes = 128;
 
@@ -45,7 +45,7 @@ const accessibility_flag_expanded: u32 = 1 << 7;
 var last_accessibility_hash: ?u64 = null;
 
 comptime {
-    std.debug.assert(@sizeOf(Event) == 1064);
+    std.debug.assert(@sizeOf(Event) == 4136);
     std.debug.assert(@sizeOf(AccessibilityNode) == 296);
 }
 
@@ -59,17 +59,20 @@ pub const EventKind = enum(c_int) {
     file_selected = 7,
     file_selection_cancelled = 8,
     accessibility_action = 9,
+    file_read_completed = 10,
+    file_read_failed = 11,
 };
 
 pub const Event = extern struct {
     kind_value: c_int,
-    permission_value: c_int,
+    detail_value: c_int,
     request_id: u64,
     count: u32,
     element_id: u32,
     action_value: c_int,
     granted: bool,
-    reserved: [3]u8,
+    truncated: bool,
+    reserved: [2]u8,
     text_length: usize,
     text_buffer: [max_payload_bytes]u8,
 
@@ -84,11 +87,17 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.file_selected) => .file_selected,
             @intFromEnum(EventKind.file_selection_cancelled) => .file_selection_cancelled,
             @intFromEnum(EventKind.accessibility_action) => .accessibility_action,
+            @intFromEnum(EventKind.file_read_completed) => .file_read_completed,
+            @intFromEnum(EventKind.file_read_failed) => .file_read_failed,
             else => null,
         };
     }
 
     pub fn text(self: *const Event) []const u8 {
+        return self.payload();
+    }
+
+    pub fn payload(self: *const Event) []const u8 {
         return self.text_buffer[0..@min(self.text_length, self.text_buffer.len)];
     }
 };
@@ -97,6 +106,7 @@ extern fn zapp_android_bridge_attach(activity: ?*const anyopaque) void;
 extern fn zapp_android_bridge_set_ime_visible(visible: bool) void;
 extern fn zapp_android_bridge_request_permission(request_id: u64, permission: c_int) bool;
 extern fn zapp_android_bridge_open_file(request_id: u64) bool;
+extern fn zapp_android_bridge_read_file(request_id: u64, uri: [*]const u8, uri_length: usize, max_bytes: u32) bool;
 extern fn zapp_android_bridge_update_accessibility(nodes: [*]const AccessibilityNode, count: usize) void;
 extern fn zapp_android_bridge_poll(event: *Event) bool;
 extern fn zapp_android_bridge_reset() void;
@@ -118,6 +128,13 @@ pub fn requestPermission(request_id: u64, permission: c_int) bool {
 
 pub fn openFile(request_id: u64) bool {
     if (comptime builtin.abi.isAndroid()) return zapp_android_bridge_open_file(request_id);
+    return false;
+}
+
+pub fn readFile(request_id: u64, uri: []const u8, max_bytes: u32) bool {
+    if (comptime builtin.abi.isAndroid()) {
+        return zapp_android_bridge_read_file(request_id, uri.ptr, uri.len, max_bytes);
+    }
     return false;
 }
 
@@ -191,12 +208,13 @@ fn copyUtf8Prefix(destination: []u8, source: []const u8) usize {
 test "native event exposes request metadata and bounded payload" {
     var event: Event = .{
         .kind_value = @intFromEnum(EventKind.file_selected),
-        .permission_value = 0,
+        .detail_value = 0,
         .request_id = 42,
         .count = 0,
         .element_id = 0,
         .action_value = 0,
         .granted = false,
+        .truncated = false,
         .reserved = @splat(0),
         .text_length = 3,
         .text_buffer = @splat(0),
@@ -209,7 +227,7 @@ test "native event exposes request metadata and bounded payload" {
     event.kind_value = 99;
     try std.testing.expect(event.kind() == null);
     event.text_length = max_payload_bytes + 100;
-    try std.testing.expectEqual(max_payload_bytes, event.text().len);
+    try std.testing.expectEqual(max_payload_bytes, event.payload().len);
 }
 
 test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {

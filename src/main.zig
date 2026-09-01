@@ -64,7 +64,7 @@ fn drainPlatformEvents() void {
             }),
             .submit => state.app.dispatchPlatformEvent(.ime_submit_requested),
             .permission_result => {
-                const permission = permissionFromValue(native_event.permission_value) orelse continue;
+                const permission = permissionFromValue(native_event.detail_value) orelse continue;
                 state.app.dispatchPlatformEvent(.{ .permission_result = .{
                     .request_id = native_event.request_id,
                     .permission = permission,
@@ -97,6 +97,18 @@ fn drainPlatformEvents() void {
                 );
                 for (actions) |action| state.app.dispatch(action);
             },
+            .file_read_completed => state.app.dispatchPlatformEvent(.{ .file_read_completed = .{
+                .request_id = native_event.request_id,
+                .data = native_event.payload(),
+                .truncated = native_event.truncated,
+            } }),
+            .file_read_failed => {
+                const error_kind = fileReadErrorFromValue(native_event.detail_value) orelse .io;
+                state.app.dispatchPlatformEvent(.{ .file_read_failed = .{
+                    .request_id = native_event.request_id,
+                    .error_kind = error_kind,
+                } });
+            },
         }
     }
 }
@@ -127,6 +139,20 @@ fn processPlatformRequests() void {
                     .file_selection_cancelled = file_request.request_id,
                 });
             },
+            .read_file => |file_request| {
+                const started = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.readFile(
+                        file_request.request_id,
+                        file_request.uri(),
+                        file_request.max_bytes,
+                    )
+                else
+                    false;
+                if (!started) state.app.dispatchPlatformEvent(.{ .file_read_failed = .{
+                    .request_id = file_request.request_id,
+                    .error_kind = .unsupported,
+                } });
+            },
         }
     }
 }
@@ -137,6 +163,17 @@ fn permissionFromValue(value: c_int) ?zapp.platform.Permission {
         @intFromEnum(zapp.platform.Permission.microphone) => .microphone,
         @intFromEnum(zapp.platform.Permission.notifications) => .notifications,
         @intFromEnum(zapp.platform.Permission.media) => .media,
+        else => null,
+    };
+}
+
+fn fileReadErrorFromValue(value: c_int) ?zapp.platform.FileReadError {
+    return switch (value) {
+        @intFromEnum(zapp.platform.FileReadError.invalid_uri) => .invalid_uri,
+        @intFromEnum(zapp.platform.FileReadError.not_found) => .not_found,
+        @intFromEnum(zapp.platform.FileReadError.permission_denied) => .permission_denied,
+        @intFromEnum(zapp.platform.FileReadError.io) => .io,
+        @intFromEnum(zapp.platform.FileReadError.unsupported) => .unsupported,
         else => null,
     };
 }

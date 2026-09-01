@@ -41,9 +41,15 @@ pub const Model = struct {
     last_permission_granted: bool = false,
     file_picker_pending: bool = false,
     last_file_request_id: platform.RequestId = 0,
-    selected_file_uri_buffer: [1024]u8 = @splat(0),
+    selected_file_uri_buffer: [platform.max_file_uri_bytes]u8 = @splat(0),
     selected_file_uri_length: usize = 0,
     file_selection_cancel_count: u32 = 0,
+    file_read_pending: bool = false,
+    last_file_read_request_id: platform.RequestId = 0,
+    file_preview_buffer: [platform.max_file_preview_bytes]u8 = @splat(0),
+    file_preview_length: usize = 0,
+    file_preview_truncated: bool = false,
+    file_read_error: ?platform.FileReadError = null,
     demo_navigation_index: u8 = 0,
     demo_tree_expanded_mask: u64 = 0b11,
     demo_tree_selected_index: u8 = 2,
@@ -75,5 +81,9 @@ pub const Model = struct {
 
     pub fn selectedFileUri(self: *const Model) []const u8 {
         return self.selected_file_uri_buffer[0..self.selected_file_uri_length];
+    }
+
+    pub fn filePreview(self: *const Model) []const u8 {
+        return self.file_preview_buffer[0..self.file_preview_length];
     }
 };

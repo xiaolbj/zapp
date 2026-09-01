@@ -651,4 +651,4 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 - `zig build check` 和 `zig build test` 已在 Zig 0.16.0/Windows 上通过。
 - 已实际启动桌面窗口并保持正常响应；当前窗口自动化层未能枚举该原生窗口，因此本轮没有截图验收。
 
-Rectangle 圆角、Border RenderCommand、首批控件、平台无关语义元数据和统一导航命令均已实现。Android NativeActivity APK 壳也已建立：`android-lib` 使用 Zig 生成 PIC 静态归档并由 NDK Clang 链接 `libzapp.so`，Gradle 自动构建和打包 `arm64-v8a`/`x86_64`。Debug APK、Manifest、双 ABI 和入口符号已在 Windows + NDK r25c 上验证；API 28 x86_64 模拟器已验证启动渲染、相机权限结果、系统文件选择器启动/取消/成功结果、Home 暂停恢复和原生虚拟无障碍节点树。下一阶段继续进行 TalkBack 与不同厂商中文 IME 真机体验验收，并接入文件 URI 读取、原生无障碍滚动动作和发布工程化。
+Rectangle 圆角、Border RenderCommand、首批控件、平台无关语义元数据和统一导航命令均已实现。Android NativeActivity APK 壳也已建立：`android-lib` 使用 Zig 生成 PIC 静态归档并由 NDK Clang 链接 `libzapp.so`，Gradle 自动构建和打包 `arm64-v8a`/`x86_64`。Debug APK、Manifest、双 ABI 和入口符号已在 Windows + NDK r25c 上验证；API 28 x86_64 模拟器已验证启动渲染、相机权限结果、系统文件选择器启动/取消/成功结果、`content://` URI 异步文本/二进制读取、Home 暂停恢复和原生虚拟无障碍节点树。下一阶段继续进行 TalkBack 与不同厂商中文 IME 真机体验验收，并接入文件元数据/完整流式消费、原生无障碍滚动动作和发布工程化。

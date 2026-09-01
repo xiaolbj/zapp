@@ -48,6 +48,7 @@ const state = struct {
     var confirmation_text: [96]u8 = undefined;
     var permission_status_text: [160]u8 = undefined;
     var file_status_text: [256]u8 = undefined;
+    var file_preview_text: [768]u8 = undefined;
 };
 
 pub const Frame = struct {
@@ -237,6 +238,7 @@ pub fn build(model: *const Model) Frame {
         "文件选择：已取消或平台不支持"
     else
         "文件选择：尚未选择";
+    const file_preview_text = formatFilePreview(&state.file_preview_text, model);
     const modal_open = state.focus_state.modalOpen();
 
     clay.UI()(.{
@@ -506,6 +508,11 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("FileSelectionStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
+                    if (file_preview_text.len > 0) label.draw(file_preview_text, .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("FilePreviewStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     label.draw(confirmation_text, .{
                         .color = .{ 145, 171, 207, 255 },
                         .semantic_id = .ID("DialogConfirmationCount"),
@@ -764,6 +771,53 @@ fn utf8Prefix(text: []const u8, max_bytes: usize) []const u8 {
     return text[0..length];
 }
 
+fn formatFilePreview(buffer: []u8, model: *const Model) []const u8 {
+    if (model.file_read_pending) return "内容读取：正在读取…";
+    if (model.file_read_error) |error_kind| return switch (error_kind) {
+        .invalid_uri => "内容读取失败：URI 无效",
+        .not_found => "内容读取失败：文件不存在",
+        .permission_denied => "内容读取失败：没有读取权限",
+        .io => "内容读取失败：I/O 错误",
+        .unsupported => "内容读取失败：平台不支持",
+    };
+    if (model.selectedFileUri().len == 0) return "";
+
+    const data = model.filePreview();
+    const output = std.fmt.bufPrint(
+        buffer,
+        "内容预览（{d} 字节{s}）：",
+        .{ data.len, if (model.file_preview_truncated) "，已截断" else "" },
+    ) catch return "内容预览不可用";
+    var length = output.len;
+    if (data.len == 0) {
+        const suffix = "空文件";
+        if (length + suffix.len <= buffer.len) {
+            @memcpy(buffer[length .. length + suffix.len], suffix);
+            length += suffix.len;
+        }
+        return buffer[0..length];
+    }
+
+    if (std.unicode.utf8ValidateSlice(data)) {
+        const preview = utf8Prefix(data, @min(data.len, 384));
+        for (preview) |byte| {
+            if (length == buffer.len) break;
+            buffer[length] = if (byte < 0x20 or byte == 0x7f) ' ' else byte;
+            length += 1;
+        }
+    } else {
+        const hex = "0123456789ABCDEF";
+        for (data[0..@min(data.len, 64)]) |byte| {
+            if (length + 3 > buffer.len) break;
+            buffer[length] = hex[byte >> 4];
+            buffer[length + 1] = hex[byte & 0x0f];
+            buffer[length + 2] = ' ';
+            length += 3;
+        }
+    }
+    return buffer[0..length];
+}
+
 test "responsive shell emits controls and text" {
     var model: Model = .{};
     try std.testing.expect(setup(&model));
@@ -903,4 +957,20 @@ test "semantic actions reuse reducer-facing UI actions" {
         "",
     );
     try std.testing.expectEqual(@as(u8, 0), actions[0].demo_tree_toggled);
+}
+
+test "file previews preserve UTF-8 text and format binary as hex" {
+    var model: Model = .{};
+    model.selected_file_uri_length = "content://sample".len;
+    @memcpy(model.selected_file_uri_buffer[0..model.selected_file_uri_length], "content://sample");
+    model.file_preview_length = "中文内容\nnext".len;
+    @memcpy(model.file_preview_buffer[0..model.file_preview_length], "中文内容\nnext");
+    var buffer: [768]u8 = undefined;
+    const text_preview = formatFilePreview(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, text_preview, "中文内容 next") != null);
+
+    model.file_preview_length = 4;
+    @memcpy(model.file_preview_buffer[0..4], &[_]u8{ 0x89, 0x50, 0x4e, 0x47 });
+    const binary_preview = formatFilePreview(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, binary_preview, "89 50 4E 47") != null);
 }
