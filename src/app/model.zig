@@ -20,5 +20,15 @@ pub const Model = struct {
     demo_dialog_open: bool = false,
     demo_dialog_confirmations: u32 = 0,
     back_requested: bool = false,
+    focus_next_requested: bool = false,
+    text_field_focused: bool = false,
+    text_buffer: [256]u8 = @splat(0),
+    text_length: usize = 0,
+    text_submission_count: u32 = 0,
+    demo_navigation_index: u8 = 0,
     suspended: bool = false,
+
+    pub fn text(self: *const Model) []const u8 {
+        return self.text_buffer[0..self.text_length];
+    }
 };

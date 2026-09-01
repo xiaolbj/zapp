@@ -1,3 +1,4 @@
+const std = @import("std");
 const sokol = @import("sokol");
 const zapp = @import("zapp");
 
@@ -27,7 +28,11 @@ export fn init() void {
 export fn frame() void {
     state.app.dispatch(.{ .tick = sapp.frameDuration() });
     const ui_frame = zapp.ui.build(&state.app.model);
+    const keyboard_was_visible = state.app.model.text_field_focused;
     for (ui_frame.actions) |action| state.app.dispatch(action);
+    if (keyboard_was_visible != state.app.model.text_field_focused) {
+        sapp.showKeyboard(state.app.model.text_field_focused);
+    }
     state.app.dispatch(.input_consumed);
     state.renderer.draw(ui_frame);
 }
@@ -58,6 +63,26 @@ export fn event(ev: [*c]const sapp.Event) void {
         .KEY_DOWN => {
             if (current.key_code == .ESCAPE and !current.key_repeat) {
                 state.app.dispatch(.back_requested);
+            } else if (current.key_code == .TAB and !current.key_repeat) {
+                state.app.dispatch(.focus_next_requested);
+            } else if (state.app.model.text_field_focused) {
+                if (current.key_code == .BACKSPACE) {
+                    state.app.dispatch(.text_backspace);
+                } else if (current.key_code == .ENTER and !current.key_repeat) {
+                    state.app.dispatch(.text_submitted);
+                }
+            }
+        },
+        .CHAR => {
+            if (state.app.model.text_field_focused and current.char_code >= 32) {
+                var encoded: [4]u8 = undefined;
+                const length = std.unicode.utf8Encode(@intCast(current.char_code), &encoded) catch 0;
+                if (length > 0) state.app.dispatch(.{ .text_inserted = encoded[0..length] });
+            }
+        },
+        .CLIPBOARD_PASTED => {
+            if (state.app.model.text_field_focused) {
+                state.app.dispatch(.{ .text_inserted = sapp.getClipboardString() });
             }
         },
         .TOUCHES_BEGAN, .TOUCHES_MOVED, .TOUCHES_ENDED, .TOUCHES_CANCELLED => {
@@ -98,6 +123,8 @@ fn appDesc() sapp.Desc {
         .high_dpi = true,
         .icon = .{ .sokol_default = true },
         .depth_format = .NONE,
+        .enable_clipboard = true,
+        .clipboard_size = 16 * 1024,
         .window_title = "zapp",
         .logger = .{ .func = slog.func },
         .win32 = .{ .console_attach = true },

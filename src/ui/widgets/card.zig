@@ -8,6 +8,7 @@ pub const Config = struct {
     direction: clay.LayoutDirection = .top_to_bottom,
     background_color: clay.Color = .{ 31, 45, 70, 255 },
     corner_radius: f32 = 12,
+    scroll_vertical: bool = false,
 };
 
 /// Returns a declaration so the caller can compose arbitrary card content.
@@ -22,5 +23,6 @@ pub fn declaration(config: Config) clay.ElementDeclaration {
         },
         .background_color = config.background_color,
         .corner_radius = .all(config.corner_radius),
+        .clip = .{ .vertical = config.scroll_vertical },
     };
 }

@@ -30,6 +30,12 @@ pub const Action = union(enum) {
     demo_dialog_closed,
     demo_dialog_confirmed,
     back_requested,
+    focus_next_requested,
+    text_field_focus_changed: bool,
+    text_inserted: []const u8,
+    text_backspace,
+    text_submitted,
+    demo_navigation_selected: u8,
     suspended,
     resumed,
 };

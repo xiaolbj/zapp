@@ -32,6 +32,7 @@ pub fn update(model: *Model, action: Action) void {
             model.scroll_delta_x = 0;
             model.scroll_delta_y = 0;
             model.back_requested = false;
+            model.focus_next_requested = false;
         },
         .primary_button_pressed => model.primary_button_presses += 1,
         .demo_checkbox_toggled => model.demo_checkbox_checked = !model.demo_checkbox_checked,
@@ -48,6 +49,12 @@ pub fn update(model: *Model, action: Action) void {
             model.demo_dialog_open = false;
         },
         .back_requested => model.back_requested = true,
+        .focus_next_requested => model.focus_next_requested = true,
+        .text_field_focus_changed => |focused| model.text_field_focused = focused,
+        .text_inserted => |text| appendSingleLine(model, text),
+        .text_backspace => deleteLastCodepoint(model),
+        .text_submitted => model.text_submission_count += 1,
+        .demo_navigation_selected => |index| model.demo_navigation_index = index,
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -147,6 +154,76 @@ test "dialog actions update modal state and confirmation count" {
     try std.testing.expect(model.back_requested);
     update(&model, .input_consumed);
     try std.testing.expect(!model.back_requested);
+}
+
+test "text input appends UTF-8 and deletes a complete codepoint" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .{ .text_inserted = "hello世界" });
+    try std.testing.expectEqualStrings("hello世界", model.text());
+    update(&model, .text_backspace);
+    try std.testing.expectEqualStrings("hello世", model.text());
+    update(&model, .{ .text_inserted = "\nignored" });
+    try std.testing.expectEqualStrings("hello世", model.text());
+}
+
+test "text input never splits a UTF-8 sequence at capacity" {
+    const std = @import("std");
+    var model: Model = .{};
+    const ascii = "a" ** 255;
+    update(&model, .{ .text_inserted = ascii });
+    update(&model, .{ .text_inserted = "中" });
+
+    try std.testing.expectEqual(@as(usize, 255), model.text_length);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(model.text()));
+}
+
+test "text submission and navigation remain controlled by the model" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .{ .text_field_focus_changed = true });
+    update(&model, .text_submitted);
+    update(&model, .{ .demo_navigation_selected = 2 });
+
+    try std.testing.expect(model.text_field_focused);
+    try std.testing.expectEqual(@as(u32, 1), model.text_submission_count);
+    try std.testing.expectEqual(@as(u8, 2), model.demo_navigation_index);
+}
+
+fn appendSingleLine(model: *Model, text: []const u8) void {
+    var index: usize = 0;
+    while (index < text.len) {
+        const first = text[index];
+        if (first == '\r' or first == '\n') break;
+        const sequence_length: usize = if (first < 0x80)
+            1
+        else if (first & 0xE0 == 0xC0)
+            2
+        else if (first & 0xF0 == 0xE0)
+            3
+        else if (first & 0xF8 == 0xF0)
+            4
+        else
+            1;
+        if (index + sequence_length > text.len) break;
+        if (model.text_length + sequence_length > model.text_buffer.len) break;
+        @memcpy(
+            model.text_buffer[model.text_length .. model.text_length + sequence_length],
+            text[index .. index + sequence_length],
+        );
+        model.text_length += sequence_length;
+        index += sequence_length;
+    }
+}
+
+fn deleteLastCodepoint(model: *Model) void {
+    if (model.text_length == 0) return;
+    model.text_length -= 1;
+    while (model.text_length > 0 and model.text_buffer[model.text_length] & 0xC0 == 0x80) {
+        model.text_length -= 1;
+    }
 }
 
 test "tick advances only while active" {

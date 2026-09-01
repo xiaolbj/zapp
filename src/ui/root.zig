@@ -13,9 +13,12 @@ const dialog = @import("widgets/dialog.zig");
 const icon_button = @import("widgets/icon_button.zig");
 const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
+const navigation_bar = @import("widgets/navigation_bar.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
 const slider = @import("widgets/slider.zig");
+const text_field = @import("widgets/text_field.zig");
+const toast = @import("widgets/toast.zig");
 const toggle_switch = @import("widgets/switch.zig");
 
 const max_actions = 8;
@@ -24,6 +27,8 @@ const state = struct {
     var memory: ?[]u8 = null;
     var interaction_state: interaction.State = .{};
     var focus_state: focus_manager.State = .{};
+    var toast_state: toast.State = .{};
+    var last_text_submission_count: u32 = 0;
     var actions: [max_actions]Action = undefined;
     var action_count: usize = 0;
     var counter_text: [96]u8 = undefined;
@@ -46,6 +51,8 @@ pub fn setup(model: *const Model) bool {
     state.memory = memory;
     state.interaction_state = .{};
     state.focus_state = .{};
+    state.toast_state = .{};
+    state.last_text_submission_count = model.text_submission_count;
     state.action_count = 0;
 
     _ = clay.initialize(.init(memory), dimensions(model), .{
@@ -62,6 +69,8 @@ pub fn shutdown() void {
     }
     state.interaction_state = .{};
     state.focus_state = .{};
+    state.toast_state = .{};
+    state.last_text_submission_count = 0;
     state.action_count = 0;
 }
 
@@ -80,6 +89,11 @@ pub fn build(model: *const Model) Frame {
         .x = model.scroll_delta_x * 36,
         .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
+    if (model.text_submission_count != state.last_text_submission_count) {
+        state.last_text_submission_count = model.text_submission_count;
+        state.toast_state.show("文本已提交", 2.5);
+    }
+    state.toast_state.update(model.frame_delta_seconds);
     clay.beginLayout();
 
     const dialog_id = clay.ElementId.ID("DemoDialogPanel").id;
@@ -88,6 +102,19 @@ pub fn build(model: *const Model) Frame {
         state.focus_state.openModal(dialog_id, dialog_confirm_id);
     } else {
         state.focus_state.closeModal(dialog_id);
+    }
+    const text_field_id = clay.ElementId.ID("DemoTextField").id;
+    if (model.focus_next_requested and !model.demo_dialog_open) {
+        if (model.text_field_focused) {
+            state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
+            emit(.{ .text_field_focus_changed = false });
+        } else {
+            state.focus_state.focus(text_field_id);
+            emit(.{ .text_field_focus_changed = true });
+        }
+    }
+    if (model.back_requested and model.text_field_focused and !model.demo_dialog_open) {
+        emit(.{ .text_field_focus_changed = false });
     }
 
     const compact = model.viewport_width < 900;
@@ -161,7 +188,19 @@ pub fn build(model: *const Model) Frame {
                 .background_color = if (clay.hovered()) .{ 31, 49, 77, 255 } else .{ 24, 36, 58, 255 },
                 .corner_radius = .all(12),
             })({
-                label.draw("导航", .{ .color = .{ 155, 178, 211, 255 } });
+                const nav_items = [_]navigation_bar.Item{
+                    .{ .text = "首页" },
+                    .{ .text = "活动" },
+                    .{ .text = "设置" },
+                };
+                if (navigation_bar.draw(&state.interaction_state, input, .{
+                    .id = "MainNavigation",
+                    .items = &nav_items,
+                    .selected_index = model.demo_navigation_index,
+                    .item_width = if (compact) control_width else 208,
+                    .direction = if (compact) .left_to_right else .top_to_bottom,
+                    .disabled = modal_open,
+                })) |index| emit(.{ .demo_navigation_selected = @intCast(index) });
             });
 
             clay.UI()(.{
@@ -177,6 +216,7 @@ pub fn build(model: *const Model) Frame {
             })({
                 clay.UI()(card.declaration(.{
                     .id = "PrimaryCard",
+                    .scroll_vertical = true,
                 }))({
                     label.draw("Clay 应用框架", .{ .font_size = 22 });
                     label.draw(counter_text, .{ .color = .{ 166, 187, 218, 255 } });
@@ -236,6 +276,21 @@ pub fn build(model: *const Model) Frame {
                         .width = control_width,
                         .disabled = modal_open,
                     })) |value| emit(.{ .demo_volume_changed = value });
+                    label.draw("单行文本输入", .{ .color = .{ 166, 187, 218, 255 } });
+                    const text_result = text_field.draw(&state.interaction_state, input, .{
+                        .id = "DemoTextField",
+                        .text = model.text(),
+                        .placeholder = "输入中文或英文，按 Enter 提交",
+                        .width = control_width,
+                        .focused = model.text_field_focused,
+                        .disabled = modal_open,
+                    });
+                    if (text_result.focus_requested and !model.text_field_focused) {
+                        state.focus_state.focus(text_field_id);
+                        emit(.{ .text_field_focus_changed = true });
+                    } else if (text_result.blur_requested) {
+                        emit(.{ .text_field_focus_changed = false });
+                    }
                     label.draw(confirmation_text, .{ .color = .{ 145, 171, 207, 255 } });
                 });
 
@@ -291,6 +346,7 @@ pub fn build(model: *const Model) Frame {
             emit(.demo_dialog_closed);
         }
     }
+    toast.draw(&state.toast_state, @floatFromInt(@max(model.viewport_width, 1)));
 
     return .{
         .clear_color = theme.dark.background,
@@ -344,6 +400,17 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(scissor_count >= 2);
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
+
+    model.text_submission_count = 1;
+    const toast_frame = build(&model);
+    var has_toast_command = false;
+    for (toast_frame.commands) |command| {
+        if (command.z_index == 200 and command.command_type == .rectangle) {
+            has_toast_command = true;
+            break;
+        }
+    }
+    try std.testing.expect(has_toast_command);
 
     model.demo_dialog_open = true;
     model.back_requested = true;

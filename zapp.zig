@@ -18,8 +18,11 @@ test {
     _ = @import("src/ui/widgets/icon_button.zig");
     _ = @import("src/ui/widgets/interaction.zig");
     _ = @import("src/ui/widgets/label.zig");
+    _ = @import("src/ui/widgets/navigation_bar.zig");
     _ = @import("src/ui/widgets/progress_bar.zig");
     _ = @import("src/ui/widgets/scroll_view.zig");
     _ = @import("src/ui/widgets/slider.zig");
     _ = @import("src/ui/widgets/switch.zig");
+    _ = @import("src/ui/widgets/text_field.zig");
+    _ = @import("src/ui/widgets/toast.zig");
 }

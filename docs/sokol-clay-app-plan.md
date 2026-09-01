@@ -607,12 +607,15 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `Slider`：受控拖拽输入，通过元素边界将指针位置映射到 `0...1`。
 - `Dialog`：模态浮层，包含遮罩输入捕获、确认/取消和返回键关闭。
 - `FocusManager`：保存模态前焦点、设置初始焦点并在关闭后恢复。
+- `NavigationBar`：受控页面选择，支持横向和纵向排列。
+- `Toast`：非模态、输入穿透、定时消失的反馈浮层。
+- `TextField`：受控单行 UTF-8 文本，支持字符输入、完整码点退格、Enter 提交、系统粘贴和移动软键盘显示。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
 Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，最终退出时 `shutdown()`。当前绑定没有 context destroy/null API，因此测试中的多个 UI 场景必须复用同一个 Clay context，不能释放 arena 后在同一进程内重新初始化。
 
-下一阶段优先补充键盘 Tab/方向键导航与 `TextField`。TextField 需要平台 IME、中文输入、剪贴板和焦点事件支持，不能仅依靠每帧字符轮询。
+路线图第一批控件已经全部具备可运行实现。下一阶段继续完善键盘 Tab/方向键导航、TextField 光标/选择/复制剪切和 Android 中文 IME 组合输入；基础实现完成不等于这些高级编辑行为已经验收。
 
 ## 21. 当前实施状态
 
