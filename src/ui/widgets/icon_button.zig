@@ -1,6 +1,7 @@
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const semantics = @import("../semantics.zig");
 const theme = @import("../theme.zig");
 
 pub const Config = struct {
@@ -9,10 +10,19 @@ pub const Config = struct {
     size: f32 = 44,
     disabled: bool = false,
     focused: bool = false,
+    semantic_label: ?[]const u8 = null,
+    semantic_registry: ?*semantics.Registry = null,
 };
 
 pub fn draw(state: *interaction.State, input: interaction.Input, config: Config) bool {
     const id = clay.ElementId.ID(config.id);
+    if (config.semantic_registry) |registry| _ = registry.add(.{
+        .element_id = id.id,
+        .role = .button,
+        .label = config.semantic_label orelse config.icon,
+        .disabled = config.disabled,
+        .focused = config.focused,
+    });
     const result = interaction.update(state, id.id, clay.pointerOver(id), input, config.disabled);
     const color: clay.Color = if (config.disabled)
         theme.controls.surface_disabled

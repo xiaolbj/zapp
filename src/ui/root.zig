@@ -4,6 +4,7 @@ const Action = @import("../app/action.zig").Action;
 const Model = @import("../app/model.zig").Model;
 const font = @import("../text/font.zig");
 const focus_manager = @import("focus_manager.zig");
+const semantics = @import("semantics.zig");
 const theme = @import("theme.zig");
 const button = @import("widgets/button.zig");
 const card = @import("widgets/card.zig");
@@ -27,6 +28,7 @@ const state = struct {
     var memory: ?[]u8 = null;
     var interaction_state: interaction.State = .{};
     var focus_state: focus_manager.State = .{};
+    var semantic_registry: semantics.Registry = .{};
     var toast_state: toast.State = .{};
     var last_text_submission_count: u32 = 0;
     var actions: [max_actions]Action = undefined;
@@ -39,6 +41,7 @@ pub const Frame = struct {
     clear_color: theme.Color,
     commands: []const clay.RenderCommand,
     actions: []const Action,
+    semantic_nodes: []const semantics.Node,
 };
 
 pub fn setup(model: *const Model) bool {
@@ -51,6 +54,7 @@ pub fn setup(model: *const Model) bool {
     state.memory = memory;
     state.interaction_state = .{};
     state.focus_state = .{};
+    state.semantic_registry.reset();
     state.toast_state = .{};
     state.last_text_submission_count = model.text_submission_count;
     state.action_count = 0;
@@ -69,6 +73,7 @@ pub fn shutdown() void {
     }
     state.interaction_state = .{};
     state.focus_state = .{};
+    state.semantic_registry.reset();
     state.toast_state = .{};
     state.last_text_submission_count = 0;
     state.action_count = 0;
@@ -77,10 +82,12 @@ pub fn shutdown() void {
 /// Builds the responsive product shell and reports semantic UI actions.
 pub fn build(model: *const Model) Frame {
     state.action_count = 0;
+    state.semantic_registry.reset();
     if (state.memory == null) return .{
         .clear_color = theme.dark.background,
         .commands = &.{},
         .actions = &.{},
+        .semantic_nodes = &.{},
     };
 
     clay.setLayoutDimensions(dimensions(model));
@@ -226,6 +233,8 @@ pub fn build(model: *const Model) Frame {
                     .direction = if (compact) .left_to_right else .top_to_bottom,
                     .disabled = modal_open,
                     .focused_id = state.focus_state.focused_id,
+                    .semantic_label = "主导航",
+                    .semantic_registry = &state.semantic_registry,
                 })) |index| {
                     state.focus_state.focus(clay.ElementId.IDI("MainNavigation", @intCast(index)).id);
                     emit(.{ .demo_navigation_selected = @intCast(index) });
@@ -260,6 +269,7 @@ pub fn build(model: *const Model) Frame {
                             .width = control_width,
                             .disabled = modal_open,
                             .focused = state.focus_state.isFocused(primary_action_id),
+                            .semantic_registry = &state.semantic_registry,
                         })) {
                             state.focus_state.focus(primary_action_id);
                             emit(.primary_button_pressed);
@@ -269,6 +279,8 @@ pub fn build(model: *const Model) Frame {
                             .icon = "+",
                             .disabled = modal_open,
                             .focused = state.focus_state.isFocused(increment_progress_id),
+                            .semantic_label = "增加任务进度",
+                            .semantic_registry = &state.semantic_registry,
                         })) {
                             state.focus_state.focus(increment_progress_id);
                             emit(.demo_progress_incremented);
@@ -279,6 +291,7 @@ pub fn build(model: *const Model) Frame {
                             .width = 168,
                             .disabled = modal_open,
                             .focused = state.focus_state.isFocused(open_dialog_id),
+                            .semantic_registry = &state.semantic_registry,
                         })) {
                             state.focus_state.focus(open_dialog_id);
                             emit(.demo_dialog_opened);
@@ -297,6 +310,7 @@ pub fn build(model: *const Model) Frame {
                             .width = control_width,
                             .disabled = modal_open,
                             .focused = state.focus_state.isFocused(checkbox_id),
+                            .semantic_registry = &state.semantic_registry,
                         })) {
                             state.focus_state.focus(checkbox_id);
                             emit(.demo_checkbox_toggled);
@@ -308,6 +322,7 @@ pub fn build(model: *const Model) Frame {
                             .width = control_width,
                             .disabled = modal_open,
                             .focused = state.focus_state.isFocused(switch_id),
+                            .semantic_registry = &state.semantic_registry,
                         })) {
                             state.focus_state.focus(switch_id);
                             emit(.demo_switch_toggled);
@@ -322,6 +337,8 @@ pub fn build(model: *const Model) Frame {
                         .width = control_width,
                         .disabled = modal_open,
                         .focused = state.focus_state.isFocused(slider_id),
+                        .semantic_label = "媒体音量",
+                        .semantic_registry = &state.semantic_registry,
                     })) |value| {
                         state.focus_state.focus(slider_id);
                         emit(.{ .demo_volume_changed = value });
@@ -337,6 +354,8 @@ pub fn build(model: *const Model) Frame {
                         .width = control_width,
                         .focused = model.text_field_focused,
                         .disabled = modal_open,
+                        .semantic_label = "单行文本输入",
+                        .semantic_registry = &state.semantic_registry,
                     });
                     if (text_result.focus_requested and !model.text_field_focused) {
                         state.focus_state.focus(text_field_id);
@@ -399,6 +418,7 @@ pub fn build(model: *const Model) Frame {
             .viewport_height = @floatFromInt(@max(model.viewport_height, 1)),
             .width = dialog_width,
             .focused_id = state.focus_state.focused_id,
+            .semantic_registry = &state.semantic_registry,
         });
         if (dialog_result.confirmed) {
             emit(.demo_dialog_confirmed);
@@ -412,6 +432,7 @@ pub fn build(model: *const Model) Frame {
         .clear_color = theme.dark.background,
         .commands = clay.endLayout(),
         .actions = state.actions[0..state.action_count],
+        .semantic_nodes = state.semantic_registry.items(),
     };
 }
 
@@ -460,6 +481,15 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(scissor_count >= 2);
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
+    try std.testing.expect(result.semantic_nodes.len >= 10);
+    var has_slider_semantics = false;
+    var has_text_field_semantics = false;
+    for (result.semantic_nodes) |node| {
+        if (node.role == .slider and node.value != null) has_slider_semantics = true;
+        if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
+    }
+    try std.testing.expect(has_slider_semantics);
+    try std.testing.expect(has_text_field_semantics);
 
     state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
     const focused_frame = build(&model);
@@ -497,8 +527,16 @@ test "responsive shell emits controls and text" {
             else => {},
         }
     }
+    var has_modal_semantics = false;
+    for (dialog_frame.semantic_nodes) |node| {
+        if (node.role == .dialog and node.modal) {
+            has_modal_semantics = true;
+            break;
+        }
+    }
 
     try std.testing.expect(has_modal_command);
     try std.testing.expect(requested_close);
+    try std.testing.expect(has_modal_semantics);
     try std.testing.expect(state.focus_state.modalOpen());
 }

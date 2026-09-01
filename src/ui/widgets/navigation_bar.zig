@@ -1,6 +1,7 @@
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const semantics = @import("../semantics.zig");
 const theme = @import("../theme.zig");
 
 pub const Item = struct {
@@ -15,10 +16,18 @@ pub const Config = struct {
     direction: clay.LayoutDirection = .top_to_bottom,
     disabled: bool = false,
     focused_id: ?u32 = null,
+    semantic_label: []const u8 = "Navigation",
+    semantic_registry: ?*semantics.Registry = null,
 };
 
 pub fn draw(state: *interaction.State, input: interaction.Input, config: Config) ?usize {
     var selected: ?usize = null;
+    if (config.semantic_registry) |registry| _ = registry.add(.{
+        .element_id = clay.ElementId.ID(config.id).id,
+        .role = .navigation,
+        .label = config.semantic_label,
+        .disabled = config.disabled,
+    });
     clay.UI()(.{
         .layout = .{
             .sizing = .fit,
@@ -31,6 +40,14 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             const result = interaction.update(state, id.id, clay.pointerOver(id), input, config.disabled);
             const active = index == config.selected_index;
             const focused = config.focused_id == id.id;
+            if (config.semantic_registry) |registry| _ = registry.add(.{
+                .element_id = id.id,
+                .role = .navigation_item,
+                .label = item.text,
+                .disabled = config.disabled,
+                .focused = focused,
+                .selected = active,
+            });
             const background: clay.Color = if (config.disabled)
                 theme.controls.input_disabled
             else if (active)

@@ -1,5 +1,6 @@
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
+const semantics = @import("../semantics.zig");
 const theme = @import("../theme.zig");
 
 pub const Config = struct {
@@ -8,6 +9,8 @@ pub const Config = struct {
     width: f32 = 260,
     disabled: bool = false,
     focused: bool = false,
+    semantic_label: []const u8 = "Slider",
+    semantic_registry: ?*semantics.Registry = null,
     track_color: clay.Color = theme.controls.surface_muted,
     fill_color: clay.Color = theme.controls.accent_hover,
 };
@@ -19,6 +22,14 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
     const id = clay.ElementId.ID(config.id);
     const result = interaction.update(state, id.id, clay.pointerOver(id), input, config.disabled);
     const value = clamp(config.value);
+    if (config.semantic_registry) |registry| _ = registry.add(.{
+        .element_id = id.id,
+        .role = .slider,
+        .label = config.semantic_label,
+        .value = value,
+        .disabled = config.disabled,
+        .focused = config.focused,
+    });
     const span = @max(config.width - thumb_size, 1);
     const fill_width = span * value;
     const remaining_width = span - fill_width;

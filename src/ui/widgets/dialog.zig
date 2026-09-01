@@ -2,6 +2,7 @@ const clay = @import("zclay");
 const button = @import("button.zig");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const semantics = @import("../semantics.zig");
 const theme = @import("../theme.zig");
 
 pub const Config = struct {
@@ -15,6 +16,7 @@ pub const Config = struct {
     viewport_height: f32,
     width: f32 = 420,
     focused_id: ?u32 = null,
+    semantic_registry: ?*semantics.Registry = null,
 };
 
 pub const Result = struct {
@@ -25,6 +27,12 @@ pub const Result = struct {
 pub fn draw(state: *interaction.State, input: interaction.Input, config: Config) Result {
     const overlay_id = clay.ElementId.ID(config.overlay_id);
     const panel_id = clay.ElementId.ID(config.panel_id);
+    if (config.semantic_registry) |registry| _ = registry.add(.{
+        .element_id = panel_id.id,
+        .role = .dialog,
+        .label = config.title,
+        .modal = true,
+    });
     const overlay_hovered = clay.pointerOver(overlay_id) and !clay.pointerOver(panel_id);
     const overlay_result = interaction.update(state, overlay_id.id, overlay_hovered, input, false);
     var result: Result = .{ .close_requested = overlay_result.clicked };
@@ -75,12 +83,14 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                     .hover_color = theme.controls.dialog_button_hover,
                     .pressed_color = theme.controls.dialog_button_pressed,
                     .focused = config.focused_id == clay.ElementId.ID(config.cancel_id).id,
+                    .semantic_registry = config.semantic_registry,
                 })) result.close_requested = true;
                 if (button.draw(state, input, .{
                     .id = config.confirm_id,
                     .text = "确认",
                     .width = 112,
                     .focused = config.focused_id == clay.ElementId.ID(config.confirm_id).id,
+                    .semantic_registry = config.semantic_registry,
                 })) {
                     result.confirmed = true;
                     result.close_requested = true;

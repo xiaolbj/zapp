@@ -2,6 +2,7 @@ const clay = @import("zclay");
 const font = @import("../../text/font.zig");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const semantics = @import("../semantics.zig");
 const theme = @import("../theme.zig");
 
 pub const Config = struct {
@@ -14,6 +15,8 @@ pub const Config = struct {
     width: f32 = 320,
     focused: bool = false,
     disabled: bool = false,
+    semantic_label: ?[]const u8 = null,
+    semantic_registry: ?*semantics.Registry = null,
 };
 
 pub const Result = struct {
@@ -25,6 +28,14 @@ pub const Result = struct {
 
 pub fn draw(state: *interaction.State, input: interaction.Input, config: Config) Result {
     const id = clay.ElementId.ID(config.id);
+    if (config.semantic_registry) |registry| _ = registry.add(.{
+        .element_id = id.id,
+        .role = .text_field,
+        .label = config.semantic_label orelse config.placeholder,
+        .value_text = config.text,
+        .disabled = config.disabled,
+        .focused = config.focused,
+    });
     const hovered = clay.pointerOver(id);
     const pointer = interaction.update(state, id.id, hovered, input, config.disabled);
     const focus_requested = !config.disabled and input.pressed and hovered;
