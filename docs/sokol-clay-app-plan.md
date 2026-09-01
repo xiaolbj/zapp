@@ -621,7 +621,7 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/back，并复用键盘的 FocusManager 和一帧请求状态。Sokol 本身不提供统一 gamepad 事件，Windows XInput、Android KeyEvent/InputDevice 与 Apple GameController 的原生采集属于各平台壳实现。
 
-控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值以及 disabled、focused、selected、modal 状态。Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar/Item 和 Dialog 均通过同一注册表写入；Android/iOS 原生无障碍桥只负责将这些节点及 Clay 布局信息映射到平台 API。
+控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值以及 disabled、focused、selected、modal 状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android/iOS 原生无障碍桥只负责将这些节点及 Clay 布局信息映射到平台 API。
 
 控件主题一致性已完成：widgets 的状态颜色、文字颜色、常用圆角和间距统一引用 Theme 令牌，不再在各控件内维护独立调色板。
 

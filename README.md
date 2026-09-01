@@ -43,7 +43,7 @@ zig build run
 
 `src/ui/focus_manager.zig` 保存当前焦点、模态焦点和打开弹窗前的焦点。Dialog 关闭后会恢复之前的焦点；Escape 和 Android 返回键统一转成 `back_requested` Action。
 
-`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar/Item 和 Dialog 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值以及 focused/disabled/selected/modal 等状态，为后续 Android AccessibilityNodeInfo 和 iOS UIAccessibility 桥保留统一输入。
+`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值以及 focused/disabled/selected/modal 等状态，为后续 Android AccessibilityNodeInfo 和 iOS UIAccessibility 桥保留统一输入；Divider 被明确视为装饰元素，不进入语义树。
 
 手柄、电视遥控器和辅助输入设备通过平台层的 `NavigationCommand` 接入：`next`/`previous` 移动焦点，`activate` 激活控件，`decrement`/`increment` 调节 Slider，`back` 复用 Escape/Android 返回逻辑。具体平台只需把原生按键或轴事件翻译成该命令。
 

@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const Role = enum {
+    text,
     button,
     checkbox,
     switch_control,
@@ -9,6 +10,10 @@ pub const Role = enum {
     navigation,
     navigation_item,
     dialog,
+    progress_bar,
+    status,
+    group,
+    list,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.

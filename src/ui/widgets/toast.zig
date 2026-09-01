@@ -1,6 +1,12 @@
 const clay = @import("zclay");
 const label = @import("label.zig");
+const semantics = @import("../semantics.zig");
 const theme = @import("../theme.zig");
+
+pub const Config = struct {
+    viewport_width: f32,
+    semantic_registry: ?*semantics.Registry = null,
+};
 
 pub const State = struct {
     message_buffer: [256]u8 = @splat(0),
@@ -26,11 +32,17 @@ pub const State = struct {
     }
 };
 
-pub fn draw(state: *const State, viewport_width: f32) void {
+pub fn draw(state: *const State, config: Config) void {
     if (!state.visible()) return;
-    const width = @min(420, @max(viewport_width - 48, 220));
+    const id = clay.ElementId.ID("GlobalToast");
+    if (config.semantic_registry) |registry| _ = registry.add(.{
+        .element_id = id.id,
+        .role = .status,
+        .label = state.message(),
+    });
+    const width = @min(420, @max(config.viewport_width - 48, 220));
     clay.UI()(.{
-        .id = .ID("GlobalToast"),
+        .id = id,
         .layout = .{
             .sizing = .{ .w = .fixed(width), .h = .fit },
             .padding = .axes(18, 14),

@@ -200,7 +200,12 @@ pub fn build(model: *const Model) Frame {
             .background_color = .{ 41, 89, 154, 255 },
             .corner_radius = .all(12),
         })({
-            label.draw("ZAPP 跨平台应用", .{ .font_size = 28, .color = .{ 244, 248, 255, 255 } });
+            label.draw("ZAPP 跨平台应用", .{
+                .font_size = 28,
+                .color = .{ 244, 248, 255, 255 },
+                .semantic_id = .ID("AppTitle"),
+                .semantic_registry = &state.semantic_registry,
+            });
         });
 
         clay.UI()(.{
@@ -255,9 +260,19 @@ pub fn build(model: *const Model) Frame {
                 clay.UI()(card.declaration(.{
                     .id = "PrimaryCard",
                     .scroll_vertical = true,
+                    .semantic_label = "控件示例",
+                    .semantic_registry = &state.semantic_registry,
                 }))({
-                    label.draw("Clay 应用框架", .{ .font_size = 22 });
-                    label.draw(counter_text, .{ .color = .{ 166, 187, 218, 255 } });
+                    label.draw("Clay 应用框架", .{
+                        .font_size = 22,
+                        .semantic_id = .ID("PrimaryCardTitle"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    label.draw(counter_text, .{
+                        .color = .{ 166, 187, 218, 255 },
+                        .semantic_id = .ID("ButtonPressCount"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     clay.UI()(.{ .layout = .{
                         .sizing = .{ .w = .grow, .h = .fit },
                         .child_gap = 12,
@@ -328,9 +343,23 @@ pub fn build(model: *const Model) Frame {
                             emit(.demo_switch_toggled);
                         }
                     });
-                    label.draw("任务进度（点击 + 增加）", .{ .color = .{ 166, 187, 218, 255 } });
-                    progress_bar.draw(.{ .value = model.demo_progress, .width = control_width });
-                    label.draw("媒体音量", .{ .color = .{ 166, 187, 218, 255 } });
+                    label.draw("任务进度（点击 + 增加）", .{
+                        .color = .{ 166, 187, 218, 255 },
+                        .semantic_id = .ID("ProgressLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    progress_bar.draw(.{
+                        .id = "TaskProgress",
+                        .value = model.demo_progress,
+                        .width = control_width,
+                        .semantic_label = "任务进度",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    label.draw("媒体音量", .{
+                        .color = .{ 166, 187, 218, 255 },
+                        .semantic_id = .ID("VolumeLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     if (slider.draw(&state.interaction_state, input, .{
                         .id = "VolumeSlider",
                         .value = model.demo_volume,
@@ -343,7 +372,11 @@ pub fn build(model: *const Model) Frame {
                         state.focus_state.focus(slider_id);
                         emit(.{ .demo_volume_changed = value });
                     }
-                    label.draw("单行文本输入", .{ .color = .{ 166, 187, 218, 255 } });
+                    label.draw("单行文本输入", .{
+                        .color = .{ 166, 187, 218, 255 },
+                        .semantic_id = .ID("TextFieldLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     const text_result = text_field.draw(&state.interaction_state, input, .{
                         .id = "DemoTextField",
                         .text = model.text(),
@@ -369,15 +402,26 @@ pub fn build(model: *const Model) Frame {
                             .selecting = text_result.selecting,
                         } });
                     }
-                    label.draw(confirmation_text, .{ .color = .{ 145, 171, 207, 255 } });
+                    label.draw(confirmation_text, .{
+                        .color = .{ 145, 171, 207, 255 },
+                        .semantic_id = .ID("DialogConfirmationCount"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                 });
 
                 clay.UI()(scroll_view.declaration(.{
                     .id = "ActivityScrollView",
                     .height = if (compact) 112 else 144,
                     .background_color = .{ 24, 56, 70, 255 },
+                    .semantic_label = "最近活动",
+                    .semantic_registry = &state.semantic_registry,
                 }))({
-                    label.draw("最近活动", .{ .font_size = 18, .color = .{ 155, 211, 207, 255 } });
+                    label.draw("最近活动", .{
+                        .font_size = 18,
+                        .color = .{ 155, 211, 207, 255 },
+                        .semantic_id = .ID("ActivityTitle"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     inline for ([_][]const u8{
                         "中文字体已通过 Fontstash 接入 Sokol",
                         "Button 点击状态已接入 reducer",
@@ -387,7 +431,7 @@ pub fn build(model: *const Model) Frame {
                         "ScrollView 已启用垂直裁剪",
                         "鼠标滚轮事件由 Sokol 转发",
                         "触摸拖动由 Clay 管理",
-                    }) |activity| {
+                    }, 0..) |activity, activity_index| {
                         clay.UI()(.{
                             .layout = .{
                                 .sizing = .{ .w = .grow, .h = .fixed(36) },
@@ -397,7 +441,11 @@ pub fn build(model: *const Model) Frame {
                             .background_color = .{ 28, 65, 79, 255 },
                             .corner_radius = .all(7),
                         })({
-                            label.draw(activity, .{ .color = .{ 177, 220, 216, 255 } });
+                            label.draw(activity, .{
+                                .color = .{ 177, 220, 216, 255 },
+                                .semantic_id = .IDI("ActivityItem", @intCast(activity_index)),
+                                .semantic_registry = &state.semantic_registry,
+                            });
                         });
                     }
                 });
@@ -426,7 +474,10 @@ pub fn build(model: *const Model) Frame {
             emit(.demo_dialog_closed);
         }
     }
-    toast.draw(&state.toast_state, @floatFromInt(@max(model.viewport_width, 1)));
+    toast.draw(&state.toast_state, .{
+        .viewport_width = @floatFromInt(@max(model.viewport_width, 1)),
+        .semantic_registry = &state.semantic_registry,
+    });
 
     return .{
         .clear_color = theme.dark.background,
@@ -484,12 +535,21 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(result.semantic_nodes.len >= 10);
     var has_slider_semantics = false;
     var has_text_field_semantics = false;
+    var has_text_semantics = false;
+    var has_progress_semantics = false;
+    var has_list_semantics = false;
     for (result.semantic_nodes) |node| {
         if (node.role == .slider and node.value != null) has_slider_semantics = true;
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
+        if (node.role == .text) has_text_semantics = true;
+        if (node.role == .progress_bar and node.value != null) has_progress_semantics = true;
+        if (node.role == .list) has_list_semantics = true;
     }
     try std.testing.expect(has_slider_semantics);
     try std.testing.expect(has_text_field_semantics);
+    try std.testing.expect(has_text_semantics);
+    try std.testing.expect(has_progress_semantics);
+    try std.testing.expect(has_list_semantics);
 
     state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
     const focused_frame = build(&model);
@@ -502,13 +562,18 @@ test "responsive shell emits controls and text" {
     model.text_submission_count = 1;
     const toast_frame = build(&model);
     var has_toast_command = false;
+    var has_status_semantics = false;
     for (toast_frame.commands) |command| {
         if (command.z_index == 200 and command.command_type == .rectangle) {
             has_toast_command = true;
             break;
         }
     }
+    for (toast_frame.semantic_nodes) |node| {
+        if (node.role == .status) has_status_semantics = true;
+    }
     try std.testing.expect(has_toast_command);
+    try std.testing.expect(has_status_semantics);
 
     model.demo_dialog_open = true;
     model.back_requested = true;
