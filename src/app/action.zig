@@ -32,6 +32,7 @@ pub const TextCursorSet = struct {
 
 pub const Action = union(enum) {
     tick: f64,
+    performance_updated: frame_metrics.Snapshot,
     resized: Viewport,
     pointer_changed: Pointer,
     scroll_changed: ScrollDelta,
@@ -84,4 +85,5 @@ pub const Action = union(enum) {
     suspended,
     resumed,
 };
+const frame_metrics = @import("../performance/frame_metrics.zig");
 const platform = @import("../platform/platform.zig");

@@ -1,3 +1,4 @@
+const frame_metrics = @import("../performance/frame_metrics.zig");
 const platform = @import("../platform/platform.zig");
 
 pub const Model = struct {
@@ -16,6 +17,7 @@ pub const Model = struct {
     semantic_scroll_element_id: ?u32 = null,
     semantic_scroll_direction: i8 = 0,
     frame_delta_seconds: f32 = 0,
+    performance: frame_metrics.Snapshot = .{},
     primary_button_presses: u32 = 0,
     demo_checkbox_checked: bool = false,
     demo_switch_checked: bool = true,

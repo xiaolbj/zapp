@@ -1,4 +1,5 @@
 pub const app = @import("src/app/app.zig");
+pub const performance = @import("src/performance/frame_metrics.zig");
 pub const platform = @import("src/platform/platform.zig");
 pub const render = @import("src/render/clay_renderer.zig");
 pub const semantics = @import("src/ui/semantics.zig");
@@ -7,6 +8,7 @@ pub const ui = @import("src/ui/root.zig");
 
 test {
     _ = app;
+    _ = performance;
     _ = platform;
     _ = semantics;
     _ = text;

@@ -144,3 +144,15 @@ adb logcat -s zapp sokol app
 当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、文件名称/MIME/大小元数据、完整流式读取与取消、Home 暂停后同进程恢复，以及原生无障碍节点树。17,772,300 字节字体样本完整读取为 4,339 块，App 摘要 `2adecf5b9049c2ad` 与本地独立 FNV-1a 计算一致；取消验证在 3,719,168 字节、908 块处有序结束，读取期间 UI 保持响应，日志无丢块或崩溃。UIAutomator 可发现中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView、流式控制和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
 
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。
+
+## 性能基线
+
+`src/performance/frame_metrics.zig` 使用固定 120 帧滚动窗口，不进行帧级堆分配，并每 500 ms 向 AppModel 发布一次快照：
+
+- 帧间隔：来自 `sapp.frameDuration()`，用于 FPS、平均值、P95、最慢帧和超过 16.67 ms 的慢帧比例。
+- UI CPU：Clay 布局、控件构建和语义注册耗时。
+- 渲染 CPU：RenderCommand 录制、Sokol 提交与 `sg.commit()` 的 CPU 侧耗时，不代表 GPU 完成时间。
+- 总 CPU：本帧平台事件、reducer、UI、平台请求和渲染提交的合计耗时。
+- 复杂度：平均/峰值 Clay 命令数和平均语义节点数。
+
+2026-09-02 的 API 28 x86_64 模拟器烟雾测试快照为约 60.2 FPS、平均帧间隔 16.60 ms、P95 18.83 ms、UI 0.16 ms、渲染提交 0.33 ms、总 CPU 0.52 ms、84 条命令和 46 个语义节点。该结果只用于确认采样链路和建立当前环境基准，不代表真实设备性能结论。实时数字不进入无障碍语义树，只保留静态“性能基线”标题，避免高频 `TYPE_WINDOW_CONTENT_CHANGED` 让辅助服务无法进入空闲状态。

@@ -10,6 +10,7 @@ pub fn update(model: *Model, action: Action) void {
                 model.frame_delta_seconds = @floatCast(seconds);
             }
         },
+        .performance_updated => |snapshot| model.performance = snapshot,
         .resized => |viewport| {
             model.viewport_width = viewport.width;
             model.viewport_height = viewport.height;
@@ -704,4 +705,21 @@ test "resize updates framebuffer dimensions and dpi" {
     try std.testing.expectEqual(@as(i32, 2560), model.viewport_width);
     try std.testing.expectEqual(@as(i32, 1440), model.viewport_height);
     try std.testing.expectEqual(@as(f32, 2), model.dpi_scale);
+}
+
+test "performance snapshot is retained in the model" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .{ .performance_updated = .{
+        .sample_count = 120,
+        .fps = 59.8,
+        .average_ui_cpu_ms = 0.75,
+        .peak_command_count = 180,
+    } });
+
+    try std.testing.expectEqual(@as(u16, 120), model.performance.sample_count);
+    try std.testing.expectEqual(@as(f32, 59.8), model.performance.fps);
+    try std.testing.expectEqual(@as(f32, 0.75), model.performance.average_ui_cpu_ms);
+    try std.testing.expectEqual(@as(u32, 180), model.performance.peak_command_count);
 }

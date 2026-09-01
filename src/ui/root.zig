@@ -51,6 +51,8 @@ const state = struct {
     var file_metadata_text: [512]u8 = undefined;
     var file_preview_text: [768]u8 = undefined;
     var file_stream_status_text: [320]u8 = undefined;
+    var performance_frame_text: [192]u8 = undefined;
+    var performance_cpu_text: [192]u8 = undefined;
 };
 
 pub const Frame = struct {
@@ -248,6 +250,35 @@ pub fn build(model: *const Model) Frame {
     const file_metadata_text = formatFileMetadata(&state.file_metadata_text, model);
     const file_preview_text = formatFilePreview(&state.file_preview_text, model);
     const file_stream_status_text = formatFileStreamStatus(&state.file_stream_status_text, model);
+    const performance_frame_text = if (model.performance.sample_count == 0)
+        "性能采样中…"
+    else
+        std.fmt.bufPrint(
+            &state.performance_frame_text,
+            "{d:.1} FPS · 平均 {d:.2} ms · P95 {d:.2} ms · 最慢 {d:.2} ms · 慢帧 {d:.1}%",
+            .{
+                model.performance.fps,
+                model.performance.average_frame_ms,
+                model.performance.p95_frame_ms,
+                model.performance.slowest_frame_ms,
+                model.performance.slow_frame_percent,
+            },
+        ) catch "帧性能数据不可用";
+    const performance_cpu_text = if (model.performance.sample_count == 0)
+        "正在建立 120 帧滚动窗口"
+    else
+        std.fmt.bufPrint(
+            &state.performance_cpu_text,
+            "UI {d:.2} ms · 渲染 {d:.2} ms · 总 CPU {d:.2} ms · 命令 {d}/{d} · 语义节点 {d}",
+            .{
+                model.performance.average_ui_cpu_ms,
+                model.performance.average_render_cpu_ms,
+                model.performance.average_total_cpu_ms,
+                model.performance.average_command_count,
+                model.performance.peak_command_count,
+                model.performance.average_semantic_node_count,
+            },
+        ) catch "CPU 性能数据不可用";
     const modal_open = state.focus_state.modalOpen();
 
     clay.UI()(.{
@@ -337,6 +368,20 @@ pub fn build(model: *const Model) Frame {
                         .font_size = 22,
                         .semantic_id = .ID("PrimaryCardTitle"),
                         .semantic_registry = &state.semantic_registry,
+                    });
+                    label.draw("性能基线", .{
+                        .font_size = 18,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("PerformanceMetricsLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    label.draw(performance_frame_text, .{
+                        .color = theme.controls.text_muted,
+                        .wrap_mode = .words,
+                    });
+                    label.draw(performance_cpu_text, .{
+                        .color = theme.controls.text_muted,
+                        .wrap_mode = .words,
                     });
                     label.draw(counter_text, .{
                         .color = .{ 166, 187, 218, 255 },
@@ -986,6 +1031,7 @@ test "responsive shell emits controls and text" {
     var has_forward_scroll_semantics = false;
     var has_tree_semantics = false;
     var has_expanded_tree_item = false;
+    var has_performance_label_semantics = false;
     for (result.semantic_nodes) |node| {
         if (node.role == .slider and node.value != null) has_slider_semantics = true;
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
@@ -999,6 +1045,7 @@ test "responsive shell emits controls and text" {
         }
         if (node.role == .tree) has_tree_semantics = true;
         if (node.role == .tree_item and node.expanded != null) has_expanded_tree_item = true;
+        if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
     }
     try std.testing.expect(has_slider_semantics);
     try std.testing.expect(has_text_field_semantics);
@@ -1008,6 +1055,7 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_forward_scroll_semantics);
     try std.testing.expect(has_tree_semantics);
     try std.testing.expect(has_expanded_tree_item);
+    try std.testing.expect(has_performance_label_semantics);
 
     model.semantic_scroll_element_id = clay.ElementId.ID("ActivityScrollView").id;
     model.semantic_scroll_direction = 1;

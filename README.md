@@ -13,6 +13,8 @@
 
 已接通 Rectangle、圆角、Border、Scissor 和 Unicode Text 渲染；中文字体由 Fontstash、`sokol_fontstash.h` 与内嵌的 Noto Sans SC 提供。所有键盘可交互控件都会使用 Theme 焦点令牌生成 Clay Border 命令，渲染器负责绘制可见焦点环。
 
+主循环内置固定内存的 120 帧性能窗口，每 500 ms 更新 FPS、平均/P95/最慢帧、UI 与渲染提交 CPU 时间、Clay 命令数和语义节点数。统计快照仍通过 Action/reducer 进入 AppModel；高频数字只做视觉显示，避免持续触发 Android 无障碍内容变化事件。
+
 ## 开发命令
 
 ```powershell

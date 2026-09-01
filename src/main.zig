@@ -4,6 +4,7 @@ const zapp = @import("zapp");
 
 const sapp = sokol.app;
 const slog = sokol.log;
+const stm = sokol.time;
 const builtin = @import("builtin");
 
 const App = zapp.app.App;
@@ -13,9 +14,12 @@ const max_platform_events_per_frame = 32;
 const state = struct {
     var app: App = .{};
     var renderer: ClayRenderer = .{};
+    var metrics: zapp.performance.Collector = .{};
 };
 
 export fn init() void {
+    stm.setup();
+    state.metrics.reset();
     if (comptime builtin.abi.isAndroid()) {
         zapp.platform.android.attach(sapp.androidGetNativeActivity());
     }
@@ -30,10 +34,13 @@ export fn init() void {
 }
 
 export fn frame() void {
+    const frame_start = stm.now();
     const keyboard_was_visible = state.app.model.text_field_focused;
     drainPlatformEvents();
     state.app.dispatch(.{ .tick = sapp.frameDuration() });
+    const ui_start = stm.now();
     const ui_frame = zapp.ui.build(&state.app.model);
+    const ui_cpu_ms: f32 = @floatCast(stm.ms(stm.since(ui_start)));
     if (comptime builtin.abi.isAndroid()) {
         zapp.platform.android.updateAccessibility(ui_frame.semantic_nodes);
     }
@@ -43,7 +50,17 @@ export fn frame() void {
         setKeyboardVisible(state.app.model.text_field_focused);
     }
     state.app.dispatch(.input_consumed);
+    const render_start = stm.now();
     state.renderer.draw(ui_frame);
+    const render_cpu_ms: f32 = @floatCast(stm.ms(stm.since(render_start)));
+    if (state.metrics.record(.{
+        .frame_interval_ms = @floatCast(sapp.frameDuration() * 1000.0),
+        .ui_cpu_ms = ui_cpu_ms,
+        .render_cpu_ms = render_cpu_ms,
+        .total_cpu_ms = @floatCast(stm.ms(stm.since(frame_start))),
+        .command_count = @intCast(ui_frame.commands.len),
+        .semantic_node_count = @intCast(ui_frame.semantic_nodes.len),
+    })) |snapshot| state.app.dispatch(.{ .performance_updated = snapshot });
 }
 
 fn drainPlatformEvents() void {
