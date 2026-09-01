@@ -9,10 +9,12 @@ test {
     _ = platform;
     _ = text;
     _ = ui;
+    _ = @import("src/ui/focus_manager.zig");
     _ = @import("src/ui/widgets/button.zig");
     _ = @import("src/ui/widgets/card.zig");
     _ = @import("src/ui/widgets/checkbox.zig");
     _ = @import("src/ui/widgets/divider.zig");
+    _ = @import("src/ui/widgets/dialog.zig");
     _ = @import("src/ui/widgets/icon_button.zig");
     _ = @import("src/ui/widgets/interaction.zig");
     _ = @import("src/ui/widgets/label.zig");

@@ -35,7 +35,10 @@ zig build run
 - `card.zig`：统一页面卡片的内边距、间距、背景和圆角。
 - `divider.zig`：用于内容分组的轻量分隔线。
 - `slider.zig`：受控拖拽滑块，将指针位置映射为 `0...1` 数值。
+- `dialog.zig`：带输入拦截遮罩、取消和确认操作的模态对话框。
 - `interaction.zig`：所有指针控件共享的按压捕获与点击判定状态机。
+
+`src/ui/focus_manager.zig` 保存当前焦点、模态焦点和打开弹窗前的焦点。Dialog 关闭后会恢复之前的焦点；Escape 和 Android 返回键统一转成 `back_requested` Action。
 - Button 使用稳定 Clay ID 跟踪按压归属，只有在控件内按下并在控件内释放才触发点击。
 - 控件不直接修改业务数据，而是写入 `ui.Frame.actions`，由主循环派发给 App reducer。
 - 指针的 pressed/released 边沿保存在 AppModel 中，UI 构建后通过 `input_consumed` 清除，避免事件发生在两帧之间时丢失点击。

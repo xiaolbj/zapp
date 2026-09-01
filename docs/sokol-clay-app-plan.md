@@ -605,10 +605,14 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `ScrollView`：使用 Clay clip/scroll container，支持鼠标滚轮与触摸拖动。
 - `Card` 与 `Divider`：统一容器视觉和内容分组。
 - `Slider`：受控拖拽输入，通过元素边界将指针位置映射到 `0...1`。
+- `Dialog`：模态浮层，包含遮罩输入捕获、确认/取消和返回键关闭。
+- `FocusManager`：保存模态前焦点、设置初始焦点并在关闭后恢复。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
-下一阶段优先实现 `FocusManager` 与 `Dialog`。Dialog 会引入浮层、模态输入拦截、Escape/Android 返回键和焦点恢复，因此不能只实现视觉容器。
+Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，最终退出时 `shutdown()`。当前绑定没有 context destroy/null API，因此测试中的多个 UI 场景必须复用同一个 Clay context，不能释放 arena 后在同一进程内重新初始化。
+
+下一阶段优先补充键盘 Tab/方向键导航与 `TextField`。TextField 需要平台 IME、中文输入、剪贴板和焦点事件支持，不能仅依靠每帧字符轮询。
 
 ## 21. 当前实施状态
 

@@ -31,6 +31,7 @@ pub fn update(model: *Model, action: Action) void {
             model.pointer_released = false;
             model.scroll_delta_x = 0;
             model.scroll_delta_y = 0;
+            model.back_requested = false;
         },
         .primary_button_pressed => model.primary_button_presses += 1,
         .demo_checkbox_toggled => model.demo_checkbox_checked = !model.demo_checkbox_checked,
@@ -40,6 +41,13 @@ pub fn update(model: *Model, action: Action) void {
             if (model.demo_progress > 1.001) model.demo_progress = 0;
         },
         .demo_volume_changed => |value| model.demo_volume = @min(@max(value, 0), 1),
+        .demo_dialog_opened => model.demo_dialog_open = true,
+        .demo_dialog_closed => model.demo_dialog_open = false,
+        .demo_dialog_confirmed => {
+            model.demo_dialog_confirmations += 1;
+            model.demo_dialog_open = false;
+        },
+        .back_requested => model.back_requested = true,
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -123,6 +131,22 @@ test "volume action clamps controlled slider state" {
     try std.testing.expectEqual(@as(f32, 1), model.demo_volume);
     update(&model, .{ .demo_volume_changed = -0.2 });
     try std.testing.expectEqual(@as(f32, 0), model.demo_volume);
+}
+
+test "dialog actions update modal state and confirmation count" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .demo_dialog_opened);
+    try std.testing.expect(model.demo_dialog_open);
+    update(&model, .demo_dialog_confirmed);
+    try std.testing.expect(!model.demo_dialog_open);
+    try std.testing.expectEqual(@as(u32, 1), model.demo_dialog_confirmations);
+
+    update(&model, .back_requested);
+    try std.testing.expect(model.back_requested);
+    update(&model, .input_consumed);
+    try std.testing.expect(!model.back_requested);
 }
 
 test "tick advances only while active" {

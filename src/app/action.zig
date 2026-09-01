@@ -26,6 +26,10 @@ pub const Action = union(enum) {
     demo_switch_toggled,
     demo_progress_incremented,
     demo_volume_changed: f32,
+    demo_dialog_opened,
+    demo_dialog_closed,
+    demo_dialog_confirmed,
+    back_requested,
     suspended,
     resumed,
 };

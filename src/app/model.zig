@@ -17,5 +17,8 @@ pub const Model = struct {
     demo_switch_checked: bool = true,
     demo_progress: f32 = 0.35,
     demo_volume: f32 = 0.65,
+    demo_dialog_open: bool = false,
+    demo_dialog_confirmations: u32 = 0,
+    back_requested: bool = false,
     suspended: bool = false,
 };

@@ -3,11 +3,13 @@ const clay = @import("zclay");
 const Action = @import("../app/action.zig").Action;
 const Model = @import("../app/model.zig").Model;
 const font = @import("../text/font.zig");
+const focus_manager = @import("focus_manager.zig");
 const theme = @import("theme.zig");
 const button = @import("widgets/button.zig");
 const card = @import("widgets/card.zig");
 const checkbox = @import("widgets/checkbox.zig");
 const divider = @import("widgets/divider.zig");
+const dialog = @import("widgets/dialog.zig");
 const icon_button = @import("widgets/icon_button.zig");
 const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
@@ -21,9 +23,11 @@ const max_actions = 8;
 const state = struct {
     var memory: ?[]u8 = null;
     var interaction_state: interaction.State = .{};
+    var focus_state: focus_manager.State = .{};
     var actions: [max_actions]Action = undefined;
     var action_count: usize = 0;
     var counter_text: [96]u8 = undefined;
+    var confirmation_text: [96]u8 = undefined;
 };
 
 pub const Frame = struct {
@@ -41,6 +45,7 @@ pub fn setup(model: *const Model) bool {
     };
     state.memory = memory;
     state.interaction_state = .{};
+    state.focus_state = .{};
     state.action_count = 0;
 
     _ = clay.initialize(.init(memory), dimensions(model), .{
@@ -56,6 +61,7 @@ pub fn shutdown() void {
         state.memory = null;
     }
     state.interaction_state = .{};
+    state.focus_state = .{};
     state.action_count = 0;
 }
 
@@ -75,6 +81,14 @@ pub fn build(model: *const Model) Frame {
         .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
     clay.beginLayout();
+
+    const dialog_id = clay.ElementId.ID("DemoDialogPanel").id;
+    const dialog_confirm_id = clay.ElementId.ID("DemoDialogConfirm").id;
+    if (model.demo_dialog_open) {
+        state.focus_state.openModal(dialog_id, dialog_confirm_id);
+    } else {
+        state.focus_state.closeModal(dialog_id);
+    }
 
     const compact = model.viewport_width < 900;
     const narrow = model.viewport_width < 600;
@@ -100,6 +114,12 @@ pub fn build(model: *const Model) Frame {
         "按钮点击次数：{d}",
         .{model.primary_button_presses},
     ) catch "按钮点击次数过多";
+    const confirmation_text = std.fmt.bufPrint(
+        &state.confirmation_text,
+        "对话框确认次数：{d}",
+        .{model.demo_dialog_confirmations},
+    ) catch "对话框确认次数过多";
+    const modal_open = state.focus_state.modalOpen();
 
     clay.UI()(.{
         .id = .ID("AppRoot"),
@@ -169,11 +189,22 @@ pub fn build(model: *const Model) Frame {
                             .id = "PrimaryAction",
                             .text = "点击测试",
                             .width = control_width,
+                            .disabled = modal_open,
                         })) emit(.primary_button_pressed);
                         if (icon_button.draw(&state.interaction_state, input, .{
                             .id = "IncrementProgress",
                             .icon = "+",
+                            .disabled = modal_open,
                         })) emit(.demo_progress_incremented);
+                        if (button.draw(&state.interaction_state, input, .{
+                            .id = "OpenDemoDialog",
+                            .text = "打开对话框",
+                            .width = 168,
+                            .disabled = modal_open,
+                        })) {
+                            state.focus_state.focus(clay.ElementId.ID("OpenDemoDialog").id);
+                            emit(.demo_dialog_opened);
+                        }
                     });
                     divider.draw(.{});
                     clay.UI()(.{ .layout = .{
@@ -186,12 +217,14 @@ pub fn build(model: *const Model) Frame {
                             .text = "启用离线缓存",
                             .checked = model.demo_checkbox_checked,
                             .width = control_width,
+                            .disabled = modal_open,
                         })) emit(.demo_checkbox_toggled);
                         if (toggle_switch.draw(&state.interaction_state, input, .{
                             .id = "DemoSwitch",
                             .text = "接收应用通知",
                             .checked = model.demo_switch_checked,
                             .width = control_width,
+                            .disabled = modal_open,
                         })) emit(.demo_switch_toggled);
                     });
                     label.draw("任务进度（点击 + 增加）", .{ .color = .{ 166, 187, 218, 255 } });
@@ -201,7 +234,9 @@ pub fn build(model: *const Model) Frame {
                         .id = "VolumeSlider",
                         .value = model.demo_volume,
                         .width = control_width,
+                        .disabled = modal_open,
                     })) |value| emit(.{ .demo_volume_changed = value });
+                    label.draw(confirmation_text, .{ .color = .{ 145, 171, 207, 255 } });
                 });
 
                 clay.UI()(scroll_view.declaration(.{
@@ -236,6 +271,26 @@ pub fn build(model: *const Model) Frame {
             });
         });
     });
+
+    if (model.demo_dialog_open) {
+        const dialog_width: f32 = @min(420, @as(f32, @floatFromInt(@max(model.viewport_width - 48, 240))));
+        const dialog_result = dialog.draw(&state.interaction_state, input, .{
+            .overlay_id = "DemoDialogOverlay",
+            .panel_id = "DemoDialogPanel",
+            .cancel_id = "DemoDialogCancel",
+            .confirm_id = "DemoDialogConfirm",
+            .title = "确认操作",
+            .message = "这是由 Clay 构建的模态对话框。底层控件已禁用，Escape 和 Android 返回键可以关闭它。",
+            .viewport_width = @floatFromInt(@max(model.viewport_width, 1)),
+            .viewport_height = @floatFromInt(@max(model.viewport_height, 1)),
+            .width = dialog_width,
+        });
+        if (dialog_result.confirmed) {
+            emit(.demo_dialog_confirmed);
+        } else if (dialog_result.close_requested or model.back_requested) {
+            emit(.demo_dialog_closed);
+        }
+    }
 
     return .{
         .clear_color = theme.dark.background,
@@ -289,4 +344,26 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(scissor_count >= 2);
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
+
+    model.demo_dialog_open = true;
+    model.back_requested = true;
+    const dialog_frame = build(&model);
+    var has_modal_command = false;
+    for (dialog_frame.commands) |command| {
+        if (command.z_index == 100 and command.command_type == .rectangle) {
+            has_modal_command = true;
+            break;
+        }
+    }
+    var requested_close = false;
+    for (dialog_frame.actions) |action| {
+        switch (action) {
+            .demo_dialog_closed => requested_close = true,
+            else => {},
+        }
+    }
+
+    try std.testing.expect(has_modal_command);
+    try std.testing.expect(requested_close);
+    try std.testing.expect(state.focus_state.modalOpen());
 }

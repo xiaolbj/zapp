@@ -55,6 +55,11 @@ export fn event(ev: [*c]const sapp.Event) void {
             .x = current.scroll_x,
             .y = current.scroll_y,
         } }),
+        .KEY_DOWN => {
+            if (current.key_code == .ESCAPE and !current.key_repeat) {
+                state.app.dispatch(.back_requested);
+            }
+        },
         .TOUCHES_BEGAN, .TOUCHES_MOVED, .TOUCHES_ENDED, .TOUCHES_CANCELLED => {
             if (current.num_touches > 0) {
                 const touch = current.touches[0];
