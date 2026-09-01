@@ -21,6 +21,15 @@ zig build test
 zig build run
 ```
 
+Android Debug APK：
+
+```powershell
+cd android
+.\gradlew.bat assembleDebug '-PzappNdkPath=D:\Android\android-ndk-r25c'
+```
+
+Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`。完整环境变量和安装命令见 [android/README.md](android/README.md)。
+
 ## UI 控件
 
 第一批可复用控件位于 `src/ui/widgets`：

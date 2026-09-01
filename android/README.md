@@ -1,12 +1,55 @@
 # Android packaging
 
-TextField 的平台无关 IME 契约已定义为 `ime_composition_changed`、`ime_composition_committed` 和 `ime_composition_cancelled`。未来 Kotlin/JNI 桥必须在更新线程同步调用 `App.dispatchPlatformEvent`，并保证事件中的 UTF-8 切片在调用返回前有效；未确认组合文本不得直接写入正式文本缓冲区。
+该目录是 zapp 的 Android NativeActivity APK 壳。主界面和业务逻辑仍由 Zig、Clay 与 Sokol 实现；Gradle 负责调用 Zig 构建两个 ABI 的 `libzapp.so`，同步到生成的 `jniLibs` 目录并打包 APK。
 
-此目录预留给 P2 阶段的 Gradle、Manifest、NativeActivity 和 Kotlin/JNI Bridge。
+## 已验证工具链
 
-当前 P0 只建立可跨平台编译的 Zig 主体，不提前生成未经验证的 Android 工程。后续 Android 构建将：
+- Android Gradle Plugin 8.6.1
+- Gradle 8.7
+- JDK 17
+- compileSdk / targetSdk 35
+- minSdk 26
+- Android NDK r25c (`25.2.9519653`)
+- ABI：`arm64-v8a`、`x86_64`
 
-1. 让 Zig 为 `arm64-v8a` 和 `x86_64` 生成 `libzapp.so`。
-2. 将共享库放入 `app/src/main/jniLibs/<abi>/`。
-3. 使用 Gradle 打包 Debug APK 和 Release AAB。
-4. 使用 Kotlin/JNI Bridge 实现权限、文件选择、输入法等系统能力。
+AGP 8.6 官方支持 Gradle 8.7、JDK 17 和最高 API 35。NDK 路径不写入仓库，通过 `zappNdkPath` Gradle property 或 `ANDROID_NDK_HOME` 提供。
+
+## 构建
+
+PowerShell 示例：
+
+```powershell
+$env:JAVA_HOME = 'D:\Android\jdk-17.0.2'
+$env:ANDROID_SDK_ROOT = 'D:\Android\SDK'
+$env:ANDROID_HOME = 'D:\Android\SDK'
+cd android
+.\gradlew.bat assembleDebug '-PzappNdkPath=D:\Android\android-ndk-r25c'
+```
+
+APK 输出：
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+也可以只构建一个 Zig 动态库：
+
+```powershell
+zig build android-lib `
+  -Dandroid-ndk=D:\Android\android-ndk-r25c `
+  -Dandroid-abi=arm64-v8a `
+  -Dandroid-api=26
+```
+
+输出位置为 `zig-out/android/<abi>/libzapp.so`。
+
+## 安装与日志
+
+连接设备后：
+
+```powershell
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+adb logcat -s zapp sokol app
+```
+
+当前 APK 壳已经验证构建、Manifest、双 ABI 打包和 NativeActivity 入口符号。软键盘中文 IME、权限、文件选择、无障碍节点映射与设备生命周期仍在后续平台桥阶段接入。

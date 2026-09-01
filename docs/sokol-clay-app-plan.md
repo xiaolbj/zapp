@@ -651,4 +651,4 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 - `zig build check` 和 `zig build test` 已在 Zig 0.16.0/Windows 上通过。
 - 已实际启动桌面窗口并保持正常响应；当前窗口自动化层未能枚举该原生窗口，因此本轮没有截图验收。
 
-Rectangle 圆角、Border RenderCommand、首批控件、平台无关语义元数据和统一导航命令均已实现；下一阶段是在保持现有控件 API 稳定的前提下完成 Android APK 壳与真机平台桥验证。
+Rectangle 圆角、Border RenderCommand、首批控件、平台无关语义元数据和统一导航命令均已实现。Android NativeActivity APK 壳也已建立：`android-lib` 使用 Zig 生成 PIC 静态归档并由 NDK Clang 链接 `libzapp.so`，Gradle 自动构建和打包 `arm64-v8a`/`x86_64`；Debug APK、Manifest、双 ABI 和入口符号已经在 Windows + NDK r25c 上验证。下一阶段是连接 Android 真机，完成生命周期、中文 IME、权限、文件选择和原生无障碍桥验证。
