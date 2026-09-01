@@ -7,6 +7,18 @@ pub const Permission = enum {
     media,
 };
 
+/// Logical navigation produced by a gamepad, TV remote, keyboard adapter, or
+/// assistive input device. Native adapters translate platform-specific codes
+/// before they enter the application state.
+pub const NavigationCommand = enum {
+    next,
+    previous,
+    activate,
+    decrement,
+    increment,
+    back,
+};
+
 pub const PlatformEvent = union(enum) {
     permission_result: struct {
         request_id: RequestId,
@@ -21,6 +33,7 @@ pub const PlatformEvent = union(enum) {
     ime_composition_changed: []const u8,
     ime_composition_committed: []const u8,
     ime_composition_cancelled,
+    navigation_requested: NavigationCommand,
 };
 
 /// Platform implementations enqueue results and the app consumes them on its
