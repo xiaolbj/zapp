@@ -39,6 +39,8 @@ Release APK/AAB（未提供外部密钥时生成未签名 APK）：
   '-PzappVersionName=0.1.0'
 ```
 
+该任务同时生成已剥离的 APK/AAB 和按版本命名的独立原生符号 ZIP，并核对双 ABI 的 Build ID、导出符号、归档哈希及源码行解析能力。符号包位于 `android/app/build/outputs/native-debug-symbols/`，详细用法见 [Android 构建说明](android/README.md#原生崩溃符号)。
+
 Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`。完整环境变量和安装命令见 [android/README.md](android/README.md)。
 
 ## UI 控件

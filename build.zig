@@ -90,6 +90,16 @@ fn configureAndroidBuild(
         "android-output-dir",
         "Install subdirectory for Android libraries",
     ) orelse "android";
+    const split_debug_symbols = b.option(
+        bool,
+        "android-split-debug-symbols",
+        "Extract Android debug symbols and install a stripped library",
+    ) orelse false;
+    const symbols_dir = b.option(
+        []const u8,
+        "android-symbols-dir",
+        "Install subdirectory for separated Android debug symbols",
+    ) orelse "android-symbols";
     const target = b.resolveTargetQuery(.{
         .cpu_arch = switch (abi) {
             .@"arm64-v8a" => .aarch64,
@@ -119,6 +129,7 @@ fn configureAndroidBuild(
     });
     const sokol_clib = dep_sokol.artifact("sokol_clib");
     sokol_clib.root_module.pic = true;
+    if (split_debug_symbols) sokol_clib.root_module.strip = false;
     sokol_clib.root_module.addSystemIncludePath(ndk_include);
     sokol_clib.root_module.addSystemIncludePath(ndk_target_include);
     const dep_zclay = b.dependency("zclay", .{
@@ -135,6 +146,7 @@ fn configureAndroidBuild(
         },
     });
     mod_zapp.link_libc = true;
+    if (split_debug_symbols) mod_zapp.strip = false;
     mod_zapp.addSystemIncludePath(ndk_include);
     mod_zapp.addSystemIncludePath(ndk_target_include);
     mod_zapp.addIncludePath(dep_sokol.path("src/sokol/c"));
@@ -156,6 +168,7 @@ fn configureAndroidBuild(
     });
     mod_main.pic = true;
     mod_main.link_libc = true;
+    if (split_debug_symbols) mod_main.strip = false;
     mod_main.addSystemIncludePath(ndk_include);
     mod_main.addSystemIncludePath(ndk_target_include);
     mod_main.addCSourceFile(.{
@@ -182,13 +195,19 @@ fn configureAndroidBuild(
         "-shared",
         "-fPIC",
         "-Wl,-soname,libzapp.so",
+        "-Wl,--build-id=sha1",
         "-Wl,--no-undefined",
-        "-Wl,--whole-archive",
+        "-Xlinker",
+        "--version-script",
+        "-Xlinker",
     });
+    linker.addFileArg(b.path("src/platform/android_exports.map"));
+    linker.addArg("-Wl,--whole-archive");
     linker.addArtifactArg(library);
     for (library.getCompileDependencies(false)) |dependency| {
         if (dependency != library and dependency.kind == .lib) {
             dependency.root_module.pic = true;
+            if (split_debug_symbols) dependency.root_module.strip = false;
             linker.addArtifactArg(dependency);
         }
     }
@@ -204,11 +223,60 @@ fn configureAndroidBuild(
         "-o",
     });
     const shared_library = linker.addOutputFileArg("libzapp.so");
-    const install = b.addInstallFile(
-        shared_library,
-        b.fmt("{s}/{s}/libzapp.so", .{ output_dir, @tagName(abi) }),
-    );
-    android_step.dependOn(&install.step);
+    if (split_debug_symbols) {
+        const tool_extension = if (@import("builtin").os.tag == .windows) ".exe" else "";
+        const objcopy_path = b.pathJoin(&.{
+            ndk_root,
+            "toolchains",
+            "llvm",
+            "prebuilt",
+            ndk_host,
+            "bin",
+            b.fmt("llvm-objcopy{s}", .{tool_extension}),
+        });
+        const strip_path = b.pathJoin(&.{
+            ndk_root,
+            "toolchains",
+            "llvm",
+            "prebuilt",
+            ndk_host,
+            "bin",
+            b.fmt("llvm-strip{s}", .{tool_extension}),
+        });
+        const extract_debug = b.addSystemCommand(&.{
+            objcopy_path,
+            "--only-keep-debug",
+            "--compress-debug-sections=zlib",
+        });
+        extract_debug.addFileArg(shared_library);
+        const debug_symbols = extract_debug.addOutputFileArg("libzapp.so.debug");
+
+        const strip_library = b.addSystemCommand(&.{ strip_path, "--strip-unneeded", "-o" });
+        const stripped_library = strip_library.addOutputFileArg("libzapp.so");
+        strip_library.addFileArg(shared_library);
+
+        const add_debug_link = b.addSystemCommand(&.{ objcopy_path, "--add-gnu-debuglink" });
+        add_debug_link.addFileArg(debug_symbols);
+        add_debug_link.addFileArg(stripped_library);
+        const packaged_library = add_debug_link.addOutputFileArg("libzapp.so");
+
+        const install_library = b.addInstallFile(
+            packaged_library,
+            b.fmt("{s}/{s}/libzapp.so", .{ output_dir, @tagName(abi) }),
+        );
+        const install_symbols = b.addInstallFile(
+            debug_symbols,
+            b.fmt("{s}/{s}/libzapp.so.debug", .{ symbols_dir, @tagName(abi) }),
+        );
+        android_step.dependOn(&install_library.step);
+        android_step.dependOn(&install_symbols.step);
+    } else {
+        const install = b.addInstallFile(
+            shared_library,
+            b.fmt("{s}/{s}/libzapp.so", .{ output_dir, @tagName(abi) }),
+        );
+        android_step.dependOn(&install.step);
+    }
 }
 
 fn fontstashCFlags(target: std.Target) []const []const u8 {

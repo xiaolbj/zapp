@@ -59,7 +59,30 @@ zig build android-lib `
 ```text
 android/app/build/outputs/apk/release/
 android/app/build/outputs/bundle/release/app-release.aab
+android/app/build/outputs/native-debug-symbols/zapp-native-symbols-<versionName>-<versionCode>.zip
 ```
+
+### 原生崩溃符号
+
+Release 构建为每个 ABI 生成稳定的 SHA-1 GNU Build ID。APK/AAB 中只打包经过 `llvm-strip --strip-unneeded` 处理的 `libzapp.so`；完整的压缩 DWARF 行号和符号表单独保存在原生符号 ZIP 中，不随 App 发布。
+
+`verifyReleaseArtifacts` 会自动验证：
+
+- `arm64-v8a`、`x86_64` 的已剥离库与 `.debug` 文件 Build ID 完全一致；
+- APK/AAB 内原生库与 Zig 输出逐字节 SHA-256 一致；
+- 符号 ZIP 内容与独立 `.debug` 文件逐字节一致；
+- 发布库不含 `.debug_info`/`.symtab`，但保留 `.gnu_debuglink`；
+- 动态导出只包含 Sokol 入口和项目实际使用的 JNI 入口；
+- `llvm-addr2line` 能把 `sokol_main` 地址解析回 Zig 源码行。
+
+每次发布必须按 `versionName`、`versionCode` 和 Build ID 永久保存对应符号 ZIP。分析 tombstone 时先确认崩溃模块的 Build ID 与符号文件匹配，再使用其中对应 ABI 的文件：
+
+```powershell
+D:\Android\android-ndk-r25c\toolchains\llvm\prebuilt\windows-x86_64\bin\llvm-addr2line.exe `
+  -e .\libzapp.so.debug -f -C 0x<relative-pc>
+```
+
+这里应传入 tombstone 中 `libzapp.so` 的相对 PC，而不是进程加载后的绝对虚拟地址。符号 ZIP 属于发布诊断资产，不应放进 APK、公开下载目录或应用资源中。
 
 正式发布签名只从外部注入，仓库不保存密钥或密码：
 

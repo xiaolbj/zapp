@@ -46,12 +46,13 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/25.2.9519653"
           ./gradlew lintDebug verifyReleaseArtifacts --no-daemon -PzappVersionCode=1 -PzappVersionName=0.1.0
 
-      - name: Upload unsigned Android release artifacts
+      - name: Upload unsigned Android release artifacts and native symbols
         uses: actions/upload-artifact@v4
         with:
-          name: android-release-unsigned
+          name: android-release-unsigned-and-symbols
           if-no-files-found: error
           path: |
             android/app/build/outputs/apk/release/*.apk
             android/app/build/outputs/bundle/release/*.aab
+            android/app/build/outputs/native-debug-symbols/*.zip
             android/app/build/reports/lint-results-debug.*

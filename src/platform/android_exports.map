@@ -1,0 +1,8 @@
+ZAPP_1.0 {
+    global:
+        ANativeActivity_onCreate;
+        sokol_main;
+        Java_com_xiaolbj_zapp_ZappActivity_*;
+    local:
+        *;
+};
