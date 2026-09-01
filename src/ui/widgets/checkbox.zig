@@ -1,6 +1,7 @@
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     id: []const u8,
@@ -15,19 +16,19 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
     const id = clay.ElementId.ID(config.id);
     const result = interaction.update(state, id.id, clay.pointerOver(id), input, config.disabled);
     const box_color: clay.Color = if (config.disabled)
-        .{ 68, 78, 94, 255 }
+        theme.controls.surface_disabled_soft
     else if (config.checked)
-        if (result.active) .{ 30, 85, 164, 255 } else .{ 42, 111, 204, 255 }
+        if (result.active) theme.controls.accent_pressed else theme.controls.accent
     else if (result.hovered or config.focused)
-        .{ 74, 91, 117, 255 }
+        theme.controls.control_inactive_hover
     else
-        .{ 53, 66, 87, 255 };
+        theme.controls.control_inactive;
 
     clay.UI()(.{
         .id = id,
         .layout = .{
             .sizing = .{ .w = .fixed(config.width), .h = .fixed(40) },
-            .child_gap = 12,
+            .child_gap = theme.controls.gap_medium,
             .child_alignment = .{ .y = .center },
         },
     })({
@@ -37,15 +38,15 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                 .child_alignment = .center,
             },
             .background_color = box_color,
-            .corner_radius = .all(6),
+            .corner_radius = .all(theme.controls.radius_small),
         })({
             if (config.checked) label.draw("✓", .{
                 .font_size = 17,
-                .color = if (config.disabled) .{ 164, 173, 188, 255 } else .{ 250, 252, 255, 255 },
+                .color = if (config.disabled) theme.controls.text_disabled else theme.controls.on_accent,
             });
         });
         label.draw(config.text, .{
-            .color = if (config.disabled) .{ 132, 143, 160, 255 } else .{ 222, 231, 244, 255 },
+            .color = if (config.disabled) theme.controls.text_disabled else theme.controls.text_secondary,
         });
     });
 

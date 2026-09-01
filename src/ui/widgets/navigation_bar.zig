@@ -1,6 +1,7 @@
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const theme = @import("../theme.zig");
 
 pub const Item = struct {
     text: []const u8,
@@ -21,7 +22,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
     clay.UI()(.{
         .layout = .{
             .sizing = .fit,
-            .child_gap = 6,
+            .child_gap = theme.controls.radius_small,
             .direction = config.direction,
         },
     })({
@@ -31,13 +32,13 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             const active = index == config.selected_index;
             const focused = config.focused_id == id.id;
             const background: clay.Color = if (config.disabled)
-                .{ 35, 43, 56, 255 }
+                theme.controls.input_disabled
             else if (active)
-                .{ 42, 91, 153, 255 }
+                theme.controls.navigation_active
             else if (result.hovered or focused)
-                .{ 37, 54, 79, 255 }
+                theme.controls.surface_hover
             else
-                .{ 0, 0, 0, 0 };
+                theme.controls.transparent;
 
             clay.UI()(.{
                 .id = id,
@@ -47,11 +48,11 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                     .child_alignment = .{ .y = .center },
                 },
                 .background_color = background,
-                .corner_radius = .all(8),
+                .corner_radius = .all(theme.controls.gap_small),
             })({
                 label.draw(item.text, .{
                     .font_size = 15,
-                    .color = if (active) .{ 241, 247, 255, 255 } else .{ 163, 183, 211, 255 },
+                    .color = if (active) theme.controls.on_accent else theme.controls.text_navigation,
                 });
             });
             if (result.clicked or (focused and input.activate_pressed and !config.disabled)) selected = index;

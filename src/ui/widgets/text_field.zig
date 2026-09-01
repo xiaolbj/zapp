@@ -2,6 +2,7 @@ const clay = @import("zclay");
 const font = @import("../../text/font.zig");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     id: []const u8,
@@ -38,13 +39,13 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         }
     }
     const background: clay.Color = if (config.disabled)
-        .{ 43, 51, 64, 255 }
+        theme.controls.input_disabled
     else if (config.focused)
-        .{ 39, 62, 91, 255 }
+        theme.controls.surface_focused
     else if (pointer.hovered)
-        .{ 37, 49, 68, 255 }
+        theme.controls.input_hover
     else
-        .{ 30, 41, 58, 255 };
+        theme.controls.surface;
 
     clay.UI()(.{
         .id = id,
@@ -55,7 +56,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             .child_alignment = .{ .y = .center },
         },
         .background_color = background,
-        .corner_radius = .all(9),
+        .corner_radius = .all(theme.controls.radius_medium),
         .clip = .{ .horizontal = true },
     })({
         const cursor = @min(config.cursor, config.text.len);
@@ -73,8 +74,8 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                         .padding = .axes(0, 2),
                         .child_alignment = .center,
                     },
-                    .background_color = .{ 43, 111, 184, 255 },
-                    .corner_radius = .all(3),
+                    .background_color = theme.controls.selection,
+                    .corner_radius = .all(theme.controls.radius_selection),
                 })({
                     drawText(config.text[selection_start..selection_end], config.disabled);
                 });
@@ -84,7 +85,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             drawText(config.text[selection_end..], config.disabled);
         } else {
             if (config.focused and !config.disabled) drawCursor();
-            label.draw(config.placeholder, .{ .font_size = 16, .color = .{ 118, 135, 158, 255 } });
+            label.draw(config.placeholder, .{ .font_size = 16, .color = theme.controls.text_placeholder });
         }
     });
 
@@ -122,15 +123,15 @@ fn drawText(text: []const u8, disabled: bool) void {
     if (text.len == 0) return;
     label.draw(text, .{
         .font_size = 16,
-        .color = if (disabled) .{ 132, 142, 158, 255 } else .{ 231, 238, 249, 255 },
+        .color = if (disabled) theme.controls.text_disabled else theme.controls.text,
     });
 }
 
 fn drawCursor() void {
     clay.UI()(.{
         .layout = .{ .sizing = .{ .w = .fixed(2), .h = .fixed(22) } },
-        .background_color = .{ 116, 184, 255, 255 },
-        .corner_radius = .all(1),
+        .background_color = theme.controls.focus,
+        .corner_radius = .all(theme.controls.radius_cursor),
     })({});
 }
 
@@ -141,10 +142,10 @@ fn drawComposition(text: []const u8) void {
             .padding = .axes(1, 2),
             .child_alignment = .center,
         },
-        .background_color = .{ 60, 82, 116, 255 },
-        .corner_radius = .all(2),
+        .background_color = theme.controls.composition,
+        .corner_radius = .all(theme.controls.radius_composition),
     })({
-        label.draw(text, .{ .font_size = 16, .color = .{ 183, 220, 255, 255 } });
+        label.draw(text, .{ .font_size = 16, .color = theme.controls.text_composition });
     });
 }
 

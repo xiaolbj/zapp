@@ -1,5 +1,6 @@
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     id: []const u8,
@@ -7,8 +8,8 @@ pub const Config = struct {
     width: f32 = 260,
     disabled: bool = false,
     focused: bool = false,
-    track_color: clay.Color = .{ 49, 61, 81, 255 },
-    fill_color: clay.Color = .{ 55, 132, 229, 255 },
+    track_color: clay.Color = theme.controls.surface_muted,
+    fill_color: clay.Color = theme.controls.accent_hover,
 };
 
 const thumb_size: f32 = 20;
@@ -31,23 +32,23 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
     })({
         clay.UI()(.{
             .layout = .{ .sizing = .{ .w = .fixed(fill_width), .h = .fixed(8) } },
-            .background_color = if (config.disabled) .{ 69, 78, 93, 255 } else config.fill_color,
-            .corner_radius = .all(4),
+            .background_color = if (config.disabled) theme.controls.track_disabled else config.fill_color,
+            .corner_radius = .all(theme.controls.radius_track),
         })({});
         clay.UI()(.{
             .layout = .{ .sizing = .{ .w = .fixed(thumb_size), .h = .fixed(thumb_size) } },
             .background_color = if (config.disabled)
-                .{ 135, 144, 158, 255 }
+                theme.controls.text_disabled
             else if (result.active or config.focused)
-                .{ 174, 215, 255, 255 }
+                theme.controls.thumb_focused
             else
-                .{ 242, 248, 255, 255 },
+                theme.controls.on_accent,
             .corner_radius = .all(thumb_size * 0.5),
         })({});
         clay.UI()(.{
             .layout = .{ .sizing = .{ .w = .fixed(remaining_width), .h = .fixed(8) } },
             .background_color = config.track_color,
-            .corner_radius = .all(4),
+            .corner_radius = .all(theme.controls.radius_track),
         })({});
     });
 

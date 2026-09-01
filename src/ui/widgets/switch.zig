@@ -1,6 +1,7 @@
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     id: []const u8,
@@ -15,19 +16,19 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
     const id = clay.ElementId.ID(config.id);
     const result = interaction.update(state, id.id, clay.pointerOver(id), input, config.disabled);
     const track_color: clay.Color = if (config.disabled)
-        .{ 61, 70, 84, 255 }
+        theme.controls.surface_disabled
     else if (config.checked)
-        if (result.active) .{ 30, 85, 164, 255 } else .{ 42, 111, 204, 255 }
+        if (result.active) theme.controls.accent_pressed else theme.controls.accent
     else if (result.hovered or config.focused)
-        .{ 79, 94, 116, 255 }
+        theme.controls.switch_inactive_hover
     else
-        .{ 55, 67, 85, 255 };
+        theme.controls.switch_inactive;
 
     clay.UI()(.{
         .id = id,
         .layout = .{
             .sizing = .{ .w = .fixed(config.width), .h = .fixed(40) },
-            .child_gap = 12,
+            .child_gap = theme.controls.gap_medium,
             .child_alignment = .{ .y = .center },
         },
     })({
@@ -41,16 +42,16 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                 },
             },
             .background_color = track_color,
-            .corner_radius = .all(15),
+            .corner_radius = .all(30 * 0.5),
         })({
             clay.UI()(.{
                 .layout = .{ .sizing = .{ .w = .fixed(22), .h = .fixed(22) } },
-                .background_color = if (config.disabled) .{ 156, 164, 176, 255 } else .{ 247, 250, 255, 255 },
-                .corner_radius = .all(11),
+                .background_color = if (config.disabled) theme.controls.thumb_disabled else theme.controls.thumb,
+                .corner_radius = .all(22 * 0.5),
             })({});
         });
         label.draw(config.text, .{
-            .color = if (config.disabled) .{ 132, 143, 160, 255 } else .{ 222, 231, 244, 255 },
+            .color = if (config.disabled) theme.controls.text_disabled else theme.controls.text_secondary,
         });
     });
 

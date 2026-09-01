@@ -1,11 +1,12 @@
 const clay = @import("zclay");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     id: []const u8,
     height: f32,
-    child_gap: u16 = 8,
+    child_gap: u16 = theme.controls.gap_small,
     padding: u16 = 12,
-    background_color: clay.Color = .{ 22, 34, 53, 255 },
+    background_color: clay.Color = theme.controls.scroll_surface,
 };
 
 /// Returns a Clay declaration so callers can place arbitrary child UI inside.
@@ -19,7 +20,7 @@ pub fn declaration(config: Config) clay.ElementDeclaration {
             .direction = .top_to_bottom,
         },
         .background_color = config.background_color,
-        .corner_radius = .all(10),
+        .corner_radius = .all(theme.controls.radius_medium),
         .clip = .{ .vertical = true },
     };
 }

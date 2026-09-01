@@ -1,5 +1,6 @@
 const clay = @import("zclay");
 const label = @import("label.zig");
+const theme = @import("../theme.zig");
 
 pub const State = struct {
     message_buffer: [256]u8 = @splat(0),
@@ -35,8 +36,8 @@ pub fn draw(state: *const State, viewport_width: f32) void {
             .padding = .axes(18, 14),
             .child_alignment = .center,
         },
-        .background_color = .{ 28, 95, 73, 245 },
-        .corner_radius = .all(11),
+        .background_color = theme.controls.success,
+        .corner_radius = .all(theme.controls.radius_medium),
         .floating = .{
             .offset = .{ .x = 0, .y = -28 },
             .z_index = 200,
@@ -45,7 +46,7 @@ pub fn draw(state: *const State, viewport_width: f32) void {
             .attach_to = .to_root,
         },
     })({
-        label.draw(state.message(), .{ .font_size = 16, .color = .{ 240, 255, 249, 255 } });
+        label.draw(state.message(), .{ .font_size = 16, .color = theme.controls.toast_text });
     });
 }
 

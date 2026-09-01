@@ -2,6 +2,7 @@ const clay = @import("zclay");
 const button = @import("button.zig");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     overlay_id: []const u8,
@@ -37,7 +38,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             },
             .child_alignment = .center,
         },
-        .background_color = .{ 2, 6, 14, 190 },
+        .background_color = theme.controls.overlay,
         .floating = .{
             .z_index = 100,
             .pointer_capture_mode = .capture,
@@ -49,30 +50,30 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             .layout = .{
                 .sizing = .{ .w = .fixed(config.width), .h = .fit },
                 .padding = .all(24),
-                .child_gap = 18,
+                .child_gap = theme.controls.gap_medium,
                 .direction = .top_to_bottom,
             },
-            .background_color = .{ 27, 40, 62, 255 },
-            .corner_radius = .all(14),
+            .background_color = theme.controls.dialog,
+            .corner_radius = .all(theme.controls.radius_large),
         })({
-            label.draw(config.title, .{ .font_size = 22, .color = .{ 242, 247, 255, 255 } });
+            label.draw(config.title, .{ .font_size = 22, .color = theme.controls.text });
             label.draw(config.message, .{
                 .font_size = 16,
-                .color = .{ 174, 191, 216, 255 },
+                .color = theme.controls.text_dialog,
                 .wrap_mode = .words,
             });
             clay.UI()(.{ .layout = .{
                 .sizing = .{ .w = .grow, .h = .fit },
-                .child_gap = 12,
+                .child_gap = theme.controls.gap_medium,
                 .child_alignment = .{ .x = .right },
             } })({
                 if (button.draw(state, input, .{
                     .id = config.cancel_id,
                     .text = "取消",
                     .width = 112,
-                    .normal_color = .{ 57, 70, 91, 255 },
-                    .hover_color = .{ 72, 88, 114, 255 },
-                    .pressed_color = .{ 45, 56, 74, 255 },
+                    .normal_color = theme.controls.dialog_button,
+                    .hover_color = theme.controls.dialog_button_hover,
+                    .pressed_color = theme.controls.dialog_button_pressed,
                     .focused = config.focused_id == clay.ElementId.ID(config.cancel_id).id,
                 })) result.close_requested = true;
                 if (button.draw(state, input, .{
