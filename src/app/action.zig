@@ -15,6 +15,11 @@ pub const ScrollDelta = struct {
     y: f32,
 };
 
+pub const TextCursorMove = struct {
+    direction: i8,
+    selecting: bool,
+};
+
 pub const Action = union(enum) {
     tick: f64,
     resized: Viewport,
@@ -38,6 +43,11 @@ pub const Action = union(enum) {
     text_field_focus_changed: bool,
     text_inserted: []const u8,
     text_backspace,
+    text_delete_selection,
+    text_cursor_moved: TextCursorMove,
+    text_cursor_home: bool,
+    text_cursor_end: bool,
+    text_select_all,
     text_submitted,
     demo_navigation_selected: u8,
     suspended,

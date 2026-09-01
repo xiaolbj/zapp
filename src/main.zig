@@ -70,8 +70,27 @@ export fn event(ev: [*c]const sapp.Event) void {
                     state.app.dispatch(.focus_next_requested);
                 }
             } else if (state.app.model.text_field_focused) {
-                if (current.key_code == .BACKSPACE) {
+                const command_modifier = current.modifiers & (sapp.modifier_ctrl | sapp.modifier_super) != 0;
+                const selecting = current.modifiers & sapp.modifier_shift != 0;
+                if (command_modifier and current.key_code == .A and !current.key_repeat) {
+                    state.app.dispatch(.text_select_all);
+                } else if (command_modifier and current.key_code == .C and !current.key_repeat) {
+                    copyTextSelectionToClipboard(&state.app.model);
+                } else if (command_modifier and current.key_code == .X and !current.key_repeat) {
+                    copyTextSelectionToClipboard(&state.app.model);
+                    state.app.dispatch(.text_delete_selection);
+                } else if (current.key_code == .BACKSPACE) {
                     state.app.dispatch(.text_backspace);
+                } else if (current.key_code == .DELETE) {
+                    state.app.dispatch(.text_delete_selection);
+                } else if (current.key_code == .LEFT) {
+                    state.app.dispatch(.{ .text_cursor_moved = .{ .direction = -1, .selecting = selecting } });
+                } else if (current.key_code == .RIGHT) {
+                    state.app.dispatch(.{ .text_cursor_moved = .{ .direction = 1, .selecting = selecting } });
+                } else if (current.key_code == .HOME) {
+                    state.app.dispatch(.{ .text_cursor_home = selecting });
+                } else if (current.key_code == .END) {
+                    state.app.dispatch(.{ .text_cursor_end = selecting });
                 } else if (current.key_code == .ENTER and !current.key_repeat) {
                     state.app.dispatch(.text_submitted);
                 }
@@ -115,6 +134,15 @@ export fn event(ev: [*c]const sapp.Event) void {
         .RESUMED => state.app.dispatch(.resumed),
         else => {},
     }
+}
+
+fn copyTextSelectionToClipboard(model: *const zapp.app.Model) void {
+    const selected = model.selectedText();
+    if (selected.len == 0) return;
+    var clipboard: [257:0]u8 = @splat(0);
+    const length = @min(selected.len, clipboard.len - 1);
+    @memcpy(clipboard[0..length], selected[0..length]);
+    sapp.setClipboardString(clipboard[0..length :0]);
 }
 
 export fn cleanup() void {

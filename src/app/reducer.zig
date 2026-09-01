@@ -58,9 +58,23 @@ pub fn update(model: *Model, action: Action) void {
         .focused_control_activate_requested => model.focused_control_activate_requested = true,
         .focused_control_left_requested => model.focused_control_left_requested = true,
         .focused_control_right_requested => model.focused_control_right_requested = true,
-        .text_field_focus_changed => |focused| model.text_field_focused = focused,
-        .text_inserted => |text| appendSingleLine(model, text),
-        .text_backspace => deleteLastCodepoint(model),
+        .text_field_focus_changed => |focused| {
+            model.text_field_focused = focused;
+            if (focused) {
+                model.text_cursor = model.text_length;
+                model.text_selection_anchor = model.text_cursor;
+            }
+        },
+        .text_inserted => |text| insertSingleLine(model, text),
+        .text_backspace => backspace(model),
+        .text_delete_selection => deleteSelection(model),
+        .text_cursor_moved => |movement| moveCursor(model, movement.direction, movement.selecting),
+        .text_cursor_home => |selecting| setCursor(model, 0, selecting),
+        .text_cursor_end => |selecting| setCursor(model, model.text_length, selecting),
+        .text_select_all => {
+            model.text_selection_anchor = 0;
+            model.text_cursor = model.text_length;
+        },
         .text_submitted => model.text_submission_count += 1,
         .demo_navigation_selected => |index| model.demo_navigation_index = index,
         .suspended => model.suspended = true,
@@ -200,6 +214,31 @@ test "text submission and navigation remain controlled by the model" {
     try std.testing.expectEqual(@as(u8, 2), model.demo_navigation_index);
 }
 
+test "UTF-8 cursor selection replaces complete codepoints" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .text_inserted = "A中B" });
+    update(&model, .{ .text_cursor_home = false });
+    update(&model, .{ .text_cursor_moved = .{ .direction = 1, .selecting = false } });
+    update(&model, .{ .text_cursor_moved = .{ .direction = 1, .selecting = true } });
+
+    try std.testing.expectEqualStrings("中", model.selectedText());
+    update(&model, .{ .text_inserted = "文" });
+    try std.testing.expectEqualStrings("A文B", model.text());
+    try std.testing.expect(!model.hasTextSelection());
+}
+
+test "select all and delete selection clear the field" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .text_inserted = "copy me" });
+    update(&model, .text_select_all);
+    try std.testing.expectEqualStrings("copy me", model.selectedText());
+    update(&model, .text_delete_selection);
+    try std.testing.expectEqual(@as(usize, 0), model.text_length);
+    try std.testing.expectEqual(@as(usize, 0), model.text_cursor);
+}
+
 test "keyboard navigation requests are frame-latched" {
     const std = @import("std");
     var model: Model = .{};
@@ -216,7 +255,8 @@ test "keyboard navigation requests are frame-latched" {
     try std.testing.expect(!model.focused_control_right_requested);
 }
 
-fn appendSingleLine(model: *Model, text: []const u8) void {
+fn insertSingleLine(model: *Model, text: []const u8) void {
+    deleteSelection(model);
     var index: usize = 0;
     while (index < text.len) {
         const first = text[index];
@@ -233,21 +273,74 @@ fn appendSingleLine(model: *Model, text: []const u8) void {
             1;
         if (index + sequence_length > text.len) break;
         if (model.text_length + sequence_length > model.text_buffer.len) break;
-        @memcpy(
-            model.text_buffer[model.text_length .. model.text_length + sequence_length],
-            text[index .. index + sequence_length],
-        );
+        var tail = model.text_length;
+        while (tail > model.text_cursor) : (tail -= 1) {
+            model.text_buffer[tail + sequence_length - 1] = model.text_buffer[tail - 1];
+        }
+        @memcpy(model.text_buffer[model.text_cursor .. model.text_cursor + sequence_length], text[index .. index + sequence_length]);
         model.text_length += sequence_length;
+        model.text_cursor += sequence_length;
+        model.text_selection_anchor = model.text_cursor;
         index += sequence_length;
     }
 }
 
-fn deleteLastCodepoint(model: *Model) void {
-    if (model.text_length == 0) return;
-    model.text_length -= 1;
-    while (model.text_length > 0 and model.text_buffer[model.text_length] & 0xC0 == 0x80) {
-        model.text_length -= 1;
+fn backspace(model: *Model) void {
+    if (model.hasTextSelection()) {
+        deleteSelection(model);
+        return;
     }
+    if (model.text_cursor == 0) return;
+    const previous = previousCodepoint(model.text(), model.text_cursor);
+    deleteRange(model, previous, model.text_cursor);
+}
+
+fn deleteSelection(model: *Model) void {
+    if (!model.hasTextSelection()) return;
+    deleteRange(model, model.selectionStart(), model.selectionEnd());
+}
+
+fn deleteRange(model: *Model, start: usize, end: usize) void {
+    const removed = end - start;
+    var index = end;
+    while (index < model.text_length) : (index += 1) {
+        model.text_buffer[index - removed] = model.text_buffer[index];
+    }
+    model.text_length -= removed;
+    model.text_cursor = start;
+    model.text_selection_anchor = start;
+}
+
+fn moveCursor(model: *Model, direction: i8, selecting: bool) void {
+    if (!selecting and model.hasTextSelection()) {
+        const target = if (direction < 0) model.selectionStart() else model.selectionEnd();
+        setCursor(model, target, false);
+        return;
+    }
+    const target = if (direction < 0)
+        previousCodepoint(model.text(), model.text_cursor)
+    else
+        nextCodepoint(model.text(), model.text_cursor);
+    setCursor(model, target, selecting);
+}
+
+fn setCursor(model: *Model, target: usize, selecting: bool) void {
+    model.text_cursor = @min(target, model.text_length);
+    if (!selecting) model.text_selection_anchor = model.text_cursor;
+}
+
+fn previousCodepoint(text: []const u8, cursor: usize) usize {
+    if (cursor == 0) return 0;
+    var index = cursor - 1;
+    while (index > 0 and text[index] & 0xC0 == 0x80) index -= 1;
+    return index;
+}
+
+fn nextCodepoint(text: []const u8, cursor: usize) usize {
+    if (cursor >= text.len) return text.len;
+    var index = cursor + 1;
+    while (index < text.len and text[index] & 0xC0 == 0x80) index += 1;
+    return index;
 }
 
 test "tick advances only while active" {

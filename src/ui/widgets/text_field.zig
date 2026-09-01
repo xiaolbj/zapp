@@ -6,6 +6,8 @@ pub const Config = struct {
     id: []const u8,
     text: []const u8,
     placeholder: []const u8,
+    cursor: usize = 0,
+    selection_anchor: usize = 0,
     width: f32 = 320,
     focused: bool = false,
     disabled: bool = false,
@@ -36,27 +38,39 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         .layout = .{
             .sizing = .{ .w = .fixed(config.width), .h = .fixed(48) },
             .padding = .axes(14, 12),
-            .child_gap = 4,
+            .child_gap = 0,
             .child_alignment = .{ .y = .center },
         },
         .background_color = background,
         .corner_radius = .all(9),
         .clip = .{ .horizontal = true },
     })({
+        const cursor = @min(config.cursor, config.text.len);
+        const anchor = @min(config.selection_anchor, config.text.len);
+        const selection_start = @min(cursor, anchor);
+        const selection_end = @max(cursor, anchor);
+        const has_selection = selection_start != selection_end;
         if (config.text.len > 0) {
-            label.draw(config.text, .{
-                .font_size = 16,
-                .color = if (config.disabled) .{ 132, 142, 158, 255 } else .{ 231, 238, 249, 255 },
-            });
+            drawText(config.text[0..selection_start], config.disabled);
+            if (config.focused and has_selection and cursor == selection_start) drawCursor();
+            if (has_selection) {
+                clay.UI()(.{
+                    .layout = .{
+                        .sizing = .fit,
+                        .padding = .axes(1, 2),
+                        .child_alignment = .center,
+                    },
+                    .background_color = .{ 43, 111, 184, 255 },
+                    .corner_radius = .all(3),
+                })({
+                    drawText(config.text[selection_start..selection_end], config.disabled);
+                });
+            }
+            if (config.focused and (!has_selection or cursor == selection_end)) drawCursor();
+            drawText(config.text[selection_end..], config.disabled);
         } else {
+            if (config.focused and !config.disabled) drawCursor();
             label.draw(config.placeholder, .{ .font_size = 16, .color = .{ 118, 135, 158, 255 } });
-        }
-        if (config.focused and !config.disabled) {
-            clay.UI()(.{
-                .layout = .{ .sizing = .{ .w = .fixed(2), .h = .fixed(22) } },
-                .background_color = .{ 116, 184, 255, 255 },
-                .corner_radius = .all(1),
-            })({});
         }
     });
 
@@ -64,6 +78,22 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         .focus_requested = focus_requested,
         .blur_requested = blur_requested,
     };
+}
+
+fn drawText(text: []const u8, disabled: bool) void {
+    if (text.len == 0) return;
+    label.draw(text, .{
+        .font_size = 16,
+        .color = if (disabled) .{ 132, 142, 158, 255 } else .{ 231, 238, 249, 255 },
+    });
+}
+
+fn drawCursor() void {
+    clay.UI()(.{
+        .layout = .{ .sizing = .{ .w = .fixed(2), .h = .fixed(22) } },
+        .background_color = .{ 116, 184, 255, 255 },
+        .corner_radius = .all(1),
+    })({});
 }
 
 test "outside press requests blur only for focused field" {

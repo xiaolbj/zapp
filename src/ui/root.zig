@@ -331,6 +331,8 @@ pub fn build(model: *const Model) Frame {
                         .id = "DemoTextField",
                         .text = model.text(),
                         .placeholder = "输入中文或英文，按 Enter 提交",
+                        .cursor = model.text_cursor,
+                        .selection_anchor = model.text_selection_anchor,
                         .width = control_width,
                         .focused = model.text_field_focused,
                         .disabled = modal_open,

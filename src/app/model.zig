@@ -28,11 +28,29 @@ pub const Model = struct {
     text_field_focused: bool = false,
     text_buffer: [256]u8 = @splat(0),
     text_length: usize = 0,
+    text_cursor: usize = 0,
+    text_selection_anchor: usize = 0,
     text_submission_count: u32 = 0,
     demo_navigation_index: u8 = 0,
     suspended: bool = false,
 
     pub fn text(self: *const Model) []const u8 {
         return self.text_buffer[0..self.text_length];
+    }
+
+    pub fn hasTextSelection(self: *const Model) bool {
+        return self.text_cursor != self.text_selection_anchor;
+    }
+
+    pub fn selectionStart(self: *const Model) usize {
+        return @min(self.text_cursor, self.text_selection_anchor);
+    }
+
+    pub fn selectionEnd(self: *const Model) usize {
+        return @max(self.text_cursor, self.text_selection_anchor);
+    }
+
+    pub fn selectedText(self: *const Model) []const u8 {
+        return self.text_buffer[self.selectionStart()..self.selectionEnd()];
     }
 };
