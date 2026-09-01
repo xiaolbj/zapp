@@ -13,6 +13,7 @@ pub const Config = struct {
     viewport_width: f32,
     viewport_height: f32,
     width: f32 = 420,
+    focused_id: ?u32 = null,
 };
 
 pub const Result = struct {
@@ -72,11 +73,13 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                     .normal_color = .{ 57, 70, 91, 255 },
                     .hover_color = .{ 72, 88, 114, 255 },
                     .pressed_color = .{ 45, 56, 74, 255 },
+                    .focused = config.focused_id == clay.ElementId.ID(config.cancel_id).id,
                 })) result.close_requested = true;
                 if (button.draw(state, input, .{
                     .id = config.confirm_id,
                     .text = "确认",
                     .width = 112,
+                    .focused = config.focused_id == clay.ElementId.ID(config.confirm_id).id,
                 })) {
                     result.confirmed = true;
                     result.close_requested = true;

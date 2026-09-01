@@ -64,13 +64,23 @@ export fn event(ev: [*c]const sapp.Event) void {
             if (current.key_code == .ESCAPE and !current.key_repeat) {
                 state.app.dispatch(.back_requested);
             } else if (current.key_code == .TAB and !current.key_repeat) {
-                state.app.dispatch(.focus_next_requested);
+                if (current.modifiers & sapp.modifier_shift != 0) {
+                    state.app.dispatch(.focus_previous_requested);
+                } else {
+                    state.app.dispatch(.focus_next_requested);
+                }
             } else if (state.app.model.text_field_focused) {
                 if (current.key_code == .BACKSPACE) {
                     state.app.dispatch(.text_backspace);
                 } else if (current.key_code == .ENTER and !current.key_repeat) {
                     state.app.dispatch(.text_submitted);
                 }
+            } else if (!current.key_repeat and (current.key_code == .ENTER or current.key_code == .SPACE)) {
+                state.app.dispatch(.focused_control_activate_requested);
+            } else if (current.key_code == .LEFT) {
+                state.app.dispatch(.focused_control_left_requested);
+            } else if (current.key_code == .RIGHT) {
+                state.app.dispatch(.focused_control_right_requested);
             }
         },
         .CHAR => {

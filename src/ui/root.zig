@@ -97,21 +97,43 @@ pub fn build(model: *const Model) Frame {
     clay.beginLayout();
 
     const dialog_id = clay.ElementId.ID("DemoDialogPanel").id;
+    const dialog_cancel_id = clay.ElementId.ID("DemoDialogCancel").id;
     const dialog_confirm_id = clay.ElementId.ID("DemoDialogConfirm").id;
+    const primary_action_id = clay.ElementId.ID("PrimaryAction").id;
+    const increment_progress_id = clay.ElementId.ID("IncrementProgress").id;
+    const open_dialog_id = clay.ElementId.ID("OpenDemoDialog").id;
+    const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
+    const switch_id = clay.ElementId.ID("DemoSwitch").id;
+    const slider_id = clay.ElementId.ID("VolumeSlider").id;
+    const text_field_id = clay.ElementId.ID("DemoTextField").id;
     if (model.demo_dialog_open) {
         state.focus_state.openModal(dialog_id, dialog_confirm_id);
+        state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
     } else {
         state.focus_state.closeModal(dialog_id);
+        state.focus_state.setOrder(&.{
+            clay.ElementId.IDI("MainNavigation", 0).id,
+            clay.ElementId.IDI("MainNavigation", 1).id,
+            clay.ElementId.IDI("MainNavigation", 2).id,
+            primary_action_id,
+            increment_progress_id,
+            open_dialog_id,
+            checkbox_id,
+            switch_id,
+            slider_id,
+            text_field_id,
+        });
     }
-    const text_field_id = clay.ElementId.ID("DemoTextField").id;
-    if (model.focus_next_requested and !model.demo_dialog_open) {
-        if (model.text_field_focused) {
-            state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
-            emit(.{ .text_field_focus_changed = false });
-        } else {
-            state.focus_state.focus(text_field_id);
-            emit(.{ .text_field_focus_changed = true });
-        }
+    if (model.focus_next_requested) {
+        _ = state.focus_state.move(1);
+    } else if (model.focus_previous_requested) {
+        _ = state.focus_state.move(-1);
+    }
+    const focused_text_field = state.focus_state.isFocused(text_field_id) and !model.demo_dialog_open;
+    if ((model.focus_next_requested or model.focus_previous_requested) and
+        focused_text_field != model.text_field_focused)
+    {
+        emit(.{ .text_field_focus_changed = focused_text_field });
     }
     if (model.back_requested and model.text_field_focused and !model.demo_dialog_open) {
         emit(.{ .text_field_focus_changed = false });
@@ -135,6 +157,9 @@ pub fn build(model: *const Model) Frame {
         .down = model.pointer_down,
         .pressed = model.pointer_pressed,
         .released = model.pointer_released,
+        .activate_pressed = model.focused_control_activate_requested,
+        .left_pressed = model.focused_control_left_requested,
+        .right_pressed = model.focused_control_right_requested,
     };
     const counter_text = std.fmt.bufPrint(
         &state.counter_text,
@@ -200,7 +225,11 @@ pub fn build(model: *const Model) Frame {
                     .item_width = if (compact) control_width else 208,
                     .direction = if (compact) .left_to_right else .top_to_bottom,
                     .disabled = modal_open,
-                })) |index| emit(.{ .demo_navigation_selected = @intCast(index) });
+                    .focused_id = state.focus_state.focused_id,
+                })) |index| {
+                    state.focus_state.focus(clay.ElementId.IDI("MainNavigation", @intCast(index)).id);
+                    emit(.{ .demo_navigation_selected = @intCast(index) });
+                }
             });
 
             clay.UI()(.{
@@ -230,19 +259,28 @@ pub fn build(model: *const Model) Frame {
                             .text = "点击测试",
                             .width = control_width,
                             .disabled = modal_open,
-                        })) emit(.primary_button_pressed);
+                            .focused = state.focus_state.isFocused(primary_action_id),
+                        })) {
+                            state.focus_state.focus(primary_action_id);
+                            emit(.primary_button_pressed);
+                        }
                         if (icon_button.draw(&state.interaction_state, input, .{
                             .id = "IncrementProgress",
                             .icon = "+",
                             .disabled = modal_open,
-                        })) emit(.demo_progress_incremented);
+                            .focused = state.focus_state.isFocused(increment_progress_id),
+                        })) {
+                            state.focus_state.focus(increment_progress_id);
+                            emit(.demo_progress_incremented);
+                        }
                         if (button.draw(&state.interaction_state, input, .{
                             .id = "OpenDemoDialog",
                             .text = "打开对话框",
                             .width = 168,
                             .disabled = modal_open,
+                            .focused = state.focus_state.isFocused(open_dialog_id),
                         })) {
-                            state.focus_state.focus(clay.ElementId.ID("OpenDemoDialog").id);
+                            state.focus_state.focus(open_dialog_id);
                             emit(.demo_dialog_opened);
                         }
                     });
@@ -258,14 +296,22 @@ pub fn build(model: *const Model) Frame {
                             .checked = model.demo_checkbox_checked,
                             .width = control_width,
                             .disabled = modal_open,
-                        })) emit(.demo_checkbox_toggled);
+                            .focused = state.focus_state.isFocused(checkbox_id),
+                        })) {
+                            state.focus_state.focus(checkbox_id);
+                            emit(.demo_checkbox_toggled);
+                        }
                         if (toggle_switch.draw(&state.interaction_state, input, .{
                             .id = "DemoSwitch",
                             .text = "接收应用通知",
                             .checked = model.demo_switch_checked,
                             .width = control_width,
                             .disabled = modal_open,
-                        })) emit(.demo_switch_toggled);
+                            .focused = state.focus_state.isFocused(switch_id),
+                        })) {
+                            state.focus_state.focus(switch_id);
+                            emit(.demo_switch_toggled);
+                        }
                     });
                     label.draw("任务进度（点击 + 增加）", .{ .color = .{ 166, 187, 218, 255 } });
                     progress_bar.draw(.{ .value = model.demo_progress, .width = control_width });
@@ -275,7 +321,11 @@ pub fn build(model: *const Model) Frame {
                         .value = model.demo_volume,
                         .width = control_width,
                         .disabled = modal_open,
-                    })) |value| emit(.{ .demo_volume_changed = value });
+                        .focused = state.focus_state.isFocused(slider_id),
+                    })) |value| {
+                        state.focus_state.focus(slider_id);
+                        emit(.{ .demo_volume_changed = value });
+                    }
                     label.draw("单行文本输入", .{ .color = .{ 166, 187, 218, 255 } });
                     const text_result = text_field.draw(&state.interaction_state, input, .{
                         .id = "DemoTextField",
@@ -339,6 +389,7 @@ pub fn build(model: *const Model) Frame {
             .viewport_width = @floatFromInt(@max(model.viewport_width, 1)),
             .viewport_height = @floatFromInt(@max(model.viewport_height, 1)),
             .width = dialog_width,
+            .focused_id = state.focus_state.focused_id,
         });
         if (dialog_result.confirmed) {
             emit(.demo_dialog_confirmed);

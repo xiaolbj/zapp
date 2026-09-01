@@ -10,6 +10,7 @@ pub const Config = struct {
     text: []const u8,
     width: f32 = 200,
     disabled: bool = false,
+    focused: bool = false,
     normal_color: clay.Color = .{ 42, 111, 204, 255 },
     hover_color: clay.Color = .{ 55, 132, 229, 255 },
     pressed_color: clay.Color = .{ 30, 85, 164, 255 },
@@ -23,7 +24,7 @@ pub fn draw(state: *State, input: Input, config: Config) bool {
         config.disabled_color
     else if (result.active)
         config.pressed_color
-    else if (result.hovered)
+    else if (result.hovered or config.focused)
         config.hover_color
     else
         config.normal_color;
@@ -44,5 +45,5 @@ pub fn draw(state: *State, input: Input, config: Config) bool {
         });
     });
 
-    return result.clicked;
+    return result.clicked or (config.focused and input.activate_pressed and !config.disabled);
 }

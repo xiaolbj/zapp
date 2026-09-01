@@ -13,6 +13,7 @@ pub const Config = struct {
     item_width: f32 = 180,
     direction: clay.LayoutDirection = .top_to_bottom,
     disabled: bool = false,
+    focused_id: ?u32 = null,
 };
 
 pub fn draw(state: *interaction.State, input: interaction.Input, config: Config) ?usize {
@@ -28,11 +29,12 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             const id = clay.ElementId.IDI(config.id, @intCast(index));
             const result = interaction.update(state, id.id, clay.pointerOver(id), input, config.disabled);
             const active = index == config.selected_index;
+            const focused = config.focused_id == id.id;
             const background: clay.Color = if (config.disabled)
                 .{ 35, 43, 56, 255 }
             else if (active)
                 .{ 42, 91, 153, 255 }
-            else if (result.hovered)
+            else if (result.hovered or focused)
                 .{ 37, 54, 79, 255 }
             else
                 .{ 0, 0, 0, 0 };
@@ -52,7 +54,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                     .color = if (active) .{ 241, 247, 255, 255 } else .{ 163, 183, 211, 255 },
                 });
             });
-            if (result.clicked) selected = index;
+            if (result.clicked or (focused and input.activate_pressed and !config.disabled)) selected = index;
         }
     });
     return selected;

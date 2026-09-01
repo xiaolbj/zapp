@@ -33,6 +33,10 @@ pub fn update(model: *Model, action: Action) void {
             model.scroll_delta_y = 0;
             model.back_requested = false;
             model.focus_next_requested = false;
+            model.focus_previous_requested = false;
+            model.focused_control_activate_requested = false;
+            model.focused_control_left_requested = false;
+            model.focused_control_right_requested = false;
         },
         .primary_button_pressed => model.primary_button_presses += 1,
         .demo_checkbox_toggled => model.demo_checkbox_checked = !model.demo_checkbox_checked,
@@ -50,6 +54,10 @@ pub fn update(model: *Model, action: Action) void {
         },
         .back_requested => model.back_requested = true,
         .focus_next_requested => model.focus_next_requested = true,
+        .focus_previous_requested => model.focus_previous_requested = true,
+        .focused_control_activate_requested => model.focused_control_activate_requested = true,
+        .focused_control_left_requested => model.focused_control_left_requested = true,
+        .focused_control_right_requested => model.focused_control_right_requested = true,
         .text_field_focus_changed => |focused| model.text_field_focused = focused,
         .text_inserted => |text| appendSingleLine(model, text),
         .text_backspace => deleteLastCodepoint(model),
@@ -190,6 +198,22 @@ test "text submission and navigation remain controlled by the model" {
     try std.testing.expect(model.text_field_focused);
     try std.testing.expectEqual(@as(u32, 1), model.text_submission_count);
     try std.testing.expectEqual(@as(u8, 2), model.demo_navigation_index);
+}
+
+test "keyboard navigation requests are frame-latched" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .focus_previous_requested);
+    update(&model, .focused_control_activate_requested);
+    update(&model, .focused_control_right_requested);
+
+    try std.testing.expect(model.focus_previous_requested);
+    try std.testing.expect(model.focused_control_activate_requested);
+    try std.testing.expect(model.focused_control_right_requested);
+    update(&model, .input_consumed);
+    try std.testing.expect(!model.focus_previous_requested);
+    try std.testing.expect(!model.focused_control_activate_requested);
+    try std.testing.expect(!model.focused_control_right_requested);
 }
 
 fn appendSingleLine(model: *Model, text: []const u8) void {

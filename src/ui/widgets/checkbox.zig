@@ -8,6 +8,7 @@ pub const Config = struct {
     checked: bool,
     width: f32 = 260,
     disabled: bool = false,
+    focused: bool = false,
 };
 
 pub fn draw(state: *interaction.State, input: interaction.Input, config: Config) bool {
@@ -17,7 +18,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         .{ 68, 78, 94, 255 }
     else if (config.checked)
         if (result.active) .{ 30, 85, 164, 255 } else .{ 42, 111, 204, 255 }
-    else if (result.hovered)
+    else if (result.hovered or config.focused)
         .{ 74, 91, 117, 255 }
     else
         .{ 53, 66, 87, 255 };
@@ -48,5 +49,5 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         });
     });
 
-    return result.clicked;
+    return result.clicked or (config.focused and input.activate_pressed and !config.disabled);
 }

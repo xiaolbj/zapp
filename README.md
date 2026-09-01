@@ -44,6 +44,8 @@ zig build run
 `src/ui/focus_manager.zig` 保存当前焦点、模态焦点和打开弹窗前的焦点。Dialog 关闭后会恢复之前的焦点；Escape 和 Android 返回键统一转成 `back_requested` Action。
 
 路线图第一批控件（Button、IconButton、Label、Checkbox/Switch、Slider、ScrollView/List、Dialog、Toast、NavigationBar、基础单行 TextField）均已有可运行实现。TextField 当前是基础版本，后续仍需补光标定位、选择、复制/剪切和 Android IME 组合文本。
+
+交互控件已接入循环键盘焦点顺序：`Tab`/`Shift+Tab` 前后移动，`Enter`/`Space` 激活当前按钮或选择控件，Slider 使用左右方向键按 `0.05` 调整；Dialog 打开时焦点顺序被限制在取消和确认按钮内。
 - Button 使用稳定 Clay ID 跟踪按压归属，只有在控件内按下并在控件内释放才触发点击。
 - 控件不直接修改业务数据，而是写入 `ui.Frame.actions`，由主循环派发给 App reducer。
 - 指针的 pressed/released 边沿保存在 AppModel 中，UI 构建后通过 `input_consumed` 清除，避免事件发生在两帧之间时丢失点击。
