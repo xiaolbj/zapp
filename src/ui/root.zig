@@ -343,6 +343,12 @@ pub fn build(model: *const Model) Frame {
                     } else if (text_result.blur_requested) {
                         emit(.{ .text_field_focus_changed = false });
                     }
+                    if (text_result.cursor_position) |position| {
+                        emit(.{ .text_cursor_set = .{
+                            .position = position,
+                            .selecting = text_result.selecting,
+                        } });
+                    }
                     label.draw(confirmation_text, .{ .color = .{ 145, 171, 207, 255 } });
                 });
 

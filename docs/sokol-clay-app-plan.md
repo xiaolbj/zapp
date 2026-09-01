@@ -615,7 +615,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 
 Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，最终退出时 `shutdown()`。当前绑定没有 context destroy/null API，因此测试中的多个 UI 场景必须复用同一个 Clay context，不能释放 arena 后在同一进程内重新初始化。
 
-路线图第一批控件已经全部具备可运行实现。TextField 已具备 UTF-8 光标移动、Shift 选择、Home/End、全选、复制、剪切、粘贴、删除与选区替换。下一阶段继续实现鼠标点击定位/拖选和 Android 中文 IME 组合输入；基础实现完成不等于平台输入法行为已经验收。
+路线图第一批控件已经全部具备可运行实现。TextField 已具备 UTF-8 光标移动、鼠标/触摸点击定位与拖选、Shift 选择、Home/End、全选、复制、剪切、粘贴、删除与选区替换。下一阶段继续实现 Android 中文 IME 组合输入；基础实现完成不等于平台输入法行为已经验收。
 
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进。后续焦点工作集中在可见焦点环的主题化、手柄导航和无障碍语义桥。
 

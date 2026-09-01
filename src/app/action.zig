@@ -20,6 +20,11 @@ pub const TextCursorMove = struct {
     selecting: bool,
 };
 
+pub const TextCursorSet = struct {
+    position: usize,
+    selecting: bool,
+};
+
 pub const Action = union(enum) {
     tick: f64,
     resized: Viewport,
@@ -45,6 +50,7 @@ pub const Action = union(enum) {
     text_backspace,
     text_delete_selection,
     text_cursor_moved: TextCursorMove,
+    text_cursor_set: TextCursorSet,
     text_cursor_home: bool,
     text_cursor_end: bool,
     text_select_all,

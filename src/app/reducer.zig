@@ -69,6 +69,7 @@ pub fn update(model: *Model, action: Action) void {
         .text_backspace => backspace(model),
         .text_delete_selection => deleteSelection(model),
         .text_cursor_moved => |movement| moveCursor(model, movement.direction, movement.selecting),
+        .text_cursor_set => |request| setCursor(model, request.position, request.selecting),
         .text_cursor_home => |selecting| setCursor(model, 0, selecting),
         .text_cursor_end => |selecting| setCursor(model, model.text_length, selecting),
         .text_select_all => {
