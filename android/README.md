@@ -43,6 +43,29 @@ zig build android-lib `
 
 输出位置为 `zig-out/android/<abi>/libzapp.so`。
 
+## 中文输入法桥接
+
+Android 入口使用 `ZappActivity`（`NativeActivity` 子类），渲染、布局和应用状态仍由 Zig、Clay 与 Sokol 持有。Activity 只增加一个 1×1 的透明文本编辑 View，为系统输入法提供 `InputConnection`：
+
+```text
+Android IME
+    -> ZappActivity.BridgeInputConnection
+    -> JNI (android_bridge.c)
+    -> 固定容量、互斥保护的事件队列
+    -> Zig frame() 消费 PlatformEvent
+    -> App reducer
+```
+
+当前桥接支持：
+
+- 拼音等组合文本的实时显示；
+- 中文、Emoji 等 Unicode 文本提交；
+- 退格和软键盘“完成”操作；
+- 文本框获得/失去焦点时显示或隐藏软键盘；
+- UI 线程与 Sokol 渲染线程隔离，JNI 回调不会直接修改 AppModel。
+
+JNI 层直接把 Java UTF-16 转成标准 UTF-8，并正确合并代理项；每个事件最多携带 256 字节文本，队列最多保存 64 个事件。队列满时丢弃最旧事件并写入 `zapp-ime` 警告日志，避免阻塞 UI 线程。
+
 ## 安装与日志
 
 连接设备后：
@@ -52,4 +75,4 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 adb logcat -s zapp sokol app
 ```
 
-当前 APK 壳已经验证构建、Manifest、双 ABI 打包和 NativeActivity 入口符号。软键盘中文 IME、权限、文件选择、无障碍节点映射与设备生命周期仍在后续平台桥阶段接入。
+当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。Sokol 已提供暂停/恢复生命周期事件；中文 IME 桥接已完成构建级验证，仍需连接 Android 设备验证不同厂商输入法的运行时行为。权限、文件选择和无障碍节点映射仍在后续平台桥阶段接入。

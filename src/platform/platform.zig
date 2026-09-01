@@ -1,5 +1,7 @@
 pub const RequestId = u64;
 
+pub const android = @import("android_bridge.zig");
+
 pub const Permission = enum {
     camera,
     microphone,
@@ -33,6 +35,8 @@ pub const PlatformEvent = union(enum) {
     ime_composition_changed: []const u8,
     ime_composition_committed: []const u8,
     ime_composition_cancelled,
+    ime_backspace_requested: u32,
+    ime_submit_requested,
     navigation_requested: NavigationCommand,
 };
 

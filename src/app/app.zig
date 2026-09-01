@@ -16,6 +16,10 @@ pub const App = struct {
             .ime_composition_changed => |text| self.dispatch(.{ .text_composition_changed = text }),
             .ime_composition_committed => |text| self.dispatch(.{ .text_composition_committed = text }),
             .ime_composition_cancelled => self.dispatch(.text_composition_cancelled),
+            .ime_backspace_requested => |count| {
+                for (0..count) |_| self.dispatch(.text_backspace);
+            },
+            .ime_submit_requested => self.dispatch(.text_submitted),
             .navigation_requested => |command| switch (command) {
                 .next => self.dispatch(.focus_next_requested),
                 .previous => self.dispatch(.focus_previous_requested),
@@ -56,6 +60,17 @@ test "platform navigation commands share frame-latched focus actions" {
     try std.testing.expect(!app.model.focused_control_activate_requested);
     try std.testing.expect(!app.model.focused_control_right_requested);
     try std.testing.expect(!app.model.back_requested);
+}
+
+test "IME editing commands use the same reducer actions as desktop input" {
+    const std = @import("std");
+    var app: App = .{};
+    app.dispatchPlatformEvent(.{ .ime_composition_committed = "abc" });
+    app.dispatchPlatformEvent(.{ .ime_backspace_requested = 2 });
+    try std.testing.expectEqualStrings("a", app.model.text());
+
+    app.dispatchPlatformEvent(.ime_submit_requested);
+    try std.testing.expectEqual(@as(u32, 1), app.model.text_submission_count);
 }
 
 test {

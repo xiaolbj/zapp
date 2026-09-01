@@ -15,6 +15,9 @@ const state = struct {
 };
 
 export fn init() void {
+    if (comptime builtin.abi.isAndroid()) {
+        zapp.platform.android.attach(sapp.androidGetNativeActivity());
+    }
     state.app.dispatch(.{ .resized = .{
         .width = sapp.width(),
         .height = sapp.height(),
@@ -26,15 +29,46 @@ export fn init() void {
 }
 
 export fn frame() void {
+    drainPlatformEvents();
     state.app.dispatch(.{ .tick = sapp.frameDuration() });
     const ui_frame = zapp.ui.build(&state.app.model);
     const keyboard_was_visible = state.app.model.text_field_focused;
     for (ui_frame.actions) |action| state.app.dispatch(action);
     if (keyboard_was_visible != state.app.model.text_field_focused) {
-        sapp.showKeyboard(state.app.model.text_field_focused);
+        setKeyboardVisible(state.app.model.text_field_focused);
     }
     state.app.dispatch(.input_consumed);
     state.renderer.draw(ui_frame);
+}
+
+fn drainPlatformEvents() void {
+    if (comptime !builtin.abi.isAndroid()) return;
+
+    var native_event: zapp.platform.android.Event = undefined;
+    while (zapp.platform.android.poll(&native_event)) {
+        const kind = native_event.kind() orelse continue;
+        switch (kind) {
+            .composition_changed => state.app.dispatchPlatformEvent(.{
+                .ime_composition_changed = native_event.text(),
+            }),
+            .composition_committed => state.app.dispatchPlatformEvent(.{
+                .ime_composition_committed = native_event.text(),
+            }),
+            .composition_cancelled => state.app.dispatchPlatformEvent(.ime_composition_cancelled),
+            .backspace => state.app.dispatchPlatformEvent(.{
+                .ime_backspace_requested = @min(native_event.count, 64),
+            }),
+            .submit => state.app.dispatchPlatformEvent(.ime_submit_requested),
+        }
+    }
+}
+
+fn setKeyboardVisible(visible: bool) void {
+    if (comptime builtin.abi.isAndroid()) {
+        zapp.platform.android.setImeVisible(visible);
+    } else {
+        sapp.showKeyboard(visible);
+    }
 }
 
 export fn event(ev: [*c]const sapp.Event) void {
@@ -146,6 +180,7 @@ fn copyTextSelectionToClipboard(model: *const zapp.app.Model) void {
 }
 
 export fn cleanup() void {
+    if (comptime builtin.abi.isAndroid()) zapp.platform.android.reset();
     zapp.ui.shutdown();
     state.renderer.shutdown();
 }

@@ -150,6 +150,13 @@ fn configureAndroidBuild(
         },
     });
     mod_main.pic = true;
+    mod_main.link_libc = true;
+    mod_main.addSystemIncludePath(ndk_include);
+    mod_main.addSystemIncludePath(ndk_target_include);
+    mod_main.addCSourceFile(.{
+        .file = b.path("src/platform/android_bridge.c"),
+        .flags = &.{ "-std=c11", "-fvisibility=default" },
+    });
     const library = b.addLibrary(.{
         .name = "zapp",
         .linkage = .static,
