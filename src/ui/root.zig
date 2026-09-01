@@ -1,16 +1,26 @@
 const std = @import("std");
 const clay = @import("zclay");
+const Action = @import("../app/action.zig").Action;
 const Model = @import("../app/model.zig").Model;
 const font = @import("../text/font.zig");
 const theme = @import("theme.zig");
+const button = @import("widgets/button.zig");
+const label = @import("widgets/label.zig");
+
+const max_actions = 8;
 
 const state = struct {
     var memory: ?[]u8 = null;
+    var button_state: button.State = .{};
+    var actions: [max_actions]Action = undefined;
+    var action_count: usize = 0;
+    var counter_text: [96]u8 = undefined;
 };
 
 pub const Frame = struct {
     clear_color: theme.Color,
     commands: []const clay.RenderCommand,
+    actions: []const Action,
 };
 
 pub fn setup(model: *const Model) bool {
@@ -21,6 +31,8 @@ pub fn setup(model: *const Model) bool {
         return false;
     };
     state.memory = memory;
+    state.button_state = .{};
+    state.action_count = 0;
 
     _ = clay.initialize(.init(memory), dimensions(model), .{
         .error_handler_function = clayError,
@@ -34,20 +46,21 @@ pub fn shutdown() void {
         std.heap.c_allocator.free(memory);
         state.memory = null;
     }
+    state.button_state = .{};
+    state.action_count = 0;
 }
 
-/// Builds a responsive product-shell layout.
+/// Builds the responsive product shell and reports semantic UI actions.
 pub fn build(model: *const Model) Frame {
+    state.action_count = 0;
     if (state.memory == null) return .{
         .clear_color = theme.dark.background,
         .commands = &.{},
+        .actions = &.{},
     };
 
     clay.setLayoutDimensions(dimensions(model));
-    clay.setPointerState(.{
-        .x = model.pointer_x,
-        .y = model.pointer_y,
-    }, model.pointer_down);
+    clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
     clay.beginLayout();
 
     const compact = model.viewport_width < 900;
@@ -56,6 +69,16 @@ pub fn build(model: *const Model) Frame {
         .{ .w = .grow, .h = .fixed(112) }
     else
         .{ .w = .fixed(240), .h = .grow };
+    const input: button.Input = .{
+        .down = model.pointer_down,
+        .pressed = model.pointer_pressed,
+        .released = model.pointer_released,
+    };
+    const counter_text = std.fmt.bufPrint(
+        &state.counter_text,
+        "按钮点击次数：{d}",
+        .{model.primary_button_presses},
+    ) catch "按钮点击次数过多";
 
     clay.UI()(.{
         .id = .ID("AppRoot"),
@@ -72,14 +95,12 @@ pub fn build(model: *const Model) Frame {
             .layout = .{
                 .sizing = .{ .w = .grow, .h = .fixed(88) },
                 .padding = .all(16),
+                .child_alignment = .{ .y = .center },
             },
             .background_color = .{ 41, 89, 154, 255 },
+            .corner_radius = .all(12),
         })({
-            clay.text("ZAPP 跨平台应用", .{
-                .font_size = 28,
-                .color = .{ 244, 248, 255, 255 },
-                .wrap_mode = .none,
-            });
+            label.draw("ZAPP 跨平台应用", .{ .font_size = 28, .color = .{ 244, 248, 255, 255 } });
         });
 
         clay.UI()(.{
@@ -96,16 +117,10 @@ pub fn build(model: *const Model) Frame {
                     .sizing = sidebar_sizing,
                     .padding = .all(16),
                 },
-                .background_color = if (clay.hovered())
-                    .{ 31, 49, 77, 255 }
-                else
-                    .{ 24, 36, 58, 255 },
+                .background_color = if (clay.hovered()) .{ 31, 49, 77, 255 } else .{ 24, 36, 58, 255 },
+                .corner_radius = .all(12),
             })({
-                clay.text("导航", .{
-                    .font_size = 16,
-                    .color = .{ 155, 178, 211, 255 },
-                    .wrap_mode = .none,
-                });
+                label.draw("导航", .{ .color = .{ 155, 178, 211, 255 } });
             });
 
             clay.UI()(.{
@@ -117,31 +132,38 @@ pub fn build(model: *const Model) Frame {
                     .direction = .top_to_bottom,
                 },
                 .background_color = .{ 18, 27, 44, 255 },
+                .corner_radius = .all(12),
             })({
                 clay.UI()(.{
                     .id = .ID("PrimaryCard"),
-                    .layout = .{ .sizing = .grow },
+                    .layout = .{
+                        .sizing = .grow,
+                        .padding = .all(24),
+                        .child_gap = 16,
+                        .direction = .top_to_bottom,
+                    },
                     .background_color = .{ 31, 45, 70, 255 },
+                    .corner_radius = .all(12),
                 })({
-                    clay.text("Clay 应用框架", .{
-                        .font_size = 22,
-                        .color = .{ 232, 239, 249, 255 },
-                        .wrap_mode = .none,
-                    });
+                    label.draw("Clay 应用框架", .{ .font_size = 22 });
+                    label.draw(counter_text, .{ .color = .{ 166, 187, 218, 255 } });
+                    if (button.draw(&state.button_state, input, .{
+                        .id = "PrimaryAction",
+                        .text = "点击测试",
+                    })) emit(.primary_button_pressed);
                 });
+
                 clay.UI()(.{
                     .id = .ID("SecondaryCard"),
                     .layout = .{
                         .sizing = .{ .w = .grow, .h = .fixed(104) },
                         .padding = .all(16),
+                        .child_alignment = .{ .y = .center },
                     },
                     .background_color = .{ 24, 56, 70, 255 },
+                    .corner_radius = .all(12),
                 })({
-                    clay.text("中文字体已通过 Fontstash 接入 Sokol", .{
-                        .font_size = 16,
-                        .color = .{ 155, 211, 207, 255 },
-                        .wrap_mode = .none,
-                    });
+                    label.draw("中文字体已通过 Fontstash 接入 Sokol", .{ .color = .{ 155, 211, 207, 255 } });
                 });
             });
         });
@@ -150,7 +172,17 @@ pub fn build(model: *const Model) Frame {
     return .{
         .clear_color = theme.dark.background,
         .commands = clay.endLayout(),
+        .actions = state.actions[0..state.action_count],
     };
+}
+
+fn emit(action: Action) void {
+    if (state.action_count == state.actions.len) {
+        std.log.warn("UI action buffer is full", .{});
+        return;
+    }
+    state.actions[state.action_count] = action;
+    state.action_count += 1;
 }
 
 fn dimensions(model: *const Model) clay.Dimensions {
@@ -161,12 +193,7 @@ fn dimensions(model: *const Model) clay.Dimensions {
 }
 
 fn clayColor(color: theme.Color) clay.Color {
-    return .{
-        color.r * 255,
-        color.g * 255,
-        color.b * 255,
-        color.a * 255,
-    };
+    return .{ color.r * 255, color.g * 255, color.b * 255, color.a * 255 };
 }
 
 fn clayError(data: clay.ErrorData) callconv(.c) void {
@@ -174,7 +201,7 @@ fn clayError(data: clay.ErrorData) callconv(.c) void {
     std.log.err("Clay: {s}", .{message});
 }
 
-test "responsive shell emits rectangle commands" {
+test "responsive shell emits controls and text" {
     var model: Model = .{};
     try std.testing.expect(setup(&model));
     defer shutdown();
@@ -187,7 +214,8 @@ test "responsive shell emits rectangle commands" {
         if (command.command_type == .text) text_count += 1;
     }
 
-    try std.testing.expect(rectangle_count >= 5);
-    try std.testing.expect(text_count >= 4);
+    try std.testing.expect(rectangle_count >= 6);
+    try std.testing.expect(text_count >= 6);
+    try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
 }

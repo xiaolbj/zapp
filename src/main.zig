@@ -27,6 +27,8 @@ export fn init() void {
 export fn frame() void {
     state.app.dispatch(.{ .tick = sapp.frameDuration() });
     const ui_frame = zapp.ui.build(&state.app.model);
+    for (ui_frame.actions) |action| state.app.dispatch(action);
+    state.app.dispatch(.input_consumed);
     state.renderer.draw(ui_frame);
 }
 
@@ -56,6 +58,12 @@ export fn event(ev: [*c]const sapp.Event) void {
                     .x = touch.pos_x,
                     .y = touch.pos_y,
                     .down = current.type == .TOUCHES_BEGAN or current.type == .TOUCHES_MOVED,
+                } });
+            } else if (current.type == .TOUCHES_ENDED or current.type == .TOUCHES_CANCELLED) {
+                state.app.dispatch(.{ .pointer_changed = .{
+                    .x = state.app.model.pointer_x,
+                    .y = state.app.model.pointer_y,
+                    .down = false,
                 } });
             }
         },

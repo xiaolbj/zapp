@@ -9,4 +9,6 @@ test {
     _ = platform;
     _ = text;
     _ = ui;
+    _ = @import("src/ui/widgets/button.zig");
+    _ = @import("src/ui/widgets/label.zig");
 }

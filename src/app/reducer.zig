@@ -17,8 +17,15 @@ pub fn update(model: *Model, action: Action) void {
         .pointer_changed => |pointer| {
             model.pointer_x = pointer.x;
             model.pointer_y = pointer.y;
+            if (pointer.down and !model.pointer_down) model.pointer_pressed = true;
+            if (!pointer.down and model.pointer_down) model.pointer_released = true;
             model.pointer_down = pointer.down;
         },
+        .input_consumed => {
+            model.pointer_pressed = false;
+            model.pointer_released = false;
+        },
+        .primary_button_pressed => model.primary_button_presses += 1,
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -37,6 +44,28 @@ test "pointer state is retained for Clay interaction" {
     try std.testing.expectEqual(@as(f32, 120), model.pointer_x);
     try std.testing.expectEqual(@as(f32, 80), model.pointer_y);
     try std.testing.expect(model.pointer_down);
+    try std.testing.expect(model.pointer_pressed);
+
+    update(&model, .{ .pointer_changed = .{
+        .x = 120,
+        .y = 80,
+        .down = false,
+    } });
+    try std.testing.expect(model.pointer_released);
+
+    update(&model, .input_consumed);
+    try std.testing.expect(!model.pointer_pressed);
+    try std.testing.expect(!model.pointer_released);
+}
+
+test "button action updates application state" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .primary_button_pressed);
+    update(&model, .primary_button_pressed);
+
+    try std.testing.expectEqual(@as(u32, 2), model.primary_button_presses);
 }
 
 test "tick advances only while active" {

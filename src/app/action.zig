@@ -14,6 +14,8 @@ pub const Action = union(enum) {
     tick: f64,
     resized: Viewport,
     pointer_changed: Pointer,
+    input_consumed,
+    primary_button_pressed,
     suspended,
     resumed,
 };
