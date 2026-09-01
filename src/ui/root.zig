@@ -16,6 +16,7 @@ const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
 const navigation_bar = @import("widgets/navigation_bar.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
+const radio_group = @import("widgets/radio_group.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
 const slider = @import("widgets/slider.zig");
 const text_field = @import("widgets/text_field.zig");
@@ -33,6 +34,12 @@ const demo_tree_items = [_]tree_view.Item{
     .{ .text = "render", .parent_index = 1 },
     .{ .text = "assets", .parent_index = 0 },
     .{ .text = "README.md", .parent_index = 0 },
+};
+
+const demo_density_items = [_]radio_group.Item{
+    .{ .text = "紧凑" },
+    .{ .text = "舒适" },
+    .{ .text = "宽松" },
 };
 
 const state = struct {
@@ -156,30 +163,46 @@ pub fn build(model: *const Model) Frame {
     } else {
         state.focus_state.closeModal(dialog_id);
         var focus_order: [32]u32 = undefined;
-        const base_order = [_]u32{
+        const navigation_order = [_]u32{
             clay.ElementId.IDI("MainNavigation", 0).id,
             clay.ElementId.IDI("MainNavigation", 1).id,
             clay.ElementId.IDI("MainNavigation", 2).id,
-            crash_export_button_id,
+        };
+        @memcpy(focus_order[0..navigation_order.len], &navigation_order);
+        var focus_order_count = navigation_order.len;
+        if (model.last_native_crash != null) {
+            focus_order[focus_order_count] = crash_export_button_id;
+            focus_order_count += 1;
+        }
+        const primary_order = [_]u32{
             primary_action_id,
             increment_progress_id,
             open_dialog_id,
-            checkbox_id,
-            switch_id,
-            slider_id,
-            text_field_id,
-            permission_button_id,
-            file_picker_button_id,
-            file_stream_button_id,
         };
-        @memcpy(focus_order[0..base_order.len], &base_order);
-        var focus_order_count = base_order.len;
+        @memcpy(focus_order[focus_order_count..][0..primary_order.len], &primary_order);
+        focus_order_count += primary_order.len;
         for (demo_tree_items, 0..) |_, tree_index| {
             if (tree_view.isVisible(&demo_tree_items, tree_index, model.demo_tree_expanded_mask)) {
                 focus_order[focus_order_count] = tree_view.itemId("ProjectTree", tree_index).id;
                 focus_order_count += 1;
             }
         }
+        const selection_order = [_]u32{ checkbox_id, switch_id };
+        @memcpy(focus_order[focus_order_count..][0..selection_order.len], &selection_order);
+        focus_order_count += selection_order.len;
+        for (demo_density_items, 0..) |_, density_index| {
+            focus_order[focus_order_count] = radio_group.itemId("DensityRadio", density_index).id;
+            focus_order_count += 1;
+        }
+        const trailing_order = [_]u32{
+            slider_id,
+            text_field_id,
+            permission_button_id,
+            file_picker_button_id,
+            file_stream_button_id,
+        };
+        @memcpy(focus_order[focus_order_count..][0..trailing_order.len], &trailing_order);
+        focus_order_count += trailing_order.len;
         if (state.focus_state.focused_id) |focused_id| {
             if (treeIndex(focused_id)) |focused_tree_index| {
                 if (tree_view.nearestVisibleAncestor(
@@ -447,42 +470,43 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("CrashBuildIdStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
-                    if (button.draw(&state.interaction_state, input, .{
-                        .id = "ExportCrashReport",
-                        .text = if (model.crash_report_export_pending)
-                            "正在打开分享面板…"
-                        else
-                            "导出崩溃报告",
-                        .width = control_width,
-                        .disabled = modal_open or model.last_native_crash == null or
-                            model.crash_report_export_pending,
-                        .focused = state.focus_state.isFocused(crash_export_button_id),
-                        .semantic_registry = &state.semantic_registry,
-                    })) {
-                        state.focus_state.focus(crash_export_button_id);
-                        emit(.platform_crash_report_export_requested);
-                    }
-                    if (model.crash_report_export_pending) {
-                        label.draw("崩溃报告导出：正在打开系统分享面板…", .{
-                            .color = theme.controls.text_muted,
-                            .semantic_id = .ID("CrashReportExportStatus"),
-                            .semantic_registry = &state.semantic_registry,
-                        });
-                    } else if (model.crash_report_export_attempted) {
-                        label.draw(
-                            if (model.crash_report_export_chooser_opened)
-                                "崩溃报告导出：已打开系统分享面板"
+                    if (model.last_native_crash != null) {
+                        if (button.draw(&state.interaction_state, input, .{
+                            .id = "ExportCrashReport",
+                            .text = if (model.crash_report_export_pending)
+                                "正在打开分享面板…"
                             else
-                                "崩溃报告导出：打开失败",
-                            .{
-                                .color = if (model.crash_report_export_chooser_opened)
-                                    .{ 145, 205, 170, 255 }
-                                else
-                                    .{ 255, 160, 145, 255 },
+                                "导出崩溃报告",
+                            .width = control_width,
+                            .disabled = modal_open or model.crash_report_export_pending,
+                            .focused = state.focus_state.isFocused(crash_export_button_id),
+                            .semantic_registry = &state.semantic_registry,
+                        })) {
+                            state.focus_state.focus(crash_export_button_id);
+                            emit(.platform_crash_report_export_requested);
+                        }
+                        if (model.crash_report_export_pending) {
+                            label.draw("崩溃报告导出：正在打开系统分享面板…", .{
+                                .color = theme.controls.text_muted,
                                 .semantic_id = .ID("CrashReportExportStatus"),
                                 .semantic_registry = &state.semantic_registry,
-                            },
-                        );
+                            });
+                        } else if (model.crash_report_export_attempted) {
+                            label.draw(
+                                if (model.crash_report_export_chooser_opened)
+                                    "崩溃报告导出：已打开系统分享面板"
+                                else
+                                    "崩溃报告导出：打开失败",
+                                .{
+                                    .color = if (model.crash_report_export_chooser_opened)
+                                        .{ 145, 205, 170, 255 }
+                                    else
+                                        .{ 255, 160, 145, 255 },
+                                    .semantic_id = .ID("CrashReportExportStatus"),
+                                    .semantic_registry = &state.semantic_registry,
+                                },
+                            );
+                        }
                     }
                     label.draw(counter_text, .{
                         .color = .{ 166, 187, 218, 255 },
@@ -587,6 +611,29 @@ pub fn build(model: *const Model) Frame {
                             emit(.demo_switch_toggled);
                         }
                     });
+                    label.draw("界面密度", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("DensityRadioLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const radio_result = radio_group.draw(&state.interaction_state, input, .{
+                        .id = "DensityRadio",
+                        .items = &demo_density_items,
+                        .selected_index = model.demo_density_index,
+                        .item_width = if (narrow) control_width else 150,
+                        .direction = control_direction,
+                        .disabled = modal_open,
+                        .focused_id = state.focus_state.focused_id,
+                        .semantic_label = "界面密度",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (radio_result.focus_index) |index| {
+                        state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
+                    }
+                    if (radio_result.selected_index) |index| {
+                        state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
+                        emit(.{ .demo_density_selected = @intCast(index) });
+                    }
                     label.draw("任务进度（点击 + 增加）", .{
                         .color = .{ 166, 187, 218, 255 },
                         .semantic_id = .ID("ProgressLabel"),
@@ -873,7 +920,7 @@ pub fn handleSemanticAction(
                 if (model.last_native_crash != null and !model.crash_report_export_pending) {
                     emit(.platform_crash_report_export_requested);
                 }
-            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index });
+            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index });
         },
         .increment, .decrement => if (element_id == slider_id) {
             const delta: f32 = if (semantic_action == .increment) 0.05 else -0.05;
@@ -922,8 +969,16 @@ fn treeHasChildren(index: u8) bool {
     return false;
 }
 
+fn radioIndex(element_id: u32) ?u8 {
+    for (demo_density_items, 0..) |_, index| {
+        if (element_id == radio_group.itemId("DensityRadio", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn isInteractiveSemanticId(element_id: u32) bool {
-    if (navigationIndex(element_id) != null or treeIndex(element_id) != null) return true;
+    if (navigationIndex(element_id) != null or treeIndex(element_id) != null or
+        radioIndex(element_id) != null) return true;
     inline for ([_][]const u8{
         "PrimaryAction",
         "IncrementProgress",
@@ -1176,6 +1231,8 @@ test "responsive shell emits controls and text" {
     var has_forward_scroll_semantics = false;
     var has_tree_semantics = false;
     var has_expanded_tree_item = false;
+    var has_radio_group_semantics = false;
+    var has_checked_radio_semantics = false;
     var has_performance_label_semantics = false;
     var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
@@ -1191,6 +1248,8 @@ test "responsive shell emits controls and text" {
         }
         if (node.role == .tree) has_tree_semantics = true;
         if (node.role == .tree_item and node.expanded != null) has_expanded_tree_item = true;
+        if (node.role == .radio_group) has_radio_group_semantics = true;
+        if (node.role == .radio_button and node.checked == true) has_checked_radio_semantics = true;
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
         if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
             has_crash_diagnostics_semantics = true;
@@ -1204,6 +1263,8 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_forward_scroll_semantics);
     try std.testing.expect(has_tree_semantics);
     try std.testing.expect(has_expanded_tree_item);
+    try std.testing.expect(has_radio_group_semantics);
+    try std.testing.expect(has_checked_radio_semantics);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
 
@@ -1371,6 +1432,15 @@ test "semantic actions reuse reducer-facing UI actions" {
     );
     try std.testing.expectEqual(@as(usize, 1), actions.len);
     try std.testing.expect(actions[0] == .platform_crash_report_export_requested);
+
+    actions = handleSemanticAction(
+        &model,
+        radio_group.itemId("DensityRadio", 2).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u8, 2), actions[0].demo_density_selected);
 
     actions = handleSemanticAction(
         &model,

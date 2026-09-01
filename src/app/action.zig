@@ -88,6 +88,7 @@ pub const Action = union(enum) {
     demo_navigation_selected: u8,
     demo_tree_toggled: u8,
     demo_tree_selected: u8,
+    demo_density_selected: u8,
     suspended,
     resumed,
 };

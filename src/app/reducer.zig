@@ -222,6 +222,7 @@ pub fn update(model: *Model, action: Action) void {
             if (index < 64) model.demo_tree_expanded_mask ^= @as(u64, 1) << @intCast(index);
         },
         .demo_tree_selected => |index| model.demo_tree_selected_index = index,
+        .demo_density_selected => |index| model.demo_density_index = @min(index, 2),
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -382,6 +383,15 @@ test "tree expansion and selection remain controlled by the model" {
     try std.testing.expectEqual(@as(u64, 0b10), model.demo_tree_expanded_mask);
     update(&model, .{ .demo_tree_selected = 4 });
     try std.testing.expectEqual(@as(u8, 4), model.demo_tree_selected_index);
+}
+
+test "radio selection remains controlled and bounded" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_density_selected = 2 });
+    try std.testing.expectEqual(@as(u8, 2), model.demo_density_index);
+    update(&model, .{ .demo_density_selected = 99 });
+    try std.testing.expectEqual(@as(u8, 2), model.demo_density_index);
 }
 
 test "UTF-8 cursor selection replaces complete codepoints" {
