@@ -8,15 +8,26 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.graphics.Rect;
 import android.util.SparseArray;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public final class ZappActivity extends NativeActivity {
     private static final int PERMISSION_CAMERA = 0;
@@ -25,9 +36,17 @@ public final class ZappActivity extends NativeActivity {
     private static final int PERMISSION_MEDIA = 3;
     private static final int FIRST_PERMISSION_REQUEST_CODE = 4100;
     private static final int FILE_PICKER_REQUEST_CODE = 7301;
+    private static final int ACCESSIBILITY_ACTION_FOCUS = 1;
+    private static final int ACCESSIBILITY_ACTION_CLICK = 2;
+    private static final int ACCESSIBILITY_ACTION_INCREMENT = 3;
+    private static final int ACCESSIBILITY_ACTION_DECREMENT = 4;
+    private static final int ACCESSIBILITY_ACTION_SET_TEXT = 5;
+    private static final int ACCESSIBILITY_ACTION_EXPAND = 6;
+    private static final int ACCESSIBILITY_ACTION_COLLAPSE = 7;
 
     private final SparseArray<PermissionRequest> pendingPermissionRequests = new SparseArray<>();
     private ImeBridgeView imeBridgeView;
+    private AccessibilityBridgeView accessibilityBridgeView;
     private int nextPermissionRequestCode = FIRST_PERMISSION_REQUEST_CODE;
     private long pendingFileRequestId;
 
@@ -45,14 +64,34 @@ public final class ZappActivity extends NativeActivity {
     private static native void nativePermissionResult(long requestId, int permission, boolean granted);
     private static native void nativeFileSelected(long requestId, String uri);
     private static native void nativeFileSelectionCancelled(long requestId);
+    private static native int nativeAccessibilityNodeCount();
+    private static native boolean nativeAccessibilityNodeAt(
+        int index,
+        int[] metadata,
+        float[] geometry,
+        String[] strings
+    );
+    private static native void nativeAccessibilityAction(int elementId, int action, String text);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        accessibilityBridgeView = new AccessibilityBridgeView();
+        addContentView(accessibilityBridgeView, new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
         imeBridgeView = new ImeBridgeView();
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(1, 1);
         params.gravity = Gravity.TOP | Gravity.START;
         addContentView(imeBridgeView, params);
+    }
+
+    @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
+    public void refreshAccessibilitySnapshotFromNative() {
+        runOnUiThread(() -> {
+            if (accessibilityBridgeView != null) accessibilityBridgeView.refreshSnapshot();
+        });
     }
 
     @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
@@ -208,6 +247,372 @@ public final class ZappActivity extends NativeActivity {
         PermissionRequest(long requestId, int permission) {
             this.requestId = requestId;
             this.permission = permission;
+        }
+    }
+
+    private static final class SemanticNode {
+        final int id;
+        final int role;
+        final int flags;
+        final int level;
+        final float x;
+        final float y;
+        final float width;
+        final float height;
+        final float value;
+        final String label;
+        final String valueText;
+
+        SemanticNode(int[] metadata, float[] geometry, String[] strings) {
+            id = metadata[0];
+            role = metadata[1];
+            flags = metadata[2];
+            level = metadata[3];
+            x = geometry[0];
+            y = geometry[1];
+            width = geometry[2];
+            height = geometry[3];
+            value = geometry[4];
+            label = strings[0] == null ? "" : strings[0];
+            valueText = strings[1] == null ? "" : strings[1];
+        }
+
+        boolean hasFlag(int flag) {
+            return (flags & flag) != 0;
+        }
+    }
+
+    private final class AccessibilityBridgeView extends View {
+        private static final int FLAG_CHECKED_PRESENT = 1 << 0;
+        private static final int FLAG_CHECKED = 1 << 1;
+        private static final int FLAG_DISABLED = 1 << 2;
+        private static final int FLAG_FOCUSED = 1 << 3;
+        private static final int FLAG_SELECTED = 1 << 4;
+        private static final int FLAG_MODAL = 1 << 5;
+        private static final int FLAG_EXPANDED_PRESENT = 1 << 6;
+        private static final int FLAG_EXPANDED = 1 << 7;
+
+        private static final int ROLE_TEXT = 0;
+        private static final int ROLE_BUTTON = 1;
+        private static final int ROLE_CHECKBOX = 2;
+        private static final int ROLE_SWITCH = 3;
+        private static final int ROLE_SLIDER = 4;
+        private static final int ROLE_TEXT_FIELD = 5;
+        private static final int ROLE_NAVIGATION = 6;
+        private static final int ROLE_NAVIGATION_ITEM = 7;
+        private static final int ROLE_DIALOG = 8;
+        private static final int ROLE_PROGRESS_BAR = 9;
+        private static final int ROLE_STATUS = 10;
+        private static final int ROLE_GROUP = 11;
+        private static final int ROLE_LIST = 12;
+        private static final int ROLE_TREE = 13;
+        private static final int ROLE_TREE_ITEM = 14;
+
+        private final AccessibilityManager accessibilityManager;
+        private final SemanticNodeProvider provider = new SemanticNodeProvider();
+        private volatile SemanticNode[] nodes = new SemanticNode[0];
+        private int accessibilityFocusedId = View.NO_ID;
+        private int hoveredId = View.NO_ID;
+
+        AccessibilityBridgeView() {
+            super(ZappActivity.this);
+            accessibilityManager = (AccessibilityManager)getSystemService(ACCESSIBILITY_SERVICE);
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+            setFocusable(false);
+            setClickable(false);
+            setWillNotDraw(true);
+            if (Build.VERSION.SDK_INT >= 28) setScreenReaderFocusable(true);
+        }
+
+        void refreshSnapshot() {
+            int count = Math.min(Math.max(nativeAccessibilityNodeCount(), 0), 64);
+            ArrayList<SemanticNode> updated = new ArrayList<>(count);
+            for (int index = 0; index < count; index += 1) {
+                int[] metadata = new int[4];
+                float[] geometry = new float[5];
+                String[] strings = new String[2];
+                if (!nativeAccessibilityNodeAt(index, metadata, geometry, strings)) continue;
+                SemanticNode node = new SemanticNode(metadata, geometry, strings);
+                if (node.width > 0 && node.height > 0) updated.add(node);
+            }
+            nodes = updated.toArray(new SemanticNode[0]);
+            if (findNode(accessibilityFocusedId) == null) accessibilityFocusedId = View.NO_ID;
+            if (accessibilityManager != null && accessibilityManager.isEnabled()) {
+                sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
+            }
+        }
+
+        @Override
+        public AccessibilityNodeProvider getAccessibilityNodeProvider() {
+            return provider;
+        }
+
+        @Override
+        public boolean dispatchHoverEvent(MotionEvent event) {
+            if (accessibilityManager == null || !accessibilityManager.isTouchExplorationEnabled()) {
+                return super.dispatchHoverEvent(event);
+            }
+            int target = event.getAction() == MotionEvent.ACTION_HOVER_EXIT
+                ? View.NO_ID
+                : hitTest(event.getX(), event.getY());
+            if (target != hoveredId) {
+                if (hoveredId != View.NO_ID) sendVirtualEvent(hoveredId, AccessibilityEvent.TYPE_VIEW_HOVER_EXIT);
+                hoveredId = target;
+                if (hoveredId != View.NO_ID) sendVirtualEvent(hoveredId, AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
+            }
+            return target != View.NO_ID || event.getAction() == MotionEvent.ACTION_HOVER_EXIT;
+        }
+
+        private int hitTest(float x, float y) {
+            SemanticNode[] current = nodes;
+            for (int index = current.length - 1; index >= 0; index -= 1) {
+                SemanticNode node = current[index];
+                if (x >= node.x && x < node.x + node.width && y >= node.y && y < node.y + node.height) {
+                    return node.id;
+                }
+            }
+            return View.NO_ID;
+        }
+
+        private SemanticNode findNode(int id) {
+            for (SemanticNode node : nodes) if (node.id == id) return node;
+            return null;
+        }
+
+        private void sendVirtualEvent(int id, int eventType) {
+            if (accessibilityManager == null || !accessibilityManager.isEnabled()) return;
+            AccessibilityEvent event = AccessibilityEvent.obtain(eventType);
+            event.setPackageName(getPackageName());
+            SemanticNode node = findNode(id);
+            if (node != null) event.getText().add(node.label);
+            event.setSource(this, id);
+            if (getParent() != null) getParent().requestSendAccessibilityEvent(this, event);
+        }
+
+        private final class SemanticNodeProvider extends AccessibilityNodeProvider {
+            @Override
+            public AccessibilityNodeInfo createAccessibilityNodeInfo(int virtualViewId) {
+                if (virtualViewId == HOST_VIEW_ID) return createHostNode();
+                SemanticNode node = findNode(virtualViewId);
+                return node == null ? null : createChildNode(node);
+            }
+
+            private AccessibilityNodeInfo createHostNode() {
+                AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain();
+                info.setPackageName(getPackageName());
+                info.setClassName("android.view.ViewGroup");
+                info.setSource(AccessibilityBridgeView.this);
+                info.setParent((View)getParent());
+                info.setContentDescription("ZAPP 跨平台应用");
+                info.setEnabled(isEnabled());
+                info.setVisibleToUser(isShown());
+                info.setFocusable(false);
+                Rect local = new Rect(0, 0, getWidth(), getHeight());
+                info.setBoundsInParent(local);
+                int[] location = new int[2];
+                getLocationOnScreen(location);
+                Rect screen = new Rect(local);
+                screen.offset(location[0], location[1]);
+                info.setBoundsInScreen(screen);
+                if (Build.VERSION.SDK_INT >= 24) info.setImportantForAccessibility(true);
+                for (SemanticNode node : nodes) {
+                    if (isNodeExposed(node)) info.addChild(AccessibilityBridgeView.this, node.id);
+                }
+                return info;
+            }
+
+            private AccessibilityNodeInfo createChildNode(SemanticNode node) {
+                AccessibilityNodeInfo info = AccessibilityNodeInfo.obtain(AccessibilityBridgeView.this, node.id);
+                info.setPackageName(getPackageName());
+                info.setSource(AccessibilityBridgeView.this, node.id);
+                info.setParent(AccessibilityBridgeView.this);
+                info.setClassName(className(node.role));
+                info.setEnabled(!node.hasFlag(FLAG_DISABLED));
+                info.setSelected(node.hasFlag(FLAG_SELECTED));
+                info.setFocusable(isInteractive(node.role));
+                info.setFocused(node.hasFlag(FLAG_FOCUSED));
+                info.setAccessibilityFocused(node.id == accessibilityFocusedId);
+                info.setVisibleToUser(isNodeExposed(node));
+                if (Build.VERSION.SDK_INT >= 28) info.setScreenReaderFocusable(true);
+
+                if (node.role == ROLE_TEXT || node.role == ROLE_STATUS) {
+                    info.setText(node.label);
+                } else {
+                    info.setContentDescription(node.label);
+                }
+                if (!node.valueText.isEmpty()) info.setText(node.valueText);
+                if (node.level > 0) info.getExtras().putInt("zapp.tree.level", node.level);
+                if (node.hasFlag(FLAG_CHECKED_PRESENT)) {
+                    info.setCheckable(true);
+                    info.setChecked(node.hasFlag(FLAG_CHECKED));
+                }
+
+                Rect local = new Rect(
+                    Math.round(node.x),
+                    Math.round(node.y),
+                    Math.round(node.x + node.width),
+                    Math.round(node.y + node.height)
+                );
+                info.setBoundsInParent(local);
+                int[] location = new int[2];
+                getLocationOnScreen(location);
+                Rect screen = new Rect(local);
+                screen.offset(location[0], location[1]);
+                info.setBoundsInScreen(screen);
+
+                if (!node.hasFlag(FLAG_DISABLED)) addActions(info, node);
+                return info;
+            }
+
+            private boolean isNodeVisible(SemanticNode node) {
+                return node.x + node.width > 0 && node.y + node.height > 0 &&
+                    node.x < getWidth() && node.y < getHeight();
+            }
+
+            private boolean isNodeExposed(SemanticNode node) {
+                if (!isNodeVisible(node)) return false;
+                boolean hasModal = false;
+                for (SemanticNode candidate : nodes) {
+                    if (candidate.hasFlag(FLAG_MODAL)) {
+                        hasModal = true;
+                        break;
+                    }
+                }
+                return !hasModal || node.hasFlag(FLAG_MODAL);
+            }
+
+            private void addActions(AccessibilityNodeInfo info, SemanticNode node) {
+                if (node.id == accessibilityFocusedId) {
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLEAR_ACCESSIBILITY_FOCUS);
+                } else {
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_ACCESSIBILITY_FOCUS);
+                }
+                if (node.role == ROLE_BUTTON || node.role == ROLE_CHECKBOX || node.role == ROLE_SWITCH ||
+                    node.role == ROLE_NAVIGATION_ITEM || node.role == ROLE_TREE_ITEM) {
+                    info.setClickable(true);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
+                }
+                if (node.role == ROLE_SLIDER) {
+                    info.setScrollable(true);
+                    if (!Float.isNaN(node.value)) {
+                        info.setRangeInfo(AccessibilityNodeInfo.RangeInfo.obtain(
+                            AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, 0, 1, node.value
+                        ));
+                    }
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                }
+                if (node.role == ROLE_TEXT_FIELD) {
+                    info.setEditable(true);
+                    info.setClickable(true);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_TEXT);
+                }
+                if (node.hasFlag(FLAG_EXPANDED_PRESENT)) {
+                    info.addAction(node.hasFlag(FLAG_EXPANDED)
+                        ? AccessibilityNodeInfo.AccessibilityAction.ACTION_COLLAPSE
+                        : AccessibilityNodeInfo.AccessibilityAction.ACTION_EXPAND);
+                }
+            }
+
+            @Override
+            public boolean performAction(int virtualViewId, int action, Bundle arguments) {
+                if (virtualViewId == HOST_VIEW_ID) {
+                    return AccessibilityBridgeView.this.performAccessibilityAction(action, arguments);
+                }
+                SemanticNode node = findNode(virtualViewId);
+                if (node == null || node.hasFlag(FLAG_DISABLED)) return false;
+                if (action == AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS) {
+                    if (accessibilityFocusedId == virtualViewId) return false;
+                    accessibilityFocusedId = virtualViewId;
+                    nativeAccessibilityAction(virtualViewId, ACCESSIBILITY_ACTION_FOCUS, null);
+                    sendVirtualEvent(virtualViewId, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);
+                    return true;
+                }
+                if (action == AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS) {
+                    if (accessibilityFocusedId != virtualViewId) return false;
+                    accessibilityFocusedId = View.NO_ID;
+                    sendVirtualEvent(virtualViewId, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
+                    return true;
+                }
+                int nativeAction;
+                String text = null;
+                if (action == AccessibilityNodeInfo.ACTION_CLICK) {
+                    nativeAction = ACCESSIBILITY_ACTION_CLICK;
+                } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) {
+                    nativeAction = ACCESSIBILITY_ACTION_INCREMENT;
+                } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
+                    nativeAction = ACCESSIBILITY_ACTION_DECREMENT;
+                } else if (action == AccessibilityNodeInfo.ACTION_SET_TEXT) {
+                    nativeAction = ACCESSIBILITY_ACTION_SET_TEXT;
+                    if (arguments != null) {
+                        CharSequence value = arguments.getCharSequence(
+                            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE
+                        );
+                        text = value == null ? "" : value.toString();
+                    }
+                } else if (action == AccessibilityNodeInfo.ACTION_EXPAND) {
+                    nativeAction = ACCESSIBILITY_ACTION_EXPAND;
+                } else if (action == AccessibilityNodeInfo.ACTION_COLLAPSE) {
+                    nativeAction = ACCESSIBILITY_ACTION_COLLAPSE;
+                } else {
+                    return false;
+                }
+                nativeAccessibilityAction(virtualViewId, nativeAction, text);
+                sendVirtualEvent(virtualViewId, AccessibilityEvent.TYPE_VIEW_CLICKED);
+                return true;
+            }
+
+            @Override
+            public AccessibilityNodeInfo findFocus(int focus) {
+                if (focus == AccessibilityNodeInfo.FOCUS_ACCESSIBILITY && accessibilityFocusedId != View.NO_ID) {
+                    return createAccessibilityNodeInfo(accessibilityFocusedId);
+                }
+                if (focus == AccessibilityNodeInfo.FOCUS_INPUT) {
+                    for (SemanticNode node : nodes) {
+                        if (node.hasFlag(FLAG_FOCUSED)) return createChildNode(node);
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            public List<AccessibilityNodeInfo> findAccessibilityNodeInfosByText(String text, int virtualViewId) {
+                if (text == null) return Collections.emptyList();
+                String query = text.toLowerCase();
+                ArrayList<AccessibilityNodeInfo> results = new ArrayList<>();
+                for (SemanticNode node : nodes) {
+                    if (node.label.toLowerCase().contains(query) || node.valueText.toLowerCase().contains(query)) {
+                        results.add(createChildNode(node));
+                    }
+                }
+                return results;
+            }
+
+            private String className(int role) {
+                switch (role) {
+                    case ROLE_BUTTON: return "android.widget.Button";
+                    case ROLE_CHECKBOX: return "android.widget.CheckBox";
+                    case ROLE_SWITCH: return "android.widget.Switch";
+                    case ROLE_SLIDER: return "android.widget.SeekBar";
+                    case ROLE_TEXT_FIELD: return "android.widget.EditText";
+                    case ROLE_NAVIGATION:
+                    case ROLE_GROUP:
+                    case ROLE_LIST:
+                    case ROLE_TREE: return "android.view.ViewGroup";
+                    case ROLE_NAVIGATION_ITEM:
+                    case ROLE_TREE_ITEM: return "android.widget.Button";
+                    case ROLE_DIALOG: return "android.app.Dialog";
+                    case ROLE_PROGRESS_BAR: return "android.widget.ProgressBar";
+                    default: return "android.widget.TextView";
+                }
+            }
+
+            private boolean isInteractive(int role) {
+                return role == ROLE_BUTTON || role == ROLE_CHECKBOX || role == ROLE_SWITCH ||
+                    role == ROLE_SLIDER || role == ROLE_TEXT_FIELD || role == ROLE_NAVIGATION_ITEM ||
+                    role == ROLE_TREE_ITEM;
+            }
         }
     }
 

@@ -1,3 +1,4 @@
+const std = @import("std");
 const clay = @import("zclay");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
@@ -22,13 +23,15 @@ pub const Config = struct {
 
 pub fn draw(state: *interaction.State, input: interaction.Input, config: Config) ?usize {
     var selected: ?usize = null;
+    const navigation_id = clay.ElementId.IDI(config.id, std.math.maxInt(u32));
     if (config.semantic_registry) |registry| _ = registry.add(.{
-        .element_id = clay.ElementId.ID(config.id).id,
+        .element_id = navigation_id.id,
         .role = .navigation,
         .label = config.semantic_label,
         .disabled = config.disabled,
     });
     clay.UI()(.{
+        .id = navigation_id,
         .layout = .{
             .sizing = .fit,
             .child_gap = theme.controls.radius_small,
@@ -80,4 +83,10 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         }
     });
     return selected;
+}
+
+test "navigation container id does not collide with first item" {
+    const container = clay.ElementId.IDI("MainNavigation", std.math.maxInt(u32));
+    const first_item = clay.ElementId.IDI("MainNavigation", 0);
+    try std.testing.expect(container.id != first_item.id);
 }

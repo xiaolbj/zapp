@@ -1,7 +1,53 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const semantics = @import("../ui/semantics.zig");
 
 pub const max_payload_bytes = 1024;
+pub const max_accessibility_nodes = semantics.max_nodes;
+pub const max_accessibility_text_bytes = 128;
+
+pub const AccessibilityAction = enum(c_int) {
+    focus = 1,
+    click = 2,
+    increment = 3,
+    decrement = 4,
+    set_text = 5,
+    expand = 6,
+    collapse = 7,
+};
+
+pub const AccessibilityNode = extern struct {
+    element_id: u32,
+    role_value: c_int,
+    flags: u32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    value: f32,
+    level: u16,
+    label_length: u16,
+    value_text_length: u16,
+    reserved: u16,
+    label: [max_accessibility_text_bytes]u8,
+    value_text: [max_accessibility_text_bytes]u8,
+};
+
+const accessibility_flag_checked_present: u32 = 1 << 0;
+const accessibility_flag_checked: u32 = 1 << 1;
+const accessibility_flag_disabled: u32 = 1 << 2;
+const accessibility_flag_focused: u32 = 1 << 3;
+const accessibility_flag_selected: u32 = 1 << 4;
+const accessibility_flag_modal: u32 = 1 << 5;
+const accessibility_flag_expanded_present: u32 = 1 << 6;
+const accessibility_flag_expanded: u32 = 1 << 7;
+
+var last_accessibility_hash: ?u64 = null;
+
+comptime {
+    std.debug.assert(@sizeOf(Event) == 1064);
+    std.debug.assert(@sizeOf(AccessibilityNode) == 296);
+}
 
 pub const EventKind = enum(c_int) {
     composition_changed = 1,
@@ -12,6 +58,7 @@ pub const EventKind = enum(c_int) {
     permission_result = 6,
     file_selected = 7,
     file_selection_cancelled = 8,
+    accessibility_action = 9,
 };
 
 pub const Event = extern struct {
@@ -19,6 +66,8 @@ pub const Event = extern struct {
     permission_value: c_int,
     request_id: u64,
     count: u32,
+    element_id: u32,
+    action_value: c_int,
     granted: bool,
     reserved: [3]u8,
     text_length: usize,
@@ -34,6 +83,7 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.permission_result) => .permission_result,
             @intFromEnum(EventKind.file_selected) => .file_selected,
             @intFromEnum(EventKind.file_selection_cancelled) => .file_selection_cancelled,
+            @intFromEnum(EventKind.accessibility_action) => .accessibility_action,
             else => null,
         };
     }
@@ -47,6 +97,7 @@ extern fn zapp_android_bridge_attach(activity: ?*const anyopaque) void;
 extern fn zapp_android_bridge_set_ime_visible(visible: bool) void;
 extern fn zapp_android_bridge_request_permission(request_id: u64, permission: c_int) bool;
 extern fn zapp_android_bridge_open_file(request_id: u64) bool;
+extern fn zapp_android_bridge_update_accessibility(nodes: [*]const AccessibilityNode, count: usize) void;
 extern fn zapp_android_bridge_poll(event: *Event) bool;
 extern fn zapp_android_bridge_reset() void;
 
@@ -70,13 +121,71 @@ pub fn openFile(request_id: u64) bool {
     return false;
 }
 
+pub fn updateAccessibility(nodes: []const semantics.Node) void {
+    if (comptime !builtin.abi.isAndroid()) return;
+
+    var native_nodes: [max_accessibility_nodes]AccessibilityNode = undefined;
+    const count = @min(nodes.len, native_nodes.len);
+    for (nodes[0..count], 0..) |node, index| native_nodes[index] = serializeAccessibilityNode(node);
+
+    var hasher = std.hash.Wyhash.init(0);
+    hasher.update(std.mem.asBytes(&count));
+    hasher.update(std.mem.sliceAsBytes(native_nodes[0..count]));
+    const hash = hasher.final();
+    if (last_accessibility_hash == hash) return;
+    last_accessibility_hash = hash;
+    zapp_android_bridge_update_accessibility(&native_nodes, count);
+}
+
 pub fn poll(event: *Event) bool {
     if (comptime builtin.abi.isAndroid()) return zapp_android_bridge_poll(event);
     return false;
 }
 
 pub fn reset() void {
+    last_accessibility_hash = null;
     if (comptime builtin.abi.isAndroid()) zapp_android_bridge_reset();
+}
+
+fn serializeAccessibilityNode(node: semantics.Node) AccessibilityNode {
+    var result: AccessibilityNode = .{
+        .element_id = node.element_id,
+        .role_value = @intFromEnum(node.role),
+        .flags = 0,
+        .x = node.bounds.x,
+        .y = node.bounds.y,
+        .width = node.bounds.width,
+        .height = node.bounds.height,
+        .value = node.value orelse std.math.nan(f32),
+        .level = node.level,
+        .label_length = 0,
+        .value_text_length = 0,
+        .reserved = 0,
+        .label = @splat(0),
+        .value_text = @splat(0),
+    };
+    if (node.checked) |checked| {
+        result.flags |= accessibility_flag_checked_present;
+        if (checked) result.flags |= accessibility_flag_checked;
+    }
+    if (node.disabled) result.flags |= accessibility_flag_disabled;
+    if (node.focused) result.flags |= accessibility_flag_focused;
+    if (node.selected) result.flags |= accessibility_flag_selected;
+    if (node.modal) result.flags |= accessibility_flag_modal;
+    if (node.expanded) |expanded| {
+        result.flags |= accessibility_flag_expanded_present;
+        if (expanded) result.flags |= accessibility_flag_expanded;
+    }
+    result.label_length = @intCast(copyUtf8Prefix(&result.label, node.label));
+    result.value_text_length = @intCast(copyUtf8Prefix(&result.value_text, node.value_text));
+    return result;
+}
+
+fn copyUtf8Prefix(destination: []u8, source: []const u8) usize {
+    var length = @min(destination.len, source.len);
+    while (length > 0 and length < source.len and source[length] & 0xc0 == 0x80) length -= 1;
+    @memcpy(destination[0..length], source[0..length]);
+    return length;
 }
 
 test "native event exposes request metadata and bounded payload" {
@@ -85,6 +194,8 @@ test "native event exposes request metadata and bounded payload" {
         .permission_value = 0,
         .request_id = 42,
         .count = 0,
+        .element_id = 0,
+        .action_value = 0,
         .granted = false,
         .reserved = @splat(0),
         .text_length = 3,
@@ -99,4 +210,21 @@ test "native event exposes request metadata and bounded payload" {
     try std.testing.expect(event.kind() == null);
     event.text_length = max_payload_bytes + 100;
     try std.testing.expectEqual(max_payload_bytes, event.text().len);
+}
+
+test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {
+    const node = serializeAccessibilityNode(.{
+        .element_id = 7,
+        .role = .checkbox,
+        .label = "中文按钮",
+        .checked = true,
+        .focused = true,
+        .bounds = .{ .x = 10, .y = 20, .width = 30, .height = 40 },
+    });
+    try std.testing.expectEqual(@as(u32, 7), node.element_id);
+    try std.testing.expect(node.flags & accessibility_flag_checked_present != 0);
+    try std.testing.expect(node.flags & accessibility_flag_checked != 0);
+    try std.testing.expect(node.flags & accessibility_flag_focused != 0);
+    try std.testing.expectEqual(@as(f32, 30), node.width);
+    try std.testing.expectEqualStrings("中文按钮", node.label[0..node.label_length]);
 }

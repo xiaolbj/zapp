@@ -13,6 +13,7 @@ pub const Config = struct {
     width: f32 = 200,
     disabled: bool = false,
     focused: bool = false,
+    semantic_modal: bool = false,
     semantic_registry: ?*semantics.Registry = null,
     normal_color: clay.Color = theme.controls.accent,
     hover_color: clay.Color = theme.controls.accent_hover,
@@ -28,6 +29,7 @@ pub fn draw(state: *State, input: Input, config: Config) bool {
         .label = config.text,
         .disabled = config.disabled,
         .focused = config.focused,
+        .modal = config.semantic_modal,
     });
     const result = interaction.update(state, id.id, clay.pointerOver(id), input, config.disabled);
     const color = if (config.disabled)

@@ -9,6 +9,8 @@
 
 #define ZAPP_ANDROID_EVENT_CAPACITY 64
 #define ZAPP_ANDROID_PAYLOAD_CAPACITY 1024
+#define ZAPP_ACCESSIBILITY_NODE_CAPACITY 64
+#define ZAPP_ACCESSIBILITY_TEXT_CAPACITY 128
 #define ZAPP_LOG_TAG "zapp-platform"
 
 enum zapp_android_event_kind {
@@ -20,6 +22,7 @@ enum zapp_android_event_kind {
     ZAPP_ANDROID_PERMISSION_RESULT = 6,
     ZAPP_ANDROID_FILE_SELECTED = 7,
     ZAPP_ANDROID_FILE_SELECTION_CANCELLED = 8,
+    ZAPP_ANDROID_ACCESSIBILITY_ACTION = 9,
 };
 
 typedef struct zapp_android_event {
@@ -27,11 +30,33 @@ typedef struct zapp_android_event {
     int32_t permission_value;
     uint64_t request_id;
     uint32_t count;
+    uint32_t element_id;
+    int32_t action_value;
     bool granted;
     uint8_t reserved[3];
     size_t text_length;
     uint8_t text_buffer[ZAPP_ANDROID_PAYLOAD_CAPACITY];
 } zapp_android_event;
+
+typedef struct zapp_accessibility_node {
+    uint32_t element_id;
+    int32_t role_value;
+    uint32_t flags;
+    float x;
+    float y;
+    float width;
+    float height;
+    float value;
+    uint16_t level;
+    uint16_t label_length;
+    uint16_t value_text_length;
+    uint16_t reserved;
+    uint8_t label[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
+    uint8_t value_text[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
+} zapp_accessibility_node;
+
+_Static_assert(sizeof(zapp_android_event) == 1064, "Zig/C Android event ABI mismatch");
+_Static_assert(sizeof(zapp_accessibility_node) == 296, "Zig/C accessibility node ABI mismatch");
 
 typedef struct zapp_jni_scope {
     JavaVM *vm;
@@ -43,6 +68,9 @@ static pthread_mutex_t zapp_event_mutex = PTHREAD_MUTEX_INITIALIZER;
 static zapp_android_event zapp_events[ZAPP_ANDROID_EVENT_CAPACITY];
 static size_t zapp_event_head;
 static size_t zapp_event_count;
+static pthread_mutex_t zapp_accessibility_mutex = PTHREAD_MUTEX_INITIALIZER;
+static zapp_accessibility_node zapp_accessibility_nodes[ZAPP_ACCESSIBILITY_NODE_CAPACITY];
+static size_t zapp_accessibility_count;
 static ANativeActivity *zapp_activity;
 
 static size_t zapp_write_utf8(uint32_t codepoint, uint8_t *output, size_t capacity) {
@@ -100,11 +128,59 @@ static size_t zapp_string_to_utf8(JNIEnv *env, jstring text, uint8_t *output, si
     return written;
 }
 
+static jstring zapp_utf8_to_string(JNIEnv *env, const uint8_t *text, size_t length) {
+    jchar utf16[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
+    size_t input = 0;
+    jsize output = 0;
+    while (input < length && output < (jsize)(sizeof(utf16) / sizeof(utf16[0]))) {
+        const uint8_t first = text[input++];
+        uint32_t codepoint = 0xfffd;
+        size_t continuation_count = 0;
+        if (first < 0x80) {
+            codepoint = first;
+        } else if ((first & 0xe0) == 0xc0) {
+            codepoint = first & 0x1f;
+            continuation_count = 1;
+        } else if ((first & 0xf0) == 0xe0) {
+            codepoint = first & 0x0f;
+            continuation_count = 2;
+        } else if ((first & 0xf8) == 0xf0) {
+            codepoint = first & 0x07;
+            continuation_count = 3;
+        }
+        bool valid = input + continuation_count <= length;
+        for (size_t index = 0; valid && index < continuation_count; ++index) {
+            const uint8_t continuation = text[input + index];
+            if ((continuation & 0xc0) != 0x80) {
+                valid = false;
+            } else {
+                codepoint = (codepoint << 6) | (continuation & 0x3f);
+            }
+        }
+        if (valid) input += continuation_count;
+        if (!valid || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
+            codepoint = 0xfffd;
+        }
+        if (codepoint <= 0xffff) {
+            utf16[output++] = (jchar)codepoint;
+        } else if (output + 1 < (jsize)(sizeof(utf16) / sizeof(utf16[0]))) {
+            codepoint -= 0x10000;
+            utf16[output++] = (jchar)(0xd800 | (codepoint >> 10));
+            utf16[output++] = (jchar)(0xdc00 | (codepoint & 0x3ff));
+        } else {
+            break;
+        }
+    }
+    return (*env)->NewString(env, utf16, output);
+}
+
 static void zapp_push_event(
     int32_t kind,
     int32_t permission,
     uint64_t request_id,
     uint32_t count,
+    uint32_t element_id,
+    int32_t action_value,
     bool granted,
     JNIEnv *env,
     jstring text
@@ -115,6 +191,8 @@ static void zapp_push_event(
     event.permission_value = permission;
     event.request_id = request_id;
     event.count = count;
+    event.element_id = element_id;
+    event.action_value = action_value;
     event.granted = granted;
     if (env != NULL && text != NULL) {
         event.text_length = zapp_string_to_utf8(env, text, event.text_buffer, sizeof(event.text_buffer));
@@ -167,34 +245,34 @@ static jobject zapp_activity_object(void) {
 JNIEXPORT void JNICALL
 Java_com_xiaolbj_zapp_ZappActivity_nativeCompositionChanged(JNIEnv *env, jclass clazz, jstring text) {
     (void)clazz;
-    zapp_push_event(ZAPP_ANDROID_COMPOSITION_CHANGED, 0, 0, 0, false, env, text);
+    zapp_push_event(ZAPP_ANDROID_COMPOSITION_CHANGED, 0, 0, 0, 0, 0, false, env, text);
 }
 
 JNIEXPORT void JNICALL
 Java_com_xiaolbj_zapp_ZappActivity_nativeCompositionCommitted(JNIEnv *env, jclass clazz, jstring text) {
     (void)clazz;
-    zapp_push_event(ZAPP_ANDROID_COMPOSITION_COMMITTED, 0, 0, 0, false, env, text);
+    zapp_push_event(ZAPP_ANDROID_COMPOSITION_COMMITTED, 0, 0, 0, 0, 0, false, env, text);
 }
 
 JNIEXPORT void JNICALL
 Java_com_xiaolbj_zapp_ZappActivity_nativeCompositionCancelled(JNIEnv *env, jclass clazz) {
     (void)env;
     (void)clazz;
-    zapp_push_event(ZAPP_ANDROID_COMPOSITION_CANCELLED, 0, 0, 0, false, NULL, NULL);
+    zapp_push_event(ZAPP_ANDROID_COMPOSITION_CANCELLED, 0, 0, 0, 0, 0, false, NULL, NULL);
 }
 
 JNIEXPORT void JNICALL
 Java_com_xiaolbj_zapp_ZappActivity_nativeBackspace(JNIEnv *env, jclass clazz, jint count) {
     (void)env;
     (void)clazz;
-    zapp_push_event(ZAPP_ANDROID_BACKSPACE, 0, 0, count > 0 ? (uint32_t)count : 1, false, NULL, NULL);
+    zapp_push_event(ZAPP_ANDROID_BACKSPACE, 0, 0, count > 0 ? (uint32_t)count : 1, 0, 0, false, NULL, NULL);
 }
 
 JNIEXPORT void JNICALL
 Java_com_xiaolbj_zapp_ZappActivity_nativeSubmit(JNIEnv *env, jclass clazz) {
     (void)env;
     (void)clazz;
-    zapp_push_event(ZAPP_ANDROID_SUBMIT, 0, 0, 0, false, NULL, NULL);
+    zapp_push_event(ZAPP_ANDROID_SUBMIT, 0, 0, 0, 0, 0, false, NULL, NULL);
 }
 
 JNIEXPORT void JNICALL
@@ -212,6 +290,8 @@ Java_com_xiaolbj_zapp_ZappActivity_nativePermissionResult(
         (int32_t)permission,
         (uint64_t)request_id,
         0,
+        0,
+        0,
         granted == JNI_TRUE,
         NULL,
         NULL
@@ -226,7 +306,7 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeFileSelected(
     jstring uri
 ) {
     (void)clazz;
-    zapp_push_event(ZAPP_ANDROID_FILE_SELECTED, 0, (uint64_t)request_id, 0, false, env, uri);
+    zapp_push_event(ZAPP_ANDROID_FILE_SELECTED, 0, (uint64_t)request_id, 0, 0, 0, false, env, uri);
 }
 
 JNIEXPORT void JNICALL
@@ -237,7 +317,81 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeFileSelectionCancelled(
 ) {
     (void)env;
     (void)clazz;
-    zapp_push_event(ZAPP_ANDROID_FILE_SELECTION_CANCELLED, 0, (uint64_t)request_id, 0, false, NULL, NULL);
+    zapp_push_event(ZAPP_ANDROID_FILE_SELECTION_CANCELLED, 0, (uint64_t)request_id, 0, 0, 0, false, NULL, NULL);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeCount(JNIEnv *env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+    pthread_mutex_lock(&zapp_accessibility_mutex);
+    const jint count = (jint)zapp_accessibility_count;
+    pthread_mutex_unlock(&zapp_accessibility_mutex);
+    return count;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeAt(
+    JNIEnv *env,
+    jclass clazz,
+    jint index,
+    jintArray metadata,
+    jfloatArray geometry,
+    jobjectArray strings
+) {
+    (void)clazz;
+    if (index < 0 || metadata == NULL || geometry == NULL || strings == NULL ||
+        (*env)->GetArrayLength(env, metadata) < 4 ||
+        (*env)->GetArrayLength(env, geometry) < 5 ||
+        (*env)->GetArrayLength(env, strings) < 2) return JNI_FALSE;
+
+    zapp_accessibility_node node;
+    pthread_mutex_lock(&zapp_accessibility_mutex);
+    if ((size_t)index >= zapp_accessibility_count) {
+        pthread_mutex_unlock(&zapp_accessibility_mutex);
+        return JNI_FALSE;
+    }
+    node = zapp_accessibility_nodes[index];
+    pthread_mutex_unlock(&zapp_accessibility_mutex);
+
+    const jint metadata_values[4] = {
+        (jint)node.element_id,
+        (jint)node.role_value,
+        (jint)node.flags,
+        (jint)node.level,
+    };
+    const jfloat geometry_values[5] = { node.x, node.y, node.width, node.height, node.value };
+    (*env)->SetIntArrayRegion(env, metadata, 0, 4, metadata_values);
+    (*env)->SetFloatArrayRegion(env, geometry, 0, 5, geometry_values);
+    jstring label = zapp_utf8_to_string(env, node.label, node.label_length);
+    jstring value_text = zapp_utf8_to_string(env, node.value_text, node.value_text_length);
+    if (label != NULL) (*env)->SetObjectArrayElement(env, strings, 0, label);
+    if (value_text != NULL) (*env)->SetObjectArrayElement(env, strings, 1, value_text);
+    if (label != NULL) (*env)->DeleteLocalRef(env, label);
+    if (value_text != NULL) (*env)->DeleteLocalRef(env, value_text);
+    return (*env)->ExceptionCheck(env) ? JNI_FALSE : JNI_TRUE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityAction(
+    JNIEnv *env,
+    jclass clazz,
+    jint element_id,
+    jint action,
+    jstring text
+) {
+    (void)clazz;
+    zapp_push_event(
+        ZAPP_ANDROID_ACCESSIBILITY_ACTION,
+        0,
+        0,
+        0,
+        (uint32_t)element_id,
+        (int32_t)action,
+        false,
+        env,
+        text
+    );
 }
 
 void zapp_android_bridge_attach(const void *activity) {
@@ -289,6 +443,37 @@ bool zapp_android_bridge_open_file(uint64_t request_id) {
     return zapp_finish_jni_call(&scope) && activity_class != NULL;
 }
 
+void zapp_android_bridge_update_accessibility(const zapp_accessibility_node *nodes, size_t count) {
+    if (nodes == NULL && count != 0) return;
+    if (count > ZAPP_ACCESSIBILITY_NODE_CAPACITY) count = ZAPP_ACCESSIBILITY_NODE_CAPACITY;
+
+    pthread_mutex_lock(&zapp_accessibility_mutex);
+    const bool changed = count != zapp_accessibility_count ||
+        (count > 0 && memcmp(zapp_accessibility_nodes, nodes, count * sizeof(*nodes)) != 0);
+    if (changed) {
+        if (count > 0) memcpy(zapp_accessibility_nodes, nodes, count * sizeof(*nodes));
+        zapp_accessibility_count = count;
+    }
+    pthread_mutex_unlock(&zapp_accessibility_mutex);
+    if (!changed) return;
+
+    zapp_jni_scope scope;
+    if (!zapp_begin_jni_scope(&scope)) return;
+    jobject activity = zapp_activity_object();
+    jclass activity_class = (*scope.env)->GetObjectClass(scope.env, activity);
+    if (activity_class != NULL) {
+        jmethodID method = (*scope.env)->GetMethodID(
+            scope.env,
+            activity_class,
+            "refreshAccessibilitySnapshotFromNative",
+            "()V"
+        );
+        if (method != NULL) (*scope.env)->CallVoidMethod(scope.env, activity, method);
+        (*scope.env)->DeleteLocalRef(scope.env, activity_class);
+    }
+    (void)zapp_finish_jni_call(&scope);
+}
+
 bool zapp_android_bridge_poll(zapp_android_event *event) {
     if (event == NULL) return false;
     pthread_mutex_lock(&zapp_event_mutex);
@@ -308,5 +493,8 @@ void zapp_android_bridge_reset(void) {
     zapp_event_head = 0;
     zapp_event_count = 0;
     pthread_mutex_unlock(&zapp_event_mutex);
+    pthread_mutex_lock(&zapp_accessibility_mutex);
+    zapp_accessibility_count = 0;
+    pthread_mutex_unlock(&zapp_accessibility_mutex);
     zapp_activity = NULL;
 }

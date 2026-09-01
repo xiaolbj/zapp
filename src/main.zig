@@ -29,10 +29,13 @@ export fn init() void {
 }
 
 export fn frame() void {
+    const keyboard_was_visible = state.app.model.text_field_focused;
     drainPlatformEvents();
     state.app.dispatch(.{ .tick = sapp.frameDuration() });
     const ui_frame = zapp.ui.build(&state.app.model);
-    const keyboard_was_visible = state.app.model.text_field_focused;
+    if (comptime builtin.abi.isAndroid()) {
+        zapp.platform.android.updateAccessibility(ui_frame.semantic_nodes);
+    }
     for (ui_frame.actions) |action| state.app.dispatch(action);
     processPlatformRequests();
     if (keyboard_was_visible != state.app.model.text_field_focused) {
@@ -75,6 +78,25 @@ fn drainPlatformEvents() void {
             .file_selection_cancelled => state.app.dispatchPlatformEvent(.{
                 .file_selection_cancelled = native_event.request_id,
             }),
+            .accessibility_action => {
+                const semantic_action: zapp.ui.SemanticAction = switch (native_event.action_value) {
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.focus) => .focus,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.click) => .activate,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.increment) => .increment,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.decrement) => .decrement,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.set_text) => .set_text,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.expand) => .expand,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.collapse) => .collapse,
+                    else => continue,
+                };
+                const actions = zapp.ui.handleSemanticAction(
+                    &state.app.model,
+                    native_event.element_id,
+                    semantic_action,
+                    native_event.text(),
+                );
+                for (actions) |action| state.app.dispatch(action);
+            },
         }
     }
 }

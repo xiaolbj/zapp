@@ -83,6 +83,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                     .hover_color = theme.controls.dialog_button_hover,
                     .pressed_color = theme.controls.dialog_button_pressed,
                     .focused = config.focused_id == clay.ElementId.ID(config.cancel_id).id,
+                    .semantic_modal = true,
                     .semantic_registry = config.semantic_registry,
                 })) result.close_requested = true;
                 if (button.draw(state, input, .{
@@ -90,6 +91,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                     .text = "确认",
                     .width = 112,
                     .focused = config.focused_id == clay.ElementId.ID(config.confirm_id).id,
+                    .semantic_modal = true,
                     .semantic_registry = config.semantic_registry,
                 })) {
                     result.confirmed = true;

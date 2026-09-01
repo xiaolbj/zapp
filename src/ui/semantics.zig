@@ -1,4 +1,5 @@
 const std = @import("std");
+const clay = @import("zclay");
 
 pub const Role = enum {
     text,
@@ -33,6 +34,14 @@ pub const Node = struct {
     modal: bool = false,
     expanded: ?bool = null,
     level: u16 = 0,
+    bounds: Bounds = .{},
+};
+
+pub const Bounds = struct {
+    x: f32 = 0,
+    y: f32 = 0,
+    width: f32 = 0,
+    height: f32 = 0,
 };
 
 pub const max_nodes = 64;
@@ -54,6 +63,23 @@ pub const Registry = struct {
 
     pub fn items(self: *const Registry) []const Node {
         return self.nodes[0..self.count];
+    }
+
+    /// Resolves the final Clay layout after `endLayout()`. Nodes whose Clay
+    /// element was clipped or not emitted retain an empty rectangle and are
+    /// ignored by native accessibility bridges.
+    pub fn resolveBounds(self: *Registry) void {
+        for (self.nodes[0..self.count]) |*node| {
+            var element_id = clay.ElementId.ID("");
+            element_id.id = node.element_id;
+            const data = clay.getElementData(element_id);
+            node.bounds = if (data.found) .{
+                .x = data.bounding_box.x,
+                .y = data.bounding_box.y,
+                .width = data.bounding_box.width,
+                .height = data.bounding_box.height,
+            } else .{};
+        }
     }
 };
 

@@ -57,6 +57,16 @@ pub const Frame = struct {
     semantic_nodes: []const semantics.Node,
 };
 
+pub const SemanticAction = enum {
+    focus,
+    activate,
+    increment,
+    decrement,
+    set_text,
+    expand,
+    collapse,
+};
+
 pub fn setup(model: *const Model) bool {
     if (state.memory != null) return true;
 
@@ -601,12 +611,117 @@ pub fn build(model: *const Model) Frame {
         .semantic_registry = &state.semantic_registry,
     });
 
+    const commands = clay.endLayout();
+    state.semantic_registry.resolveBounds();
     return .{
         .clear_color = theme.dark.background,
-        .commands = clay.endLayout(),
+        .commands = commands,
         .actions = state.actions[0..state.action_count],
         .semantic_nodes = state.semantic_registry.items(),
     };
+}
+
+/// Converts a platform accessibility action back into the same App actions
+/// used by pointer and keyboard interaction. The returned slice is consumed
+/// synchronously before the next `build()` call.
+pub fn handleSemanticAction(
+    model: *const Model,
+    element_id: u32,
+    semantic_action: SemanticAction,
+    text: []const u8,
+) []const Action {
+    state.action_count = 0;
+    const primary_id = clay.ElementId.ID("PrimaryAction").id;
+    const progress_id = clay.ElementId.ID("IncrementProgress").id;
+    const dialog_open_id = clay.ElementId.ID("OpenDemoDialog").id;
+    const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
+    const switch_id = clay.ElementId.ID("DemoSwitch").id;
+    const slider_id = clay.ElementId.ID("VolumeSlider").id;
+    const text_field_id = clay.ElementId.ID("DemoTextField").id;
+    const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
+    const file_picker_id = clay.ElementId.ID("OpenFilePicker").id;
+    const dialog_cancel_id = clay.ElementId.ID("DemoDialogCancel").id;
+    const dialog_confirm_id = clay.ElementId.ID("DemoDialogConfirm").id;
+
+    if (model.demo_dialog_open and element_id != dialog_cancel_id and element_id != dialog_confirm_id) {
+        return state.actions[0..0];
+    }
+
+    switch (semantic_action) {
+        .focus => {
+            if (isInteractiveSemanticId(element_id)) {
+                state.focus_state.focus(element_id);
+                if (model.text_field_focused != (element_id == text_field_id)) {
+                    emit(.{ .text_field_focus_changed = element_id == text_field_id });
+                }
+            }
+        },
+        .activate => {
+            state.focus_state.focus(element_id);
+            if (model.text_field_focused and element_id != text_field_id) {
+                emit(.{ .text_field_focus_changed = false });
+            }
+            if (element_id == primary_id) emit(.primary_button_pressed) else if (element_id == progress_id) emit(.demo_progress_incremented) else if (element_id == dialog_open_id) emit(.demo_dialog_opened) else if (element_id == checkbox_id) emit(.demo_checkbox_toggled) else if (element_id == switch_id) emit(.demo_switch_toggled) else if (element_id == text_field_id) {
+                if (!model.text_field_focused) emit(.{ .text_field_focus_changed = true });
+            } else if (element_id == permission_id) emit(.{ .platform_permission_requested = .camera }) else if (element_id == file_picker_id) emit(.platform_file_picker_requested) else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index });
+        },
+        .increment, .decrement => if (element_id == slider_id) {
+            const delta: f32 = if (semantic_action == .increment) 0.05 else -0.05;
+            emit(.{ .demo_volume_changed = @min(@max(model.demo_volume + delta, 0), 1) });
+        },
+        .set_text => if (element_id == text_field_id) {
+            state.focus_state.focus(element_id);
+            if (!model.text_field_focused) emit(.{ .text_field_focus_changed = true });
+            emit(.text_select_all);
+            emit(.{ .text_inserted = text });
+        },
+        .expand, .collapse => if (treeIndex(element_id)) |index| {
+            const expanded = model.demo_tree_expanded_mask & (@as(u64, 1) << @intCast(index)) != 0;
+            const should_expand = semantic_action == .expand;
+            if (treeHasChildren(index) and expanded != should_expand) {
+                state.focus_state.focus(element_id);
+                emit(.{ .demo_tree_toggled = index });
+            }
+        },
+    }
+    return state.actions[0..state.action_count];
+}
+
+fn navigationIndex(element_id: u32) ?u8 {
+    for (0..3) |index| {
+        if (element_id == clay.ElementId.IDI("MainNavigation", @intCast(index)).id) return @intCast(index);
+    }
+    return null;
+}
+
+fn treeIndex(element_id: u32) ?u8 {
+    for (demo_tree_items, 0..) |_, index| {
+        if (element_id == tree_view.itemId("ProjectTree", index).id) return @intCast(index);
+    }
+    return null;
+}
+
+fn treeHasChildren(index: u8) bool {
+    for (demo_tree_items) |item| if (item.parent_index == index) return true;
+    return false;
+}
+
+fn isInteractiveSemanticId(element_id: u32) bool {
+    if (navigationIndex(element_id) != null or treeIndex(element_id) != null) return true;
+    inline for ([_][]const u8{
+        "PrimaryAction",
+        "IncrementProgress",
+        "OpenDemoDialog",
+        "DemoCheckbox",
+        "DemoSwitch",
+        "VolumeSlider",
+        "DemoTextField",
+        "RequestCameraPermission",
+        "OpenFilePicker",
+        "DemoDialogCancel",
+        "DemoDialogConfirm",
+    }) |id| if (element_id == clay.ElementId.ID(id).id) return true;
+    return false;
 }
 
 fn emit(action: Action) void {
@@ -747,4 +862,45 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(requested_close);
     try std.testing.expect(has_modal_semantics);
     try std.testing.expect(state.focus_state.modalOpen());
+}
+
+test "semantic actions reuse reducer-facing UI actions" {
+    var model: Model = .{};
+
+    var actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("PrimaryAction").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expect(actions[0] == .primary_button_pressed);
+
+    const expected_volume = model.demo_volume + 0.05;
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("VolumeSlider").id,
+        .increment,
+        "",
+    );
+    try std.testing.expectEqual(expected_volume, actions[0].demo_volume_changed);
+
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("DemoTextField").id,
+        .set_text,
+        "无障碍输入",
+    );
+    try std.testing.expectEqual(@as(usize, 3), actions.len);
+    try std.testing.expect(actions[0] == .text_field_focus_changed);
+    try std.testing.expect(actions[1] == .text_select_all);
+    try std.testing.expectEqualStrings("无障碍输入", actions[2].text_inserted);
+
+    actions = handleSemanticAction(
+        &model,
+        tree_view.itemId("ProjectTree", 0).id,
+        .collapse,
+        "",
+    );
+    try std.testing.expectEqual(@as(u8, 0), actions[0].demo_tree_toggled);
 }

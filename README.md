@@ -53,7 +53,7 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 
 `src/ui/focus_manager.zig` 保存当前焦点、模态焦点和打开弹窗前的焦点。Dialog 关闭后会恢复之前的焦点；Escape 和 Android 返回键统一转成 `back_requested` Action。
 
-`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、TreeView 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值以及 focused/disabled/selected/modal/expanded/level 等状态，为后续 Android AccessibilityNodeInfo 和 iOS UIAccessibility 桥保留统一输入；Divider 被明确视为装饰元素，不进入语义树。
+`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、TreeView 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值、最终布局边界以及 focused/disabled/selected/modal/expanded/level 等状态；Divider 被明确视为装饰元素，不进入语义树。Android 已通过 `AccessibilityNodeProvider` 将这些数据映射成原生虚拟节点，并把点击、增减、文本设置和树展开/折叠动作送回现有 App Action/reducer。
 
 手柄、电视遥控器和辅助输入设备通过平台层的 `NavigationCommand` 接入：`next`/`previous` 移动焦点，`activate` 激活控件，`decrement`/`increment` 调节 Slider，`back` 复用 Escape/Android 返回逻辑。具体平台只需把原生按键或轴事件翻译成该命令。
 
@@ -64,7 +64,7 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 所有 `src/ui/widgets` 控件的语义颜色、常用圆角和间距来自 `src/ui/theme.zig` 的共享令牌；Switch 等胶囊形状的半径由控件尺寸计算。
 - Button 使用稳定 Clay ID 跟踪按压归属，只有在控件内按下并在控件内释放才触发点击。
 - 控件不直接修改业务数据，而是写入 `ui.Frame.actions`，由主循环派发给 App reducer。
-- 控件不直接调用平台无障碍 API，而是写入 `ui.Frame.semantic_nodes`，由平台桥按需映射到原生语义节点。
+- 控件不直接调用平台无障碍 API，而是写入 `ui.Frame.semantic_nodes`，由平台桥按需映射到原生语义节点；Android 模态对话框打开时只暴露模态节点。
 - 指针的 pressed/released 边沿保存在 AppModel 中，UI 构建后通过 `input_consumed` 清除，避免事件发生在两帧之间时丢失点击。
 
 按钮示例：
