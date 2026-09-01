@@ -10,5 +10,7 @@ pub const Model = struct {
     pointer_pressed: bool = false,
     pointer_released: bool = false,
     primary_button_presses: u32 = 0,
+    demo_checkbox_checked: bool = false,
+    demo_switch_checked: bool = true,
     suspended: bool = false,
 };

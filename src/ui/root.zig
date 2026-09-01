@@ -5,13 +5,16 @@ const Model = @import("../app/model.zig").Model;
 const font = @import("../text/font.zig");
 const theme = @import("theme.zig");
 const button = @import("widgets/button.zig");
+const checkbox = @import("widgets/checkbox.zig");
+const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
+const toggle_switch = @import("widgets/switch.zig");
 
 const max_actions = 8;
 
 const state = struct {
     var memory: ?[]u8 = null;
-    var button_state: button.State = .{};
+    var interaction_state: interaction.State = .{};
     var actions: [max_actions]Action = undefined;
     var action_count: usize = 0;
     var counter_text: [96]u8 = undefined;
@@ -31,7 +34,7 @@ pub fn setup(model: *const Model) bool {
         return false;
     };
     state.memory = memory;
-    state.button_state = .{};
+    state.interaction_state = .{};
     state.action_count = 0;
 
     _ = clay.initialize(.init(memory), dimensions(model), .{
@@ -46,7 +49,7 @@ pub fn shutdown() void {
         std.heap.c_allocator.free(memory);
         state.memory = null;
     }
-    state.button_state = .{};
+    state.interaction_state = .{};
     state.action_count = 0;
 }
 
@@ -69,7 +72,7 @@ pub fn build(model: *const Model) Frame {
         .{ .w = .grow, .h = .fixed(112) }
     else
         .{ .w = .fixed(240), .h = .grow };
-    const input: button.Input = .{
+    const input: interaction.Input = .{
         .down = model.pointer_down,
         .pressed = model.pointer_pressed,
         .released = model.pointer_released,
@@ -147,10 +150,20 @@ pub fn build(model: *const Model) Frame {
                 })({
                     label.draw("Clay 应用框架", .{ .font_size = 22 });
                     label.draw(counter_text, .{ .color = .{ 166, 187, 218, 255 } });
-                    if (button.draw(&state.button_state, input, .{
+                    if (button.draw(&state.interaction_state, input, .{
                         .id = "PrimaryAction",
                         .text = "点击测试",
                     })) emit(.primary_button_pressed);
+                    if (checkbox.draw(&state.interaction_state, input, .{
+                        .id = "DemoCheckbox",
+                        .text = "启用离线缓存",
+                        .checked = model.demo_checkbox_checked,
+                    })) emit(.demo_checkbox_toggled);
+                    if (toggle_switch.draw(&state.interaction_state, input, .{
+                        .id = "DemoSwitch",
+                        .text = "接收应用通知",
+                        .checked = model.demo_switch_checked,
+                    })) emit(.demo_switch_toggled);
                 });
 
                 clay.UI()(.{

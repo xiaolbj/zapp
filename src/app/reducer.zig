@@ -26,6 +26,8 @@ pub fn update(model: *Model, action: Action) void {
             model.pointer_released = false;
         },
         .primary_button_pressed => model.primary_button_presses += 1,
+        .demo_checkbox_toggled => model.demo_checkbox_checked = !model.demo_checkbox_checked,
+        .demo_switch_toggled => model.demo_switch_checked = !model.demo_switch_checked,
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -66,6 +68,17 @@ test "button action updates application state" {
     update(&model, .primary_button_pressed);
 
     try std.testing.expectEqual(@as(u32, 2), model.primary_button_presses);
+}
+
+test "selection controls toggle application state" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .demo_checkbox_toggled);
+    update(&model, .demo_switch_toggled);
+
+    try std.testing.expect(model.demo_checkbox_checked);
+    try std.testing.expect(!model.demo_switch_checked);
 }
 
 test "tick advances only while active" {

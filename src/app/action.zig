@@ -16,6 +16,8 @@ pub const Action = union(enum) {
     pointer_changed: Pointer,
     input_consumed,
     primary_button_pressed,
+    demo_checkbox_toggled,
+    demo_switch_toggled,
     suspended,
     resumed,
 };

@@ -27,6 +27,9 @@ zig build run
 
 - `label.zig`：统一封装 Clay 文本样式。
 - `button.zig`：支持 normal、hover、pressed、disabled 状态。
+- `checkbox.zig`：受控勾选框，状态由 AppModel 持有。
+- `switch.zig`：受控开关，支持启用、关闭和禁用样式。
+- `interaction.zig`：所有指针控件共享的按压捕获与点击判定状态机。
 - Button 使用稳定 Clay ID 跟踪按压归属，只有在控件内按下并在控件内释放才触发点击。
 - 控件不直接修改业务数据，而是写入 `ui.Frame.actions`，由主循环派发给 App reducer。
 - 指针的 pressed/released 边沿保存在 AppModel 中，UI 构建后通过 `input_consumed` 清除，避免事件发生在两帧之间时丢失点击。

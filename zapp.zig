@@ -10,5 +10,8 @@ test {
     _ = text;
     _ = ui;
     _ = @import("src/ui/widgets/button.zig");
+    _ = @import("src/ui/widgets/checkbox.zig");
+    _ = @import("src/ui/widgets/interaction.zig");
     _ = @import("src/ui/widgets/label.zig");
+    _ = @import("src/ui/widgets/switch.zig");
 }
