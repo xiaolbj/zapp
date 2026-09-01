@@ -14,6 +14,8 @@ pub const AccessibilityAction = enum(c_int) {
     set_text = 5,
     expand = 6,
     collapse = 7,
+    scroll_forward = 8,
+    scroll_backward = 9,
 };
 
 pub const AccessibilityNode = extern struct {
@@ -41,6 +43,9 @@ const accessibility_flag_selected: u32 = 1 << 4;
 const accessibility_flag_modal: u32 = 1 << 5;
 const accessibility_flag_expanded_present: u32 = 1 << 6;
 const accessibility_flag_expanded: u32 = 1 << 7;
+const accessibility_flag_scrollable: u32 = 1 << 8;
+const accessibility_flag_can_scroll_forward: u32 = 1 << 9;
+const accessibility_flag_can_scroll_backward: u32 = 1 << 10;
 
 var last_accessibility_hash: ?u64 = null;
 
@@ -193,6 +198,9 @@ fn serializeAccessibilityNode(node: semantics.Node) AccessibilityNode {
         result.flags |= accessibility_flag_expanded_present;
         if (expanded) result.flags |= accessibility_flag_expanded;
     }
+    if (node.scrollable) result.flags |= accessibility_flag_scrollable;
+    if (node.can_scroll_forward) result.flags |= accessibility_flag_can_scroll_forward;
+    if (node.can_scroll_backward) result.flags |= accessibility_flag_can_scroll_backward;
     result.label_length = @intCast(copyUtf8Prefix(&result.label, node.label));
     result.value_text_length = @intCast(copyUtf8Prefix(&result.value_text, node.value_text));
     return result;
@@ -245,4 +253,19 @@ test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {
     try std.testing.expect(node.flags & accessibility_flag_focused != 0);
     try std.testing.expectEqual(@as(f32, 30), node.width);
     try std.testing.expectEqualStrings("中文按钮", node.label[0..node.label_length]);
+}
+
+test "accessibility serialization exposes available scroll directions" {
+    const node = serializeAccessibilityNode(.{
+        .element_id = 8,
+        .role = .list,
+        .label = "最近活动",
+        .scrollable = true,
+        .can_scroll_forward = true,
+        .can_scroll_backward = false,
+    });
+
+    try std.testing.expect(node.flags & accessibility_flag_scrollable != 0);
+    try std.testing.expect(node.flags & accessibility_flag_can_scroll_forward != 0);
+    try std.testing.expect(node.flags & accessibility_flag_can_scroll_backward == 0);
 }

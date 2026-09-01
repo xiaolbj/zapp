@@ -26,11 +26,17 @@ pub fn update(model: *Model, action: Action) void {
             model.scroll_delta_x += delta.x;
             model.scroll_delta_y += delta.y;
         },
+        .semantic_scroll_requested => |request| {
+            model.semantic_scroll_element_id = request.element_id;
+            model.semantic_scroll_direction = if (request.direction < 0) -1 else 1;
+        },
         .input_consumed => {
             model.pointer_pressed = false;
             model.pointer_released = false;
             model.scroll_delta_x = 0;
             model.scroll_delta_y = 0;
+            model.semantic_scroll_element_id = null;
+            model.semantic_scroll_direction = 0;
             model.back_requested = false;
             model.focus_next_requested = false;
             model.focus_previous_requested = false;
@@ -199,6 +205,22 @@ test "scroll input accumulates until consumed" {
     update(&model, .input_consumed);
     try std.testing.expectEqual(@as(f32, 0), model.scroll_delta_x);
     try std.testing.expectEqual(@as(f32, 0), model.scroll_delta_y);
+}
+
+test "semantic scroll request is retained for one frame" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .{ .semantic_scroll_requested = .{
+        .element_id = 42,
+        .direction = -7,
+    } });
+    try std.testing.expectEqual(@as(?u32, 42), model.semantic_scroll_element_id);
+    try std.testing.expectEqual(@as(i8, -1), model.semantic_scroll_direction);
+
+    update(&model, .input_consumed);
+    try std.testing.expectEqual(@as(?u32, null), model.semantic_scroll_element_id);
+    try std.testing.expectEqual(@as(i8, 0), model.semantic_scroll_direction);
 }
 
 test "progress action advances and wraps" {

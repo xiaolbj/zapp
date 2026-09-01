@@ -20,6 +20,7 @@ pub fn declaration(config: Config) clay.ElementDeclaration {
             .element_id = id.id,
             .role = .list,
             .label = semantic_label,
+            .scrollable = true,
         });
     }
     return .{

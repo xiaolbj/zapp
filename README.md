@@ -64,7 +64,7 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 所有 `src/ui/widgets` 控件的语义颜色、常用圆角和间距来自 `src/ui/theme.zig` 的共享令牌；Switch 等胶囊形状的半径由控件尺寸计算。
 - Button 使用稳定 Clay ID 跟踪按压归属，只有在控件内按下并在控件内释放才触发点击。
 - 控件不直接修改业务数据，而是写入 `ui.Frame.actions`，由主循环派发给 App reducer。
-- 控件不直接调用平台无障碍 API，而是写入 `ui.Frame.semantic_nodes`，由平台桥按需映射到原生语义节点；Android 模态对话框打开时只暴露模态节点。
+- 控件不直接调用平台无障碍 API，而是写入 `ui.Frame.semantic_nodes`，由平台桥按需映射到原生语义节点；Android 模态对话框打开时只暴露模态节点，Card 和 ScrollView 会按实际滚动位置暴露可用的系统翻页动作。
 - 指针的 pressed/released 边沿保存在 AppModel 中，UI 构建后通过 `input_consumed` 清除，避免事件发生在两帧之间时丢失点击。
 
 按钮示例：

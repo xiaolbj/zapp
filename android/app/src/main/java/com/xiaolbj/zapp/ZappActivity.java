@@ -49,6 +49,8 @@ public final class ZappActivity extends NativeActivity {
     private static final int ACCESSIBILITY_ACTION_SET_TEXT = 5;
     private static final int ACCESSIBILITY_ACTION_EXPAND = 6;
     private static final int ACCESSIBILITY_ACTION_COLLAPSE = 7;
+    private static final int ACCESSIBILITY_ACTION_SCROLL_FORWARD = 8;
+    private static final int ACCESSIBILITY_ACTION_SCROLL_BACKWARD = 9;
     private static final int FILE_READ_ERROR_INVALID_URI = 1;
     private static final int FILE_READ_ERROR_NOT_FOUND = 2;
     private static final int FILE_READ_ERROR_PERMISSION_DENIED = 3;
@@ -357,6 +359,9 @@ public final class ZappActivity extends NativeActivity {
         private static final int FLAG_MODAL = 1 << 5;
         private static final int FLAG_EXPANDED_PRESENT = 1 << 6;
         private static final int FLAG_EXPANDED = 1 << 7;
+        private static final int FLAG_SCROLLABLE = 1 << 8;
+        private static final int FLAG_CAN_SCROLL_FORWARD = 1 << 9;
+        private static final int FLAG_CAN_SCROLL_BACKWARD = 1 << 10;
 
         private static final int ROLE_TEXT = 0;
         private static final int ROLE_BUTTON = 1;
@@ -565,8 +570,12 @@ public final class ZappActivity extends NativeActivity {
                             AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, 0, 1, node.value
                         ));
                     }
-                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
-                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                    if (Float.isNaN(node.value) || node.value < 1) {
+                        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+                    }
+                    if (Float.isNaN(node.value) || node.value > 0) {
+                        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                    }
                 }
                 if (node.role == ROLE_TEXT_FIELD) {
                     info.setEditable(true);
@@ -578,6 +587,19 @@ public final class ZappActivity extends NativeActivity {
                     info.addAction(node.hasFlag(FLAG_EXPANDED)
                         ? AccessibilityNodeInfo.AccessibilityAction.ACTION_COLLAPSE
                         : AccessibilityNodeInfo.AccessibilityAction.ACTION_EXPAND);
+                }
+                if (node.hasFlag(FLAG_SCROLLABLE)) {
+                    boolean canForward = node.hasFlag(FLAG_CAN_SCROLL_FORWARD);
+                    boolean canBackward = node.hasFlag(FLAG_CAN_SCROLL_BACKWARD);
+                    info.setScrollable(canForward || canBackward);
+                    if (canForward) {
+                        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+                        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN);
+                    }
+                    if (canBackward) {
+                        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP);
+                    }
                 }
             }
 
@@ -605,10 +627,26 @@ public final class ZappActivity extends NativeActivity {
                 String text = null;
                 if (action == AccessibilityNodeInfo.ACTION_CLICK) {
                     nativeAction = ACCESSIBILITY_ACTION_CLICK;
-                } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) {
-                    nativeAction = ACCESSIBILITY_ACTION_INCREMENT;
-                } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
-                    nativeAction = ACCESSIBILITY_ACTION_DECREMENT;
+                } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ||
+                    action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId()) {
+                    if (node.role == ROLE_SLIDER) {
+                        nativeAction = ACCESSIBILITY_ACTION_INCREMENT;
+                    } else if (node.hasFlag(FLAG_SCROLLABLE) &&
+                        node.hasFlag(FLAG_CAN_SCROLL_FORWARD)) {
+                        nativeAction = ACCESSIBILITY_ACTION_SCROLL_FORWARD;
+                    } else {
+                        return false;
+                    }
+                } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD ||
+                    action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId()) {
+                    if (node.role == ROLE_SLIDER) {
+                        nativeAction = ACCESSIBILITY_ACTION_DECREMENT;
+                    } else if (node.hasFlag(FLAG_SCROLLABLE) &&
+                        node.hasFlag(FLAG_CAN_SCROLL_BACKWARD)) {
+                        nativeAction = ACCESSIBILITY_ACTION_SCROLL_BACKWARD;
+                    } else {
+                        return false;
+                    }
                 } else if (action == AccessibilityNodeInfo.ACTION_SET_TEXT) {
                     nativeAction = ACCESSIBILITY_ACTION_SET_TEXT;
                     if (arguments != null) {
@@ -625,7 +663,12 @@ public final class ZappActivity extends NativeActivity {
                     return false;
                 }
                 nativeAccessibilityAction(virtualViewId, nativeAction, text);
-                sendVirtualEvent(virtualViewId, AccessibilityEvent.TYPE_VIEW_CLICKED);
+                boolean isScroll = nativeAction == ACCESSIBILITY_ACTION_SCROLL_FORWARD ||
+                    nativeAction == ACCESSIBILITY_ACTION_SCROLL_BACKWARD;
+                sendVirtualEvent(
+                    virtualViewId,
+                    isScroll ? AccessibilityEvent.TYPE_VIEW_SCROLLED : AccessibilityEvent.TYPE_VIEW_CLICKED
+                );
                 return true;
             }
 

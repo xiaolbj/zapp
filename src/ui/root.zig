@@ -66,6 +66,8 @@ pub const SemanticAction = enum {
     set_text,
     expand,
     collapse,
+    scroll_forward,
+    scroll_backward,
 };
 
 pub fn setup(model: *const Model) bool {
@@ -116,6 +118,7 @@ pub fn build(model: *const Model) Frame {
 
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
+    applySemanticScroll(model);
     clay.updateScrollContainers(true, .{
         .x = model.scroll_delta_x * 36,
         .y = model.scroll_delta_y * 36,
@@ -690,6 +693,12 @@ pub fn handleSemanticAction(
                 emit(.{ .demo_tree_toggled = index });
             }
         },
+        .scroll_forward, .scroll_backward => if (isScrollableSemanticId(element_id)) {
+            emit(.{ .semantic_scroll_requested = .{
+                .element_id = element_id,
+                .direction = if (semantic_action == .scroll_forward) 1 else -1,
+            } });
+        },
     }
     return state.actions[0..state.action_count];
 }
@@ -729,6 +738,24 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "DemoDialogConfirm",
     }) |id| if (element_id == clay.ElementId.ID(id).id) return true;
     return false;
+}
+
+fn isScrollableSemanticId(element_id: u32) bool {
+    return element_id == clay.ElementId.ID("PrimaryCard").id or
+        element_id == clay.ElementId.ID("ActivityScrollView").id;
+}
+
+fn applySemanticScroll(model: *const Model) void {
+    const element_value = model.semantic_scroll_element_id orelse return;
+    if (model.semantic_scroll_direction == 0 or !isScrollableSemanticId(element_value)) return;
+    var element_id = clay.ElementId.ID("");
+    element_id.id = element_value;
+    const scroll = clay.getScrollContainerData(element_id);
+    if (!scroll.found or !scroll.config.vertical) return;
+    const max_scroll = @max(scroll.content_dimensions.h - scroll.scroll_container_dimensions.h, 0);
+    const page = @max(scroll.scroll_container_dimensions.h * 0.8, 48);
+    const delta = if (model.semantic_scroll_direction > 0) -page else page;
+    scroll.scroll_position.y = @min(@max(scroll.scroll_position.y + delta, -max_scroll), 0);
 }
 
 fn emit(action: Action) void {
@@ -844,6 +871,7 @@ test "responsive shell emits controls and text" {
     var has_text_semantics = false;
     var has_progress_semantics = false;
     var has_list_semantics = false;
+    var has_forward_scroll_semantics = false;
     var has_tree_semantics = false;
     var has_expanded_tree_item = false;
     for (result.semantic_nodes) |node| {
@@ -851,7 +879,12 @@ test "responsive shell emits controls and text" {
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
         if (node.role == .text) has_text_semantics = true;
         if (node.role == .progress_bar and node.value != null) has_progress_semantics = true;
-        if (node.role == .list) has_list_semantics = true;
+        if (node.role == .list) {
+            has_list_semantics = true;
+            if (node.scrollable and node.can_scroll_forward and !node.can_scroll_backward) {
+                has_forward_scroll_semantics = true;
+            }
+        }
         if (node.role == .tree) has_tree_semantics = true;
         if (node.role == .tree_item and node.expanded != null) has_expanded_tree_item = true;
     }
@@ -860,8 +893,26 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_text_semantics);
     try std.testing.expect(has_progress_semantics);
     try std.testing.expect(has_list_semantics);
+    try std.testing.expect(has_forward_scroll_semantics);
     try std.testing.expect(has_tree_semantics);
     try std.testing.expect(has_expanded_tree_item);
+
+    model.semantic_scroll_element_id = clay.ElementId.ID("ActivityScrollView").id;
+    model.semantic_scroll_direction = 1;
+    const scrolled_frame = build(&model);
+    const activity_scroll = clay.getScrollContainerData(clay.ElementId.ID("ActivityScrollView"));
+    try std.testing.expect(activity_scroll.found);
+    try std.testing.expect(activity_scroll.scroll_position.y < 0);
+    var can_scroll_backward = false;
+    for (scrolled_frame.semantic_nodes) |node| {
+        if (node.element_id == clay.ElementId.ID("ActivityScrollView").id) {
+            can_scroll_backward = node.can_scroll_backward;
+            break;
+        }
+    }
+    try std.testing.expect(can_scroll_backward);
+    model.semantic_scroll_element_id = null;
+    model.semantic_scroll_direction = 0;
 
     state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
     const focused_frame = build(&model);
@@ -957,6 +1008,19 @@ test "semantic actions reuse reducer-facing UI actions" {
         "",
     );
     try std.testing.expectEqual(@as(u8, 0), actions[0].demo_tree_toggled);
+
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("ActivityScrollView").id,
+        .scroll_forward,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(
+        clay.ElementId.ID("ActivityScrollView").id,
+        actions[0].semantic_scroll_requested.element_id,
+    );
+    try std.testing.expectEqual(@as(i8, 1), actions[0].semantic_scroll_requested.direction);
 }
 
 test "file previews preserve UTF-8 text and format binary as hex" {

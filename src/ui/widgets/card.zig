@@ -23,6 +23,7 @@ pub fn declaration(config: Config) clay.ElementDeclaration {
             .element_id = id.id,
             .role = .group,
             .label = semantic_label,
+            .scrollable = config.scroll_vertical,
         });
     }
     return .{

@@ -34,6 +34,9 @@ pub const Node = struct {
     modal: bool = false,
     expanded: ?bool = null,
     level: u16 = 0,
+    scrollable: bool = false,
+    can_scroll_forward: bool = false,
+    can_scroll_backward: bool = false,
     bounds: Bounds = .{},
 };
 
@@ -79,6 +82,20 @@ pub const Registry = struct {
                 .width = data.bounding_box.width,
                 .height = data.bounding_box.height,
             } else .{};
+            if (node.scrollable) {
+                const scroll = clay.getScrollContainerData(element_id);
+                if (scroll.found and scroll.config.vertical) {
+                    const max_scroll = @max(
+                        scroll.content_dimensions.h - scroll.scroll_container_dimensions.h,
+                        0,
+                    );
+                    node.can_scroll_forward = scroll.scroll_position.y > -max_scroll + 0.5;
+                    node.can_scroll_backward = scroll.scroll_position.y < -0.5;
+                } else {
+                    node.can_scroll_forward = false;
+                    node.can_scroll_backward = false;
+                }
+            }
         }
     }
 };

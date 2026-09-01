@@ -15,6 +15,11 @@ pub const ScrollDelta = struct {
     y: f32,
 };
 
+pub const SemanticScrollRequest = struct {
+    element_id: u32,
+    direction: i8,
+};
+
 pub const TextCursorMove = struct {
     direction: i8,
     selecting: bool,
@@ -30,6 +35,7 @@ pub const Action = union(enum) {
     resized: Viewport,
     pointer_changed: Pointer,
     scroll_changed: ScrollDelta,
+    semantic_scroll_requested: SemanticScrollRequest,
     input_consumed,
     primary_button_pressed,
     demo_checkbox_toggled,

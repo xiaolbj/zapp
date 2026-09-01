@@ -87,6 +87,8 @@ fn drainPlatformEvents() void {
                     @intFromEnum(zapp.platform.android.AccessibilityAction.set_text) => .set_text,
                     @intFromEnum(zapp.platform.android.AccessibilityAction.expand) => .expand,
                     @intFromEnum(zapp.platform.android.AccessibilityAction.collapse) => .collapse,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.scroll_forward) => .scroll_forward,
+                    @intFromEnum(zapp.platform.android.AccessibilityAction.scroll_backward) => .scroll_backward,
                     else => continue,
                 };
                 const actions = zapp.ui.handleSemanticAction(
