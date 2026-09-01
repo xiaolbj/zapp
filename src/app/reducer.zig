@@ -12,6 +12,22 @@ pub fn update(model: *Model, action: Action) void {
         },
         .performance_updated => |snapshot| model.performance = snapshot,
         .platform_native_crash_recovered => |report| model.last_native_crash = report,
+        .platform_crash_report_export_requested => {
+            model.crash_report_export_attempted = false;
+            model.crash_report_export_chooser_opened = false;
+        },
+        .platform_crash_report_export_started => |request_id| {
+            model.last_crash_report_export_request_id = request_id;
+            model.crash_report_export_pending = true;
+            model.crash_report_export_attempted = false;
+            model.crash_report_export_chooser_opened = false;
+        },
+        .platform_crash_report_export_result => |result| {
+            if (result.request_id != model.last_crash_report_export_request_id) return;
+            model.crash_report_export_pending = false;
+            model.crash_report_export_attempted = true;
+            model.crash_report_export_chooser_opened = result.chooser_opened;
+        },
         .resized => |viewport| {
             model.viewport_width = viewport.width;
             model.viewport_height = viewport.height;

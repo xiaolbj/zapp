@@ -97,6 +97,7 @@ public final class ZappActivity extends NativeActivity {
     private static native void nativeFileStreamCompleted(long requestId, long totalBytes);
     private static native void nativeFileStreamFailed(long requestId, int errorKind);
     private static native void nativeFileStreamCancelled(long requestId, long totalBytes);
+    private static native void nativeCrashReportExportResult(long requestId, boolean chooserOpened);
     private static native int nativeAccessibilityNodeCount();
     private static native boolean nativeAccessibilityNodeAt(
         int index,
@@ -243,6 +244,27 @@ public final class ZappActivity extends NativeActivity {
                 pendingFileRequestId = 0;
                 nativeFileSelectionCancelled(requestId);
             }
+        });
+    }
+
+    @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
+    public void shareCrashReportFromNative(long requestId, String reportText) {
+        runOnUiThread(() -> {
+            if (destroyed) return;
+            boolean chooserOpened = false;
+            if (reportText != null && !reportText.isEmpty()) {
+                Intent sendIntent = new Intent(Intent.ACTION_SEND);
+                sendIntent.setType("text/plain");
+                sendIntent.putExtra(Intent.EXTRA_SUBJECT, "zapp native crash report");
+                sendIntent.putExtra(Intent.EXTRA_TEXT, reportText);
+                try {
+                    startActivity(Intent.createChooser(sendIntent, "导出崩溃报告"));
+                    chooserOpened = true;
+                } catch (RuntimeException ignored) {
+                    // The reducer reports the failure without logging crash contents.
+                }
+            }
+            if (!destroyed) nativeCrashReportExportResult(requestId, chooserOpened);
         });
     }
 

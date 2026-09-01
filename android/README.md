@@ -100,7 +100,11 @@ adb shell run-as com.xiaolbj.zapp kill -11 $pid
 
 如果恢复信息包含 `libzapp+0x...`，使用同一 APK 版本、ABI 和 Build ID 对应的 `.debug` 文件执行 `llvm-addr2line`。外部 `kill` 发出的异步信号通常会中断在系统库中，因此可能只有绝对 PC；真实的 `libzapp` 非法访问才会产生可直接符号化的 App 相对 PC。
 
-该机制是 tombstone/线上崩溃服务的补充，不捕获 `SIGKILL`、低内存终止、断电或处理器安装前发生的崩溃，也不会尝试在损坏进程中上传网络数据。报告上传应在下一次正常启动后由受控平台接口完成。
+该机制是 tombstone/线上崩溃服务的补充，不捕获 `SIGKILL`、低内存终止、断电或处理器安装前发生的崩溃，也不会尝试在损坏进程中上传网络数据。
+
+恢复记录后，UI 会启用“导出崩溃报告”。点击时 Zig 将信号名称/编号、`si_code`、ABI、Build ID、App 相对 PC、绝对 PC、故障地址、PID/TID 和 Unix 时间戳格式化到固定 1024 字节自持有请求中，经 PlatformRequest → C/JNI 调用 Android `ACTION_SEND` 与系统 chooser。Java 层只转交 `text/plain`，不读取、修改或记录正文；chooser 是否成功打开再通过 PlatformEvent → reducer 回到 UI。此状态不代表用户已经选择接收方或完成发送，因为 Android 分享协议不提供可靠的最终发送回执。
+
+导出完全由用户触发，不写入公共存储、不声明网络权限、不自动选择接收方，也不静默上传。若未来接入线上崩溃服务，应另设明确授权、脱敏、保留期和重试策略，而不是复用当前系统分享结果作为上传成功信号。
 
 正式发布签名只从外部注入，仓库不保存密钥或密码：
 

@@ -73,6 +73,20 @@ pub const App = struct {
                     } });
                 }
             },
+            .platform_crash_report_export_requested => {
+                const report = self.model.last_native_crash orelse return;
+                const request_id = self.allocateRequestId();
+                self.dispatch(.{ .platform_crash_report_export_started = request_id });
+                const export_request = platform.CrashReportExportRequest.init(request_id, report);
+                if (export_request == null or
+                    !self.enqueuePlatformRequest(.{ .share_crash_report = export_request.? }))
+                {
+                    self.dispatch(.{ .platform_crash_report_export_result = .{
+                        .request_id = request_id,
+                        .chooser_opened = false,
+                    } });
+                }
+            },
             else => {},
         }
     }
@@ -118,6 +132,9 @@ pub const App = struct {
                 .back => self.dispatch(.back_requested),
             },
             .native_crash_recovered => |report| self.dispatch(.{ .platform_native_crash_recovered = report }),
+            .crash_report_export_result => |result| self.dispatch(.{
+                .platform_crash_report_export_result = result,
+            }),
         }
     }
 
@@ -270,6 +287,46 @@ test "recovered native crash enters app model" {
     try std.testing.expectEqual(report.relative_pc, app.model.last_native_crash.?.relative_pc);
     try std.testing.expectEqual(report.architecture, app.model.last_native_crash.?.architecture);
     try std.testing.expectEqualSlices(u8, &.{ 0xab, 0xcd }, app.model.last_native_crash.?.buildId());
+}
+
+test "crash report export owns text and accepts only matching result" {
+    const std = @import("std");
+    var app: App = .{};
+    var report: platform.NativeCrashReport = .{
+        .signal_number = 11,
+        .signal_code = 1,
+        .architecture = .x86_64,
+        .pc_in_app = true,
+        .relative_pc = 0x2468,
+        .absolute_pc = 0x70002468,
+        .fault_address = 0,
+        .process_id = 200,
+        .thread_id = 201,
+        .timestamp_seconds = 1_700_000_001,
+    };
+    report.build_id_length = 2;
+    report.build_id[0..2].* = .{ 0x12, 0x34 };
+    app.model.last_native_crash = report;
+
+    app.dispatch(.platform_crash_report_export_requested);
+    const request = app.takePlatformRequest().?.share_crash_report;
+    try std.testing.expect(app.model.crash_report_export_pending);
+    try std.testing.expectEqual(request.request_id, app.model.last_crash_report_export_request_id);
+    try std.testing.expect(std.mem.indexOf(u8, request.text(), "build_id=1234\n") != null);
+
+    app.dispatchPlatformEvent(.{ .crash_report_export_result = .{
+        .request_id = request.request_id + 1,
+        .chooser_opened = true,
+    } });
+    try std.testing.expect(app.model.crash_report_export_pending);
+
+    app.dispatchPlatformEvent(.{ .crash_report_export_result = .{
+        .request_id = request.request_id,
+        .chooser_opened = true,
+    } });
+    try std.testing.expect(!app.model.crash_report_export_pending);
+    try std.testing.expect(app.model.crash_report_export_attempted);
+    try std.testing.expect(app.model.crash_report_export_chooser_opened);
 }
 
 test {

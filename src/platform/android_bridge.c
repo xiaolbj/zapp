@@ -35,6 +35,7 @@ enum zapp_android_event_kind {
     ZAPP_ANDROID_FILE_STREAM_FAILED = 14,
     ZAPP_ANDROID_FILE_STREAM_CANCELLED = 15,
     ZAPP_ANDROID_NATIVE_CRASH_RECOVERED = 16,
+    ZAPP_ANDROID_CRASH_REPORT_EXPORT_RESULT = 17,
 };
 
 typedef struct zapp_android_event {
@@ -369,6 +370,28 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeFileSelectionCancelled(
     (void)env;
     (void)clazz;
     zapp_push_event(ZAPP_ANDROID_FILE_SELECTION_CANCELLED, 0, (uint64_t)request_id, 0, 0, 0, false, NULL, NULL);
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeCrashReportExportResult(
+    JNIEnv *env,
+    jclass clazz,
+    jlong request_id,
+    jboolean chooser_opened
+) {
+    (void)env;
+    (void)clazz;
+    zapp_push_event(
+        ZAPP_ANDROID_CRASH_REPORT_EXPORT_RESULT,
+        0,
+        (uint64_t)request_id,
+        0,
+        0,
+        0,
+        chooser_opened == JNI_TRUE,
+        NULL,
+        NULL
+    );
 }
 
 JNIEXPORT void JNICALL
@@ -772,6 +795,40 @@ bool zapp_android_bridge_cancel_file_stream(uint64_t request_id) {
         (*scope.env)->DeleteLocalRef(scope.env, activity_class);
     }
     return zapp_finish_jni_call(&scope) && activity_class != NULL;
+}
+
+bool zapp_android_bridge_share_crash_report(
+    uint64_t request_id,
+    const uint8_t *text,
+    size_t text_length
+) {
+    if (text == NULL || text_length == 0 || text_length > ZAPP_ANDROID_PAYLOAD_CAPACITY) return false;
+    zapp_jni_scope scope;
+    if (!zapp_begin_jni_scope(&scope)) return false;
+    jobject activity = zapp_activity_object();
+    jclass activity_class = (*scope.env)->GetObjectClass(scope.env, activity);
+    jstring report_string = zapp_utf8_to_string(scope.env, text, text_length);
+    jmethodID method = NULL;
+    if (activity_class != NULL && report_string != NULL) {
+        method = (*scope.env)->GetMethodID(
+            scope.env,
+            activity_class,
+            "shareCrashReportFromNative",
+            "(JLjava/lang/String;)V"
+        );
+        if (method != NULL) {
+            (*scope.env)->CallVoidMethod(
+                scope.env,
+                activity,
+                method,
+                (jlong)request_id,
+                report_string
+            );
+        }
+    }
+    if (report_string != NULL) (*scope.env)->DeleteLocalRef(scope.env, report_string);
+    if (activity_class != NULL) (*scope.env)->DeleteLocalRef(scope.env, activity_class);
+    return zapp_finish_jni_call(&scope) && activity_class != NULL && report_string != NULL && method != NULL;
 }
 
 void zapp_android_bridge_update_accessibility(const zapp_accessibility_node *nodes, size_t count) {

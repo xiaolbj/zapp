@@ -149,6 +149,7 @@ pub fn build(model: *const Model) Frame {
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_button_id = clay.ElementId.ID("StreamSelectedFile").id;
+    const crash_export_button_id = clay.ElementId.ID("ExportCrashReport").id;
     if (model.demo_dialog_open) {
         state.focus_state.openModal(dialog_id, dialog_confirm_id);
         state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
@@ -159,6 +160,7 @@ pub fn build(model: *const Model) Frame {
             clay.ElementId.IDI("MainNavigation", 0).id,
             clay.ElementId.IDI("MainNavigation", 1).id,
             clay.ElementId.IDI("MainNavigation", 2).id,
+            crash_export_button_id,
             primary_action_id,
             increment_progress_id,
             open_dialog_id,
@@ -445,6 +447,43 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("CrashBuildIdStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
+                    if (button.draw(&state.interaction_state, input, .{
+                        .id = "ExportCrashReport",
+                        .text = if (model.crash_report_export_pending)
+                            "正在打开分享面板…"
+                        else
+                            "导出崩溃报告",
+                        .width = control_width,
+                        .disabled = modal_open or model.last_native_crash == null or
+                            model.crash_report_export_pending,
+                        .focused = state.focus_state.isFocused(crash_export_button_id),
+                        .semantic_registry = &state.semantic_registry,
+                    })) {
+                        state.focus_state.focus(crash_export_button_id);
+                        emit(.platform_crash_report_export_requested);
+                    }
+                    if (model.crash_report_export_pending) {
+                        label.draw("崩溃报告导出：正在打开系统分享面板…", .{
+                            .color = theme.controls.text_muted,
+                            .semantic_id = .ID("CrashReportExportStatus"),
+                            .semantic_registry = &state.semantic_registry,
+                        });
+                    } else if (model.crash_report_export_attempted) {
+                        label.draw(
+                            if (model.crash_report_export_chooser_opened)
+                                "崩溃报告导出：已打开系统分享面板"
+                            else
+                                "崩溃报告导出：打开失败",
+                            .{
+                                .color = if (model.crash_report_export_chooser_opened)
+                                    .{ 145, 205, 170, 255 }
+                                else
+                                    .{ 255, 160, 145, 255 },
+                                .semantic_id = .ID("CrashReportExportStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            },
+                        );
+                    }
                     label.draw(counter_text, .{
                         .color = .{ 166, 187, 218, 255 },
                         .semantic_id = .ID("ButtonPressCount"),
@@ -796,6 +835,7 @@ pub fn handleSemanticAction(
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_id = clay.ElementId.ID("StreamSelectedFile").id;
+    const crash_export_id = clay.ElementId.ID("ExportCrashReport").id;
     const dialog_cancel_id = clay.ElementId.ID("DemoDialogCancel").id;
     const dialog_confirm_id = clay.ElementId.ID("DemoDialogConfirm").id;
 
@@ -828,6 +868,10 @@ pub fn handleSemanticAction(
                     emit(.platform_file_stream_cancel_requested);
                 } else if (!model.file_stream_pending and !model.file_read_pending and model.selectedFileUri().len > 0) {
                     emit(.platform_file_stream_requested);
+                }
+            } else if (element_id == crash_export_id) {
+                if (model.last_native_crash != null and !model.crash_report_export_pending) {
+                    emit(.platform_crash_report_export_requested);
                 }
             } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index });
         },
@@ -891,6 +935,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "RequestCameraPermission",
         "OpenFilePicker",
         "StreamSelectedFile",
+        "ExportCrashReport",
         "DemoDialogCancel",
         "DemoDialogConfirm",
     }) |id| if (element_id == clay.ElementId.ID(id).id) return true;
@@ -1298,6 +1343,34 @@ test "semantic actions reuse reducer-facing UI actions" {
     try std.testing.expect(actions[0] == .text_field_focus_changed);
     try std.testing.expect(actions[1] == .text_select_all);
     try std.testing.expectEqualStrings("无障碍输入", actions[2].text_inserted);
+
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("ExportCrashReport").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 0), actions.len);
+    model.last_native_crash = .{
+        .signal_number = 11,
+        .signal_code = 1,
+        .architecture = .arm64,
+        .pc_in_app = true,
+        .relative_pc = 0x1234,
+        .absolute_pc = 0x70001234,
+        .fault_address = 0,
+        .process_id = 100,
+        .thread_id = 101,
+        .timestamp_seconds = 1_700_000_000,
+    };
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("ExportCrashReport").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expect(actions[0] == .platform_crash_report_export_requested);
 
     actions = handleSemanticAction(
         &model,

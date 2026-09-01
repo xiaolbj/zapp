@@ -168,6 +168,12 @@ fn drainPlatformEvents() void {
                 .build_id_length = @min(native_event.crash_build_id_length, native_event.crash_build_id.len),
                 .build_id = native_event.crash_build_id,
             } }),
+            .crash_report_export_result => state.app.dispatchPlatformEvent(.{
+                .crash_report_export_result = .{
+                    .request_id = native_event.request_id,
+                    .chooser_opened = native_event.granted,
+                },
+            }),
         }
     }
 }
@@ -234,6 +240,19 @@ fn processPlatformRequests() void {
                 if (!cancelled) state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
                     .request_id = request_id,
                     .error_kind = .unsupported,
+                } });
+            },
+            .share_crash_report => |export_request| {
+                const started = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.shareCrashReport(
+                        export_request.request_id,
+                        export_request.text(),
+                    )
+                else
+                    false;
+                if (!started) state.app.dispatchPlatformEvent(.{ .crash_report_export_result = .{
+                    .request_id = export_request.request_id,
+                    .chooser_opened = false,
                 } });
             },
         }

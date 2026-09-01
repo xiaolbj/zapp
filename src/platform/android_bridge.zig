@@ -74,6 +74,7 @@ pub const EventKind = enum(c_int) {
     file_stream_failed = 14,
     file_stream_cancelled = 15,
     native_crash_recovered = 16,
+    crash_report_export_result = 17,
 };
 
 pub const Event = extern struct {
@@ -123,6 +124,7 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.file_stream_failed) => .file_stream_failed,
             @intFromEnum(EventKind.file_stream_cancelled) => .file_stream_cancelled,
             @intFromEnum(EventKind.native_crash_recovered) => .native_crash_recovered,
+            @intFromEnum(EventKind.crash_report_export_result) => .crash_report_export_result,
             else => null,
         };
     }
@@ -157,6 +159,7 @@ extern fn zapp_android_bridge_open_file(request_id: u64) bool;
 extern fn zapp_android_bridge_read_file(request_id: u64, uri: [*]const u8, uri_length: usize, max_bytes: u32) bool;
 extern fn zapp_android_bridge_stream_file(request_id: u64, uri: [*]const u8, uri_length: usize, chunk_bytes: u32) bool;
 extern fn zapp_android_bridge_cancel_file_stream(request_id: u64) bool;
+extern fn zapp_android_bridge_share_crash_report(request_id: u64, text: [*]const u8, text_length: usize) bool;
 extern fn zapp_android_bridge_update_accessibility(nodes: [*]const AccessibilityNode, count: usize) void;
 extern fn zapp_android_bridge_poll(event: *Event) bool;
 extern fn zapp_android_bridge_reset() void;
@@ -197,6 +200,13 @@ pub fn streamFile(request_id: u64, uri: []const u8, chunk_bytes: u32) bool {
 
 pub fn cancelFileStream(request_id: u64) bool {
     if (comptime builtin.abi.isAndroid()) return zapp_android_bridge_cancel_file_stream(request_id);
+    return false;
+}
+
+pub fn shareCrashReport(request_id: u64, text: []const u8) bool {
+    if (comptime builtin.abi.isAndroid()) {
+        return zapp_android_bridge_share_crash_report(request_id, text.ptr, text.len);
+    }
     return false;
 }
 

@@ -135,6 +135,7 @@ val expectedNativeExports = setOf(
     "Java_com_xiaolbj_zapp_ZappActivity_nativeCompositionCancelled",
     "Java_com_xiaolbj_zapp_ZappActivity_nativeCompositionChanged",
     "Java_com_xiaolbj_zapp_ZappActivity_nativeCompositionCommitted",
+    "Java_com_xiaolbj_zapp_ZappActivity_nativeCrashReportExportResult",
     "Java_com_xiaolbj_zapp_ZappActivity_nativeFileReadCompleted",
     "Java_com_xiaolbj_zapp_ZappActivity_nativeFileReadFailed",
     "Java_com_xiaolbj_zapp_ZappActivity_nativeFileSelected",
