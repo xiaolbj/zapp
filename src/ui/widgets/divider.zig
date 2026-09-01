@@ -1,8 +1,9 @@
 const clay = @import("zclay");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     thickness: f32 = 1,
-    color: clay.Color = .{ 58, 76, 104, 255 },
+    color: clay.Color = theme.controls.divider,
 };
 
 pub fn draw(config: Config) void {

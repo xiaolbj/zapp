@@ -1,11 +1,12 @@
 const clay = @import("zclay");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     value: f32,
     width: f32 = 260,
     height: f32 = 16,
-    track_color: clay.Color = .{ 49, 61, 81, 255 },
-    fill_color: clay.Color = .{ 55, 132, 229, 255 },
+    track_color: clay.Color = theme.controls.surface_muted,
+    fill_color: clay.Color = theme.controls.accent_hover,
 };
 
 pub fn draw(config: Config) void {

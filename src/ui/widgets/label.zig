@@ -1,8 +1,9 @@
 const clay = @import("zclay");
+const theme = @import("../theme.zig");
 
 pub const Config = struct {
     font_size: u16 = 16,
-    color: clay.Color = .{ 232, 239, 249, 255 },
+    color: clay.Color = theme.controls.text,
     wrap_mode: clay.TextElementConfigWrapMode = .none,
 };
 
