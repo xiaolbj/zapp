@@ -336,6 +336,10 @@ export fn event(ev: [*c]const sapp.Event) void {
                 }
             } else if (!current.key_repeat and (current.key_code == .ENTER or current.key_code == .SPACE)) {
                 state.app.dispatch(.focused_control_activate_requested);
+            } else if (current.key_code == .UP) {
+                state.app.dispatch(.focused_control_up_requested);
+            } else if (current.key_code == .DOWN) {
+                state.app.dispatch(.focused_control_down_requested);
             } else if (current.key_code == .LEFT) {
                 state.app.dispatch(.focused_control_left_requested);
             } else if (current.key_code == .RIGHT) {

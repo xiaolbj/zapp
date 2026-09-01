@@ -43,6 +43,8 @@ pub fn update(model: *Model, action: Action) void {
             model.focus_next_requested = false;
             model.focus_previous_requested = false;
             model.focused_control_activate_requested = false;
+            model.focused_control_up_requested = false;
+            model.focused_control_down_requested = false;
             model.focused_control_left_requested = false;
             model.focused_control_right_requested = false;
         },
@@ -64,6 +66,8 @@ pub fn update(model: *Model, action: Action) void {
         .focus_next_requested => model.focus_next_requested = true,
         .focus_previous_requested => model.focus_previous_requested = true,
         .focused_control_activate_requested => model.focused_control_activate_requested = true,
+        .focused_control_up_requested => model.focused_control_up_requested = true,
+        .focused_control_down_requested => model.focused_control_down_requested = true,
         .focused_control_left_requested => model.focused_control_left_requested = true,
         .focused_control_right_requested => model.focused_control_right_requested = true,
         .text_field_focus_changed => |focused| {

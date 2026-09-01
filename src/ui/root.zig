@@ -178,6 +178,17 @@ pub fn build(model: *const Model) Frame {
                 focus_order_count += 1;
             }
         }
+        if (state.focus_state.focused_id) |focused_id| {
+            if (treeIndex(focused_id)) |focused_tree_index| {
+                if (tree_view.nearestVisibleAncestor(
+                    &demo_tree_items,
+                    focused_tree_index,
+                    model.demo_tree_expanded_mask,
+                )) |visible_index| {
+                    state.focus_state.focus(tree_view.itemId("ProjectTree", visible_index).id);
+                }
+            }
+        }
         state.focus_state.setOrder(focus_order[0..focus_order_count]);
     }
     if (model.focus_next_requested) {
@@ -214,6 +225,8 @@ pub fn build(model: *const Model) Frame {
         .pressed = model.pointer_pressed,
         .released = model.pointer_released,
         .activate_pressed = model.focused_control_activate_requested,
+        .up_pressed = model.focused_control_up_requested,
+        .down_pressed = model.focused_control_down_requested,
         .left_pressed = model.focused_control_left_requested,
         .right_pressed = model.focused_control_right_requested,
     };
@@ -476,6 +489,34 @@ pub fn build(model: *const Model) Frame {
                             emit(.demo_dialog_opened);
                         }
                     });
+                    label.draw("项目结构", .{
+                        .font_size = 18,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("ProjectTreeLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const tree_result = tree_view.draw(&state.interaction_state, input, .{
+                        .id = "ProjectTree",
+                        .items = &demo_tree_items,
+                        .expanded_mask = model.demo_tree_expanded_mask,
+                        .selected_index = model.demo_tree_selected_index,
+                        .focused_id = state.focus_state.focused_id,
+                        .width = control_width,
+                        .disabled = modal_open,
+                        .semantic_label = "项目结构",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (tree_result.focus_index) |index| {
+                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                    }
+                    if (tree_result.toggled_index) |index| {
+                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                        emit(.{ .demo_tree_toggled = @intCast(index) });
+                    }
+                    if (tree_result.selected_index) |index| {
+                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                        emit(.{ .demo_tree_selected = @intCast(index) });
+                    }
                     divider.draw(.{});
                     clay.UI()(.{ .layout = .{
                         .sizing = .{ .w = .grow, .h = .fit },
@@ -653,34 +694,6 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("DialogConfirmationCount"),
                         .semantic_registry = &state.semantic_registry,
                     });
-                    label.draw("项目结构", .{
-                        .font_size = 18,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("ProjectTreeLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const tree_result = tree_view.draw(&state.interaction_state, input, .{
-                        .id = "ProjectTree",
-                        .items = &demo_tree_items,
-                        .expanded_mask = model.demo_tree_expanded_mask,
-                        .selected_index = model.demo_tree_selected_index,
-                        .focused_id = state.focus_state.focused_id,
-                        .width = control_width,
-                        .disabled = modal_open,
-                        .semantic_label = "项目结构",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (tree_result.focus_index) |index| {
-                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
-                    }
-                    if (tree_result.toggled_index) |index| {
-                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
-                        emit(.{ .demo_tree_toggled = @intCast(index) });
-                    }
-                    if (tree_result.selected_index) |index| {
-                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
-                        emit(.{ .demo_tree_selected = @intCast(index) });
-                    }
                 });
 
                 clay.UI()(scroll_view.declaration(.{

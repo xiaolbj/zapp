@@ -9,6 +9,8 @@ pub const Input = struct {
     pressed: bool,
     released: bool,
     activate_pressed: bool = false,
+    up_pressed: bool = false,
+    down_pressed: bool = false,
     left_pressed: bool = false,
     right_pressed: bool = false,
 };

@@ -51,6 +51,8 @@ pub const Action = union(enum) {
     focus_next_requested,
     focus_previous_requested,
     focused_control_activate_requested,
+    focused_control_up_requested,
+    focused_control_down_requested,
     focused_control_left_requested,
     focused_control_right_requested,
     text_field_focus_changed: bool,

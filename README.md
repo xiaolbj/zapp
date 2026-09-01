@@ -63,12 +63,12 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 - `navigation_bar.zig`：受控导航项选择，支持横向和纵向布局。
 - `text_field.zig`：基础受控单行 UTF-8 输入框，支持字符、退格、提交和粘贴。
 - `toast.zig`：不拦截输入、按时自动消失的全局提示层。
-- `tree_view.zig`：受控层级树，支持展开/折叠、选择、动态焦点顺序、键盘/手柄左右导航和树语义节点。
+- `tree_view.zig`：受控层级树，支持展开/折叠、选择、动态焦点顺序、方向键树内导航、折叠后的焦点回收和树语义节点。
 - `interaction.zig`：所有指针控件共享的按压捕获与点击判定状态机。
 
 `src/ui/focus_manager.zig` 保存当前焦点、模态焦点和打开弹窗前的焦点。Dialog 关闭后会恢复之前的焦点；Escape 和 Android 返回键统一转成 `back_requested` Action。
 
-`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、TreeView 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值、最终布局边界以及 focused/disabled/selected/modal/expanded/level 等状态；Divider 被明确视为装饰元素，不进入语义树。Android 已通过 `AccessibilityNodeProvider` 将这些数据映射成原生虚拟节点，并把点击、增减、文本设置和树展开/折叠动作送回现有 App Action/reducer。
+`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、TreeView 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值、最终布局边界以及 focused/disabled/selected/modal/expanded/level 等状态；Divider 被明确视为装饰元素，不进入语义树。Android 已通过 `AccessibilityNodeProvider` 将这些数据映射成原生虚拟节点，并把点击、增减、文本设置和树展开/折叠动作送回现有 App Action/reducer。TreeView 获得焦点后可用上/下键移动到相邻可见节点、右键展开或进入首个子节点、左键折叠或返回父节点。
 
 手柄、电视遥控器和辅助输入设备通过平台层的 `NavigationCommand` 接入：`next`/`previous` 移动焦点，`activate` 激活控件，`decrement`/`increment` 调节 Slider，`back` 复用 Escape/Android 返回逻辑。具体平台只需把原生按键或轴事件翻译成该命令。
 

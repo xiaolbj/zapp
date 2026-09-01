@@ -97,7 +97,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                     .width = if (focused) .outside(theme.controls.focus_width) else .{},
                 },
             })({
-                label.draw(if (child_count) if (expanded) "▾" else "▸" else "·", .{
+                label.draw(if (child_count) if (expanded) "-" else "+" else "·", .{
                     .font_size = 16,
                     .color = if (config.disabled) theme.controls.text_disabled else theme.controls.text_muted,
                 });
@@ -122,7 +122,11 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             }
             if (!config.disabled and focused) {
                 if (input.activate_pressed) output.selected_index = index;
-                if (input.right_pressed and child_count) {
+                if (input.up_pressed) {
+                    output.focus_index = visibleNeighbor(config.items, index, config.expanded_mask, -1);
+                } else if (input.down_pressed) {
+                    output.focus_index = visibleNeighbor(config.items, index, config.expanded_mask, 1);
+                } else if (input.right_pressed and child_count) {
                     if (!expanded) {
                         output.toggled_index = index;
                     } else if (firstChild(config.items, index)) |child| {
@@ -156,6 +160,38 @@ pub fn isVisible(items: []const Item, index: usize, expanded_mask: u64) bool {
         remaining -= 1;
     }
     return true;
+}
+
+/// Returns the adjacent visible item without wrapping at either end.
+pub fn visibleNeighbor(items: []const Item, index: usize, expanded_mask: u64, direction: i8) ?usize {
+    if (!isVisible(items, index, expanded_mask) or direction == 0) return null;
+    if (direction < 0) {
+        var candidate = index;
+        while (candidate > 0) {
+            candidate -= 1;
+            if (isVisible(items, candidate, expanded_mask)) return candidate;
+        }
+        return null;
+    }
+    var candidate = index + 1;
+    while (candidate < items.len) : (candidate += 1) {
+        if (isVisible(items, candidate, expanded_mask)) return candidate;
+    }
+    return null;
+}
+
+/// Repairs focus after a parent collapses by returning the nearest visible
+/// ancestor. A visible item is returned unchanged.
+pub fn nearestVisibleAncestor(items: []const Item, index: usize, expanded_mask: u64) ?usize {
+    if (index >= items.len) return null;
+    var candidate = index;
+    var remaining = items.len;
+    while (!isVisible(items, candidate, expanded_mask)) {
+        candidate = items[candidate].parent_index orelse return null;
+        if (candidate >= items.len or remaining == 0) return null;
+        remaining -= 1;
+    }
+    return candidate;
 }
 
 fn isExpanded(mask: u64, index: usize) bool {
@@ -208,4 +244,32 @@ test "tree helpers report hierarchy" {
     try std.testing.expect(hasChildren(&items, 0));
     try std.testing.expectEqual(@as(?usize, 1), firstChild(&items, 0));
     try std.testing.expectEqual(@as(usize, 1), itemDepth(&items, 1));
+}
+
+test "visible neighbors skip collapsed descendants and do not wrap" {
+    const items = [_]Item{
+        .{ .text = "root" },
+        .{ .text = "src", .parent_index = 0 },
+        .{ .text = "ui", .parent_index = 1 },
+        .{ .text = "readme", .parent_index = 0 },
+    };
+
+    try std.testing.expectEqual(@as(?usize, null), visibleNeighbor(&items, 0, 1, -1));
+    try std.testing.expectEqual(@as(?usize, 1), visibleNeighbor(&items, 0, 1, 1));
+    try std.testing.expectEqual(@as(?usize, 3), visibleNeighbor(&items, 1, 1, 1));
+    try std.testing.expectEqual(@as(?usize, 2), visibleNeighbor(&items, 1, 3, 1));
+    try std.testing.expectEqual(@as(?usize, null), visibleNeighbor(&items, 3, 3, 1));
+}
+
+test "collapsed tree focus returns to nearest visible ancestor" {
+    const items = [_]Item{
+        .{ .text = "root" },
+        .{ .text = "src", .parent_index = 0 },
+        .{ .text = "ui", .parent_index = 1 },
+    };
+
+    try std.testing.expectEqual(@as(?usize, 2), nearestVisibleAncestor(&items, 2, 3));
+    try std.testing.expectEqual(@as(?usize, 1), nearestVisibleAncestor(&items, 2, 1));
+    try std.testing.expectEqual(@as(?usize, 0), nearestVisibleAncestor(&items, 2, 0));
+    try std.testing.expectEqual(@as(?usize, null), nearestVisibleAncestor(&items, 99, 3));
 }

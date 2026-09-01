@@ -618,7 +618,7 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 路线图第一批控件已经全部具备可运行实现。TextField 已具备 UTF-8 光标移动、鼠标/触摸点击定位与拖选、Shift 选择、Home/End、全选、复制、剪切、粘贴、删除、选区替换和独立 IME 组合态。平台事件可同步更新、提交或取消组合文本；Android Java/JNI 桥已接入系统输入法，后续继续覆盖不同厂商输入法。
 
-补充控件 TreeView 已实现：使用父索引描述扁平树数据，展开掩码与选择项由 AppModel/reducer 控制；仅为可见节点生成 Clay 布局，鼠标点击箭头可折叠/展开，键盘或统一导航命令可用左右方向进入子节点、返回父节点或改变展开状态。Tree/tree_item 语义包含层级、选中和展开状态。
+补充控件 TreeView 已实现：使用父索引描述扁平树数据，展开掩码与选择项由 AppModel/reducer 控制；仅为可见节点生成 Clay 布局，鼠标点击箭头可折叠/展开。获得焦点后，上/下键在可见节点间移动，右键展开或进入首个子节点，左键折叠或返回父节点；折叠父节点时，隐藏后代上的焦点会回收到最近的可见祖先。Tree/tree_item 语义包含层级、选中和展开状态。
 
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar 和 TreeView，并由 Border RenderCommand 渲染。
 
