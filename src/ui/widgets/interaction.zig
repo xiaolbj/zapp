@@ -3,6 +3,8 @@ pub const State = struct {
 };
 
 pub const Input = struct {
+    x: f32 = 0,
+    y: f32 = 0,
     down: bool,
     pressed: bool,
     released: bool,

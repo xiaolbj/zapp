@@ -32,6 +32,9 @@ zig build run
 - `icon_button.zig`：适合工具栏和紧凑操作的圆形图标按钮。
 - `progress_bar.zig`：受控进度显示，自动将数值约束到 `0...1`。
 - `scroll_view.zig`：基于 Clay clip/scroll container 的垂直滚动容器。
+- `card.zig`：统一页面卡片的内边距、间距、背景和圆角。
+- `divider.zig`：用于内容分组的轻量分隔线。
+- `slider.zig`：受控拖拽滑块，将指针位置映射为 `0...1` 数值。
 - `interaction.zig`：所有指针控件共享的按压捕获与点击判定状态机。
 - Button 使用稳定 Clay ID 跟踪按压归属，只有在控件内按下并在控件内释放才触发点击。
 - 控件不直接修改业务数据，而是写入 `ui.Frame.actions`，由主循环派发给 App reducer。

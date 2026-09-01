@@ -5,12 +5,15 @@ const Model = @import("../app/model.zig").Model;
 const font = @import("../text/font.zig");
 const theme = @import("theme.zig");
 const button = @import("widgets/button.zig");
+const card = @import("widgets/card.zig");
 const checkbox = @import("widgets/checkbox.zig");
+const divider = @import("widgets/divider.zig");
 const icon_button = @import("widgets/icon_button.zig");
 const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
+const slider = @import("widgets/slider.zig");
 const toggle_switch = @import("widgets/switch.zig");
 
 const max_actions = 8;
@@ -86,6 +89,8 @@ pub fn build(model: *const Model) Frame {
     else
         .{ .w = .fixed(240), .h = .grow };
     const input: interaction.Input = .{
+        .x = model.pointer_x,
+        .y = model.pointer_y,
         .down = model.pointer_down,
         .pressed = model.pointer_pressed,
         .released = model.pointer_released,
@@ -150,17 +155,9 @@ pub fn build(model: *const Model) Frame {
                 .background_color = .{ 18, 27, 44, 255 },
                 .corner_radius = .all(12),
             })({
-                clay.UI()(.{
-                    .id = .ID("PrimaryCard"),
-                    .layout = .{
-                        .sizing = .grow,
-                        .padding = .all(24),
-                        .child_gap = 12,
-                        .direction = .top_to_bottom,
-                    },
-                    .background_color = .{ 31, 45, 70, 255 },
-                    .corner_radius = .all(12),
-                })({
+                clay.UI()(card.declaration(.{
+                    .id = "PrimaryCard",
+                }))({
                     label.draw("Clay 应用框架", .{ .font_size = 22 });
                     label.draw(counter_text, .{ .color = .{ 166, 187, 218, 255 } });
                     clay.UI()(.{ .layout = .{
@@ -178,6 +175,7 @@ pub fn build(model: *const Model) Frame {
                             .icon = "+",
                         })) emit(.demo_progress_incremented);
                     });
+                    divider.draw(.{});
                     clay.UI()(.{ .layout = .{
                         .sizing = .{ .w = .grow, .h = .fit },
                         .child_gap = 24,
@@ -198,6 +196,12 @@ pub fn build(model: *const Model) Frame {
                     });
                     label.draw("任务进度（点击 + 增加）", .{ .color = .{ 166, 187, 218, 255 } });
                     progress_bar.draw(.{ .value = model.demo_progress, .width = control_width });
+                    label.draw("媒体音量", .{ .color = .{ 166, 187, 218, 255 } });
+                    if (slider.draw(&state.interaction_state, input, .{
+                        .id = "VolumeSlider",
+                        .value = model.demo_volume,
+                        .width = control_width,
+                    })) |value| emit(.{ .demo_volume_changed = value });
                 });
 
                 clay.UI()(scroll_view.declaration(.{

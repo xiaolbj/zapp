@@ -39,6 +39,7 @@ pub fn update(model: *Model, action: Action) void {
             model.demo_progress += 0.1;
             if (model.demo_progress > 1.001) model.demo_progress = 0;
         },
+        .demo_volume_changed => |value| model.demo_volume = @min(@max(value, 0), 1),
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -112,6 +113,16 @@ test "progress action advances and wraps" {
 
     update(&model, .demo_progress_incremented);
     try std.testing.expectEqual(@as(f32, 0), model.demo_progress);
+}
+
+test "volume action clamps controlled slider state" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .{ .demo_volume_changed = 1.5 });
+    try std.testing.expectEqual(@as(f32, 1), model.demo_volume);
+    update(&model, .{ .demo_volume_changed = -0.2 });
+    try std.testing.expectEqual(@as(f32, 0), model.demo_volume);
 }
 
 test "tick advances only while active" {

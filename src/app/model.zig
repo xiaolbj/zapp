@@ -16,5 +16,6 @@ pub const Model = struct {
     demo_checkbox_checked: bool = false,
     demo_switch_checked: bool = true,
     demo_progress: f32 = 0.35,
+    demo_volume: f32 = 0.65,
     suspended: bool = false,
 };

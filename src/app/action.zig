@@ -25,6 +25,7 @@ pub const Action = union(enum) {
     demo_checkbox_toggled,
     demo_switch_toggled,
     demo_progress_incremented,
+    demo_volume_changed: f32,
     suspended,
     resumed,
 };
