@@ -31,6 +31,12 @@ pub const AccessibilityNode = extern struct {
     height: f32,
     value: f32,
     level: u16,
+    row_index: u16,
+    column_index: u16,
+    row_span: u16,
+    column_span: u16,
+    row_count: u16,
+    column_count: u16,
     label_length: u16,
     value_text_length: u16,
     reserved: u16,
@@ -54,7 +60,7 @@ var last_accessibility_hash: ?u64 = null;
 
 comptime {
     std.debug.assert(@sizeOf(Event) == 4592);
-    std.debug.assert(@sizeOf(AccessibilityNode) == 296);
+    std.debug.assert(@sizeOf(AccessibilityNode) == 308);
 }
 
 pub const EventKind = enum(c_int) {
@@ -249,6 +255,12 @@ fn serializeAccessibilityNode(node: semantics.Node) AccessibilityNode {
         .height = node.bounds.height,
         .value = node.value orelse std.math.nan(f32),
         .level = node.level,
+        .row_index = node.row_index,
+        .column_index = node.column_index,
+        .row_span = node.row_span,
+        .column_span = node.column_span,
+        .row_count = node.row_count,
+        .column_count = node.column_count,
         .label_length = 0,
         .value_text_length = 0,
         .reserved = 0,
@@ -343,6 +355,28 @@ test "native navigation event kind remains ABI-stable" {
 
 test "extended accessibility roles remain ABI-stable" {
     try std.testing.expectEqual(@as(c_int, 23), @intFromEnum(semantics.Role.list_item));
+    try std.testing.expectEqual(@as(c_int, 24), @intFromEnum(semantics.Role.table));
+    try std.testing.expectEqual(@as(c_int, 25), @intFromEnum(semantics.Role.row));
+    try std.testing.expectEqual(@as(c_int, 26), @intFromEnum(semantics.Role.column_header));
+}
+
+test "accessibility serialization preserves collection metadata" {
+    const node = serializeAccessibilityNode(.{
+        .element_id = 9,
+        .role = .row,
+        .label = "Z-104，中文字体，已完成",
+        .selected = true,
+        .row_index = 2,
+        .column_index = 0,
+        .row_span = 1,
+        .column_span = 4,
+        .row_count = 7,
+        .column_count = 4,
+    });
+    try std.testing.expectEqual(@as(u16, 2), node.row_index);
+    try std.testing.expectEqual(@as(u16, 4), node.column_span);
+    try std.testing.expectEqual(@as(u16, 7), node.row_count);
+    try std.testing.expectEqual(@as(u16, 4), node.column_count);
 }
 
 test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {

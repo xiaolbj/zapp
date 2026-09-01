@@ -26,6 +26,9 @@ pub const Role = enum {
     menu,
     menu_item,
     list_item,
+    table,
+    row,
+    column_header,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.
@@ -45,6 +48,12 @@ pub const Node = struct {
     modal: bool = false,
     expanded: ?bool = null,
     level: u16 = 0,
+    row_index: u16 = 0,
+    column_index: u16 = 0,
+    row_span: u16 = 1,
+    column_span: u16 = 1,
+    row_count: u16 = 0,
+    column_count: u16 = 0,
     scrollable: bool = false,
     can_scroll_forward: bool = false,
     can_scroll_backward: bool = false,

@@ -9,6 +9,7 @@ const theme = @import("theme.zig");
 const button = @import("widgets/button.zig");
 const card = @import("widgets/card.zig");
 const checkbox = @import("widgets/checkbox.zig");
+const data_table = @import("widgets/data_table.zig");
 const divider = @import("widgets/divider.zig");
 const dialog = @import("widgets/dialog.zig");
 const icon_button = @import("widgets/icon_button.zig");
@@ -65,12 +66,29 @@ const demo_tab_items = [_]tabs.Item{
     .{ .text = "日志" },
 };
 
+const DemoTableRow = struct {
+    code: []const u8,
+    name: []const u8,
+    status: []const u8,
+    updated: []const u8,
+};
+
+const demo_table_rows = [_]DemoTableRow{
+    .{ .code = "Z-104", .name = "中文字体", .status = "已完成", .updated = "09:42" },
+    .{ .code = "Z-219", .name = "Android 桥", .status = "进行中", .updated = "10:18" },
+    .{ .code = "Z-087", .name = "主题令牌", .status = "已完成", .updated = "昨天" },
+    .{ .code = "Z-302", .name = "崩溃报告", .status = "待复核", .updated = "周一" },
+    .{ .code = "Z-156", .name = "虚拟列表", .status = "已完成", .updated = "11:05" },
+    .{ .code = "Z-241", .name = "数据表格", .status = "开发中", .updated = "刚刚" },
+};
+
 const state = struct {
     var memory: ?[]u8 = null;
     var interaction_state: interaction.State = .{};
     var focus_state: focus_manager.State = .{};
     var semantic_registry: semantics.Registry = .{};
     var toast_state: toast.State = .{};
+    var data_table_state: data_table.State = .{};
     var virtual_list_state: virtual_list.State = .{};
     var last_text_submission_count: u32 = 0;
     var actions: [max_actions]Action = undefined;
@@ -121,6 +139,7 @@ pub fn setup(model: *const Model) bool {
     state.focus_state = .{};
     state.semantic_registry.reset();
     state.toast_state = .{};
+    state.data_table_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = model.text_submission_count;
     state.action_count = 0;
@@ -141,6 +160,7 @@ pub fn shutdown() void {
     state.focus_state = .{};
     state.semantic_registry.reset();
     state.toast_state = .{};
+    state.data_table_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = 0;
     state.action_count = 0;
@@ -186,6 +206,8 @@ pub fn build(model: *const Model) Frame {
         demo_virtual_list_item_count,
     ) orelse 0;
     const virtual_list_active_id = virtual_list.itemId("RecordsVirtualList", virtual_list_index).id;
+    const table_selected_row = @min(@as(usize, model.demo_data_table_selected_row), demo_table_rows.len - 1);
+    const table_active_row_id = data_table.rowId("RecordsDataTable", table_selected_row).id;
     const active_tab_index = tabs.boundedIndex(model.demo_tab_index, demo_tab_items.len) orelse 0;
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
@@ -255,6 +277,12 @@ pub fn build(model: *const Model) Frame {
         } else if (state.focus_state.focused_id) |focused_id| {
             if (menuItemIndex(focused_id) != null) state.focus_state.focus(actions_menu_id);
         }
+        for (0..4) |column_index| {
+            focus_order[focus_order_count] = data_table.headerId("RecordsDataTable", column_index).id;
+            focus_order_count += 1;
+        }
+        focus_order[focus_order_count] = table_active_row_id;
+        focus_order_count += 1;
         focus_order[focus_order_count] = virtual_list_active_id;
         focus_order_count += 1;
         const trailing_order = [_]u32{
@@ -825,6 +853,51 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("ActionsMenuStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
+                    label.draw("数据表格", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("RecordsDataTableLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const table_columns = [_]data_table.Column{
+                        .{ .label = "编号", .width = control_width * 0.20 },
+                        .{ .label = "名称", .width = control_width * 0.34 },
+                        .{ .label = "状态", .width = control_width * 0.25 },
+                        .{ .label = "更新", .width = control_width * 0.21 },
+                    };
+                    var table_order = demoTableOrder(
+                        model.demo_data_table_sort_column,
+                        model.demo_data_table_sort_descending,
+                    );
+                    const table_result = data_table.draw(
+                        &state.data_table_state,
+                        &state.interaction_state,
+                        input,
+                        .{
+                            .id = "RecordsDataTable",
+                            .columns = &table_columns,
+                            .row_count = demo_table_rows.len,
+                            .row_order = &table_order,
+                            .selected_row_index = model.demo_data_table_selected_row,
+                            .sort_column_index = model.demo_data_table_sort_column,
+                            .sort_direction = if (model.demo_data_table_sort_descending) .descending else .ascending,
+                            .format_cell = formatDemoTableCell,
+                            .width = control_width,
+                            .disabled = modal_open,
+                            .focused_id = state.focus_state.focused_id,
+                            .semantic_label = "项目数据",
+                            .semantic_registry = &state.semantic_registry,
+                        },
+                    );
+                    if (table_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                    if (table_result.selected_row_index) |row_index| {
+                        emit(.{ .demo_data_table_row_selected = @intCast(row_index) });
+                    }
+                    if (table_result.sort_request) |sort_request| {
+                        emit(.{ .demo_data_table_sorted = .{
+                            .column_index = @intCast(sort_request.column_index),
+                            .descending = sort_request.direction == .descending,
+                        } });
+                    }
                     label.draw("虚拟列表（1000 条）", .{
                         .color = theme.controls.text_muted,
                         .semantic_id = .ID("RecordsVirtualListLabel"),
@@ -1168,6 +1241,14 @@ pub fn handleSemanticAction(
             } else if (virtualListIndex(element_id)) |index| {
                 state.focus_state.focus(element_id);
                 emit(.{ .demo_virtual_list_selected = index });
+            } else if (dataTableHeaderIndex(element_id)) |index| {
+                emit(.{ .demo_data_table_sorted = .{
+                    .column_index = index,
+                    .descending = model.demo_data_table_sort_column == index and
+                        !model.demo_data_table_sort_descending,
+                } });
+            } else if (dataTableRowIndex(element_id)) |index| {
+                emit(.{ .demo_data_table_row_selected = index });
             }
         },
         .increment, .decrement => if (element_id == slider_id) {
@@ -1264,12 +1345,27 @@ fn virtualListIndex(element_id: u32) ?u16 {
     return null;
 }
 
+fn dataTableHeaderIndex(element_id: u32) ?u8 {
+    for (0..4) |index| {
+        if (element_id == data_table.headerId("RecordsDataTable", index).id) return @intCast(index);
+    }
+    return null;
+}
+
+fn dataTableRowIndex(element_id: u32) ?u8 {
+    for (0..demo_table_rows.len) |index| {
+        if (element_id == data_table.rowId("RecordsDataTable", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn isInteractiveSemanticId(element_id: u32) bool {
     if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
         treeIndex(element_id) != null or
         radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
     if (menuItemIndex(element_id)) |index| return !demo_menu_items[index].disabled;
     if (virtualListIndex(element_id) != null) return true;
+    if (dataTableHeaderIndex(element_id) != null or dataTableRowIndex(element_id) != null) return true;
     if (element_id == select.triggerId("SortSelect").id or
         element_id == menu.triggerId("ActionsMenu").id) return true;
     inline for ([_][]const u8{
@@ -1298,6 +1394,48 @@ fn isScrollableSemanticId(element_id: u32) bool {
 
 fn formatVirtualListItem(index: usize, buffer: []u8) []const u8 {
     return std.fmt.bufPrint(buffer, "数据记录 #{d}", .{index + 1}) catch "数据记录";
+}
+
+fn formatDemoTableCell(row_index: usize, column_index: usize, buffer: []u8) []const u8 {
+    const text = demoTableCell(row_index, column_index);
+    const length = @min(buffer.len, text.len);
+    @memcpy(buffer[0..length], text[0..length]);
+    return buffer[0..length];
+}
+
+fn demoTableCell(row_index: usize, column_index: usize) []const u8 {
+    if (row_index >= demo_table_rows.len) return "";
+    const row = demo_table_rows[row_index];
+    return switch (@min(column_index, 3)) {
+        0 => row.code,
+        1 => row.name,
+        2 => row.status,
+        else => row.updated,
+    };
+}
+
+fn demoTableOrder(sort_column: usize, descending: bool) [demo_table_rows.len]usize {
+    var order: [demo_table_rows.len]usize = undefined;
+    for (&order, 0..) |*row_index, index| row_index.* = index;
+    for (1..order.len) |index| {
+        const current = order[index];
+        var insertion = index;
+        while (insertion > 0 and demoTableRowBefore(current, order[insertion - 1], sort_column, descending)) {
+            order[insertion] = order[insertion - 1];
+            insertion -= 1;
+        }
+        order[insertion] = current;
+    }
+    return order;
+}
+
+fn demoTableRowBefore(left: usize, right: usize, sort_column: usize, descending: bool) bool {
+    const primary = std.mem.order(u8, demoTableCell(left, sort_column), demoTableCell(right, sort_column));
+    const order = if (primary == .eq)
+        std.mem.order(u8, demoTableCell(left, 0), demoTableCell(right, 0))
+    else
+        primary;
+    return if (descending) order == .gt else order == .lt;
 }
 
 fn applySemanticScroll(model: *const Model) void {
@@ -1566,6 +1704,10 @@ test "responsive shell emits controls and text" {
     var has_virtual_list_semantics = false;
     var visible_virtual_item_count: usize = 0;
     var selected_virtual_item_count: usize = 0;
+    var has_data_table_semantics = false;
+    var table_header_count: usize = 0;
+    var table_row_count: usize = 0;
+    var selected_table_row_count: usize = 0;
     var has_performance_label_semantics = false;
     var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
@@ -1598,6 +1740,18 @@ test "responsive shell emits controls and text" {
             visible_virtual_item_count += 1;
             if (node.selected) selected_virtual_item_count += 1;
         }
+        if (node.role == .table and node.row_count == demo_table_rows.len + 1 and node.column_count == 4) {
+            has_data_table_semantics = true;
+        }
+        if (node.role == .column_header) {
+            table_header_count += 1;
+            try std.testing.expectEqual(@as(u16, 0), node.row_index);
+        }
+        if (node.role == .row) {
+            table_row_count += 1;
+            if (node.selected) selected_table_row_count += 1;
+            try std.testing.expectEqual(@as(u16, 4), node.column_span);
+        }
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
         if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
             has_crash_diagnostics_semantics = true;
@@ -1621,6 +1775,10 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(visible_virtual_item_count > 0);
     try std.testing.expect(visible_virtual_item_count < virtual_list.max_visible_rows);
     try std.testing.expectEqual(@as(usize, 1), selected_virtual_item_count);
+    try std.testing.expect(has_data_table_semantics);
+    try std.testing.expectEqual(@as(usize, 4), table_header_count);
+    try std.testing.expectEqual(demo_table_rows.len, table_row_count);
+    try std.testing.expectEqual(@as(usize, 1), selected_table_row_count);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
 
@@ -1994,6 +2152,25 @@ test "semantic actions reuse reducer-facing UI actions" {
 
     actions = handleSemanticAction(
         &model,
+        data_table.headerId("RecordsDataTable", 2).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u8, 2), actions[0].demo_data_table_sorted.column_index);
+    try std.testing.expect(!actions[0].demo_data_table_sorted.descending);
+
+    actions = handleSemanticAction(
+        &model,
+        data_table.rowId("RecordsDataTable", 4).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u8, 4), actions[0].demo_data_table_row_selected);
+
+    actions = handleSemanticAction(
+        &model,
         tree_view.itemId("ProjectTree", 0).id,
         .collapse,
         "",
@@ -2048,6 +2225,16 @@ test "file previews preserve UTF-8 text and format binary as hex" {
     @memcpy(model.file_preview_buffer[0..4], &[_]u8{ 0x89, 0x50, 0x4e, 0x47 });
     const binary_preview = formatFilePreview(&buffer, &model);
     try std.testing.expect(std.mem.indexOf(u8, binary_preview, "89 50 4E 47") != null);
+}
+
+test "data table sorting preserves stable row identities" {
+    const ascending = demoTableOrder(0, false);
+    try std.testing.expectEqual(@as(usize, 2), ascending[0]);
+    try std.testing.expectEqual(@as(usize, 3), ascending[ascending.len - 1]);
+    const descending = demoTableOrder(0, true);
+    try std.testing.expectEqual(@as(usize, 3), descending[0]);
+    try std.testing.expectEqual(@as(usize, 2), descending[descending.len - 1]);
+    try std.testing.expectEqualStrings("虚拟列表", demoTableCell(4, 1));
 }
 
 test "file metadata formats name MIME type and exact size" {

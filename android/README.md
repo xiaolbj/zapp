@@ -169,7 +169,7 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 
 Clay 完成每帧布局后，Zig 会为最多 96 个语义节点补齐最终边界，并序列化为固定容量 native 快照。快照内容不变时不会触发 JNI 更新。`AccessibilityBridgeView` 使用 `AccessibilityNodeProvider` 将快照暴露为 Android 虚拟子节点：
 
-- 角色映射到 Button、CheckBox、Switch、SeekBar、EditText、ProgressBar、TabWidget、Menu/ListView、虚拟 ListItem、Dialog 等系统类名。
+- 角色映射到 Button、CheckBox、Switch、SeekBar、EditText、ProgressBar、TabWidget、Menu/ListView、虚拟 ListItem、GridView/DataTable、Dialog 等系统类名。
 - 中文标签、值、勾选/选中/禁用、焦点、范围、树层级和展开状态均随快照更新。
 - 节点边界会累加最多四层滚动祖先偏移并逐层裁剪到容器视口，再转换到屏幕坐标；完全不可见的节点不会暴露给系统服务。
 - 点击、滑块增减、TextField 设置文本、TreeView 展开/折叠，以及 Card/ScrollView 的向前、向后翻页均通过线程安全事件队列回到 Zig，再复用 UI Action 和 reducer。
@@ -190,6 +190,8 @@ adb logcat -s zapp sokol app
 当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、文件名称/MIME/大小元数据、完整流式读取与取消、Home 暂停后同进程恢复，以及原生无障碍节点树。17,772,300 字节字体样本完整读取为 4,339 块，App 摘要 `2adecf5b9049c2ad` 与本地独立 FNV-1a 计算一致；取消验证在 3,719,168 字节、908 块处有序结束，读取期间 UI 保持响应，日志无丢块或崩溃。UIAutomator 可发现中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView、流式控制和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
 
 VirtualList 还在原始 `1920x1080` 窗口下完成了 UIAutomator 运行时验证：焦点进入列表时外层卡片自动显露列表，第 1 条可见且获得焦点；发送 End 后只暴露末尾第 995–1000 条，第 1000 条同时处于焦点与选中状态，预取行没有泄漏到系统无障碍节点树。
+
+DataTable 同样在 API 28 x86_64 模拟器的 `1920x1080` 窗口下完成运行时验证：UIAutomator 可发现 GridView、四个可点击表头及六个聚合行；编号表头从升序切换到降序后，稳定业务行 Z-104 从首行移动到第 5 行并继续保持 focused/selected，外层 PrimaryCard 自动滚动使该行可见。
 
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。
 

@@ -97,6 +97,11 @@ pub const Action = union(enum) {
     demo_menu_expanded: bool,
     demo_menu_item_activated: u8,
     demo_virtual_list_selected: u16,
+    demo_data_table_row_selected: u8,
+    demo_data_table_sorted: struct {
+        column_index: u8,
+        descending: bool,
+    },
     suspended,
     resumed,
 };

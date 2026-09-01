@@ -79,6 +79,12 @@ typedef struct zapp_accessibility_node {
     float height;
     float value;
     uint16_t level;
+    uint16_t row_index;
+    uint16_t column_index;
+    uint16_t row_span;
+    uint16_t column_span;
+    uint16_t row_count;
+    uint16_t column_count;
     uint16_t label_length;
     uint16_t value_text_length;
     uint16_t reserved;
@@ -87,7 +93,7 @@ typedef struct zapp_accessibility_node {
 } zapp_accessibility_node;
 
 _Static_assert(sizeof(zapp_android_event) == 4592, "Zig/C Android event ABI mismatch");
-_Static_assert(sizeof(zapp_accessibility_node) == 296, "Zig/C accessibility node ABI mismatch");
+_Static_assert(sizeof(zapp_accessibility_node) == 308, "Zig/C accessibility node ABI mismatch");
 
 typedef struct zapp_jni_scope {
     JavaVM *vm;
@@ -582,7 +588,7 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeAt(
 ) {
     (void)clazz;
     if (index < 0 || metadata == NULL || geometry == NULL || strings == NULL ||
-        (*env)->GetArrayLength(env, metadata) < 4 ||
+        (*env)->GetArrayLength(env, metadata) < 10 ||
         (*env)->GetArrayLength(env, geometry) < 5 ||
         (*env)->GetArrayLength(env, strings) < 2) return JNI_FALSE;
 
@@ -595,14 +601,20 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeAt(
     node = zapp_accessibility_nodes[index];
     pthread_mutex_unlock(&zapp_accessibility_mutex);
 
-    const jint metadata_values[4] = {
+    const jint metadata_values[10] = {
         (jint)node.element_id,
         (jint)node.role_value,
         (jint)node.flags,
         (jint)node.level,
+        (jint)node.row_index,
+        (jint)node.column_index,
+        (jint)node.row_span,
+        (jint)node.column_span,
+        (jint)node.row_count,
+        (jint)node.column_count,
     };
     const jfloat geometry_values[5] = { node.x, node.y, node.width, node.height, node.value };
-    (*env)->SetIntArrayRegion(env, metadata, 0, 4, metadata_values);
+    (*env)->SetIntArrayRegion(env, metadata, 0, 10, metadata_values);
     (*env)->SetFloatArrayRegion(env, geometry, 0, 5, geometry_values);
     jstring label = zapp_utf8_to_string(env, node.label, node.label_length);
     jstring value_text = zapp_utf8_to_string(env, node.value_text, node.value_text_length);

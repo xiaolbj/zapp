@@ -243,6 +243,11 @@ pub fn update(model: *Model, action: Action) void {
             model.demo_menu_expanded = false;
         },
         .demo_virtual_list_selected => |index| model.demo_virtual_list_selected_index = @min(index, 999),
+        .demo_data_table_row_selected => |index| model.demo_data_table_selected_row = @min(index, 5),
+        .demo_data_table_sorted => |sort| {
+            model.demo_data_table_sort_column = @min(sort.column_index, 3);
+            model.demo_data_table_sort_descending = sort.descending;
+        },
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -524,6 +529,18 @@ test "virtual list selection remains bounded to the demo data set" {
     try std.testing.expectEqual(@as(u16, 487), model.demo_virtual_list_selected_index);
     update(&model, .{ .demo_virtual_list_selected = 65_535 });
     try std.testing.expectEqual(@as(u16, 999), model.demo_virtual_list_selected_index);
+}
+
+test "data table selection and sort remain bounded" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_data_table_row_selected = 4 });
+    try std.testing.expectEqual(@as(u8, 4), model.demo_data_table_selected_row);
+    update(&model, .{ .demo_data_table_row_selected = 99 });
+    try std.testing.expectEqual(@as(u8, 5), model.demo_data_table_selected_row);
+    update(&model, .{ .demo_data_table_sorted = .{ .column_index = 99, .descending = true } });
+    try std.testing.expectEqual(@as(u8, 3), model.demo_data_table_sort_column);
+    try std.testing.expect(model.demo_data_table_sort_descending);
 }
 
 test "platform results update permission and file picker state" {

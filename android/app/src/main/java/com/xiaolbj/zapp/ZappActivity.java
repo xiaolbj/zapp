@@ -575,6 +575,12 @@ public final class ZappActivity extends NativeActivity {
         final int role;
         final int flags;
         final int level;
+        final int rowIndex;
+        final int columnIndex;
+        final int rowSpan;
+        final int columnSpan;
+        final int rowCount;
+        final int columnCount;
         final float x;
         final float y;
         final float width;
@@ -588,6 +594,12 @@ public final class ZappActivity extends NativeActivity {
             role = metadata[1];
             flags = metadata[2];
             level = metadata[3];
+            rowIndex = metadata[4];
+            columnIndex = metadata[5];
+            rowSpan = metadata[6];
+            columnSpan = metadata[7];
+            rowCount = metadata[8];
+            columnCount = metadata[9];
             x = geometry[0];
             y = geometry[1];
             width = geometry[2];
@@ -639,6 +651,9 @@ public final class ZappActivity extends NativeActivity {
         private static final int ROLE_MENU = 21;
         private static final int ROLE_MENU_ITEM = 22;
         private static final int ROLE_LIST_ITEM = 23;
+        private static final int ROLE_TABLE = 24;
+        private static final int ROLE_ROW = 25;
+        private static final int ROLE_COLUMN_HEADER = 26;
 
         private final AccessibilityManager accessibilityManager;
         private final SemanticNodeProvider provider = new SemanticNodeProvider();
@@ -661,7 +676,7 @@ public final class ZappActivity extends NativeActivity {
             int count = Math.min(Math.max(nativeAccessibilityNodeCount(), 0), 96);
             ArrayList<SemanticNode> updated = new ArrayList<>(count);
             for (int index = 0; index < count; index += 1) {
-                int[] metadata = new int[4];
+                int[] metadata = new int[10];
                 float[] geometry = new float[5];
                 String[] strings = new String[2];
                 if (!nativeAccessibilityNodeAt(index, metadata, geometry, strings)) continue;
@@ -790,6 +805,20 @@ public final class ZappActivity extends NativeActivity {
                 }
                 if (!node.valueText.isEmpty()) info.setText(node.valueText);
                 if (node.level > 0) info.getExtras().putInt("zapp.tree.level", node.level);
+                if (node.role == ROLE_TABLE && node.rowCount > 0 && node.columnCount > 0) {
+                    info.setCollectionInfo(AccessibilityNodeInfo.CollectionInfo.obtain(
+                        node.rowCount, node.columnCount, false
+                    ));
+                } else if (node.role == ROLE_ROW || node.role == ROLE_COLUMN_HEADER) {
+                    info.setCollectionItemInfo(AccessibilityNodeInfo.CollectionItemInfo.obtain(
+                        node.rowIndex,
+                        Math.max(node.rowSpan, 1),
+                        node.columnIndex,
+                        Math.max(node.columnSpan, 1),
+                        node.role == ROLE_COLUMN_HEADER,
+                        node.hasFlag(FLAG_SELECTED)
+                    ));
+                }
                 if (node.hasFlag(FLAG_CHECKED_PRESENT)) {
                     info.setCheckable(true);
                     info.setChecked(node.hasFlag(FLAG_CHECKED));
@@ -839,7 +868,8 @@ public final class ZappActivity extends NativeActivity {
                     node.role == ROLE_NAVIGATION_ITEM || node.role == ROLE_TREE_ITEM ||
                     node.role == ROLE_RADIO_BUTTON || node.role == ROLE_COMBO_BOX ||
                     node.role == ROLE_OPTION || node.role == ROLE_TAB || node.role == ROLE_MENU_ITEM ||
-                    node.role == ROLE_LIST_ITEM) {
+                    node.role == ROLE_LIST_ITEM || node.role == ROLE_ROW ||
+                    node.role == ROLE_COLUMN_HEADER) {
                     info.setClickable(true);
                     info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
                 }
@@ -998,6 +1028,9 @@ public final class ZappActivity extends NativeActivity {
                     case ROLE_MENU: return "android.widget.ListView";
                     case ROLE_MENU_ITEM: return "android.widget.Button";
                     case ROLE_LIST_ITEM: return "android.widget.Button";
+                    case ROLE_TABLE: return "android.widget.GridView";
+                    case ROLE_ROW: return "android.widget.Button";
+                    case ROLE_COLUMN_HEADER: return "android.widget.Button";
                     case ROLE_NAVIGATION_ITEM:
                     case ROLE_TREE_ITEM: return "android.widget.Button";
                     case ROLE_DIALOG: return "android.app.Dialog";
@@ -1011,7 +1044,7 @@ public final class ZappActivity extends NativeActivity {
                     role == ROLE_SLIDER || role == ROLE_TEXT_FIELD || role == ROLE_NAVIGATION_ITEM ||
                     role == ROLE_TREE_ITEM || role == ROLE_RADIO_BUTTON || role == ROLE_COMBO_BOX ||
                     role == ROLE_OPTION || role == ROLE_TAB || role == ROLE_MENU_ITEM ||
-                    role == ROLE_LIST_ITEM;
+                    role == ROLE_LIST_ITEM || role == ROLE_ROW || role == ROLE_COLUMN_HEADER;
             }
         }
     }
