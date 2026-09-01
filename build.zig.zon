@@ -1,0 +1,34 @@
+.{
+    .name = .zapp,
+    .version = "0.1.0",
+    .fingerprint = 0x13e93639b40086d7,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .sokol = .{
+            .url = "git+https://github.com/floooh/sokol-zig.git#e371234960812882406a296c4f3154321a16ee4d",
+            .hash = "sokol-0.1.0-pb1HK0kUQABqwuelY7BmmQmAm-jLBZKJ7uyoxkdS49Ib",
+        },
+        .zclay = .{
+            .url = "git+https://github.com/johan0A/clay-zig-bindings.git#e0286c488a303b93501944ccde10730cc74ecd58",
+            .hash = "zclay-0.2.2-Ej1rkP3RAACYZGzQB5NGPaqfySgKfO26NYk5Ja6Z15gC",
+        },
+        .fontstash = .{
+            .url = "git+https://github.com/memononen/fontstash.git#b5ddc9741061343740d85d636d782ed3e07cf7be",
+            .hash = "N-V-__8AAA9xHgAxdLYPmlNTy6qzv9IYqiIePEHQUOPWYQ_6",
+        },
+        .sokol_headers = .{
+            .url = "git+https://github.com/floooh/sokol.git#1847290135f95e57e6d220b0a41208306aafc0dd",
+            .hash = "N-V-__8AAPg-agBlu-Z4Ki1UP1fEd8-PvoUUm8owg3mGx4Io",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "zapp.zig",
+        "src",
+        "assets",
+        "android",
+        "docs",
+        "README.md",
+    },
+}
