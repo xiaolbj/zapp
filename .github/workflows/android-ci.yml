@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libgl1-mesa-dev libxcursor-dev libxi-dev libxrandr-dev libx11-dev
-          sdkmanager "ndk;25.2.9519653"
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;25.2.9519653"
 
       - name: Run Zig checks
         run: |
