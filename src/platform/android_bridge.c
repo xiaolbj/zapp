@@ -9,6 +9,8 @@
 
 #define ZAPP_ANDROID_EVENT_CAPACITY 64
 #define ZAPP_ANDROID_PAYLOAD_CAPACITY 4096
+#define ZAPP_FILE_DISPLAY_NAME_CAPACITY 256
+#define ZAPP_FILE_MIME_TYPE_CAPACITY 128
 #define ZAPP_ACCESSIBILITY_NODE_CAPACITY 64
 #define ZAPP_ACCESSIBILITY_TEXT_CAPACITY 128
 #define ZAPP_LOG_TAG "zapp-platform"
@@ -39,6 +41,13 @@ typedef struct zapp_android_event {
     uint8_t reserved[2];
     size_t text_length;
     uint8_t text_buffer[ZAPP_ANDROID_PAYLOAD_CAPACITY];
+    uint64_t file_size;
+    uint16_t display_name_length;
+    uint16_t mime_type_length;
+    bool file_size_known;
+    uint8_t metadata_reserved[3];
+    uint8_t display_name_buffer[ZAPP_FILE_DISPLAY_NAME_CAPACITY];
+    uint8_t mime_type_buffer[ZAPP_FILE_MIME_TYPE_CAPACITY];
 } zapp_android_event;
 
 typedef struct zapp_accessibility_node {
@@ -58,7 +67,7 @@ typedef struct zapp_accessibility_node {
     uint8_t value_text[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
 } zapp_accessibility_node;
 
-_Static_assert(sizeof(zapp_android_event) == 4136, "Zig/C Android event ABI mismatch");
+_Static_assert(sizeof(zapp_android_event) == 4536, "Zig/C Android event ABI mismatch");
 _Static_assert(sizeof(zapp_accessibility_node) == 296, "Zig/C accessibility node ABI mismatch");
 
 typedef struct zapp_jni_scope {
@@ -333,7 +342,11 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeFileReadCompleted(
     jclass clazz,
     jlong request_id,
     jbyteArray data,
-    jboolean truncated
+    jboolean truncated,
+    jstring display_name,
+    jstring mime_type,
+    jlong file_size,
+    jboolean file_size_known
 ) {
     (void)clazz;
     zapp_android_event event;
@@ -341,6 +354,20 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeFileReadCompleted(
     event.kind_value = ZAPP_ANDROID_FILE_READ_COMPLETED;
     event.request_id = (uint64_t)request_id;
     event.truncated = truncated == JNI_TRUE;
+    event.file_size = file_size >= 0 ? (uint64_t)file_size : 0;
+    event.file_size_known = file_size_known == JNI_TRUE && file_size >= 0;
+    event.display_name_length = (uint16_t)zapp_string_to_utf8(
+        env,
+        display_name,
+        event.display_name_buffer,
+        sizeof(event.display_name_buffer)
+    );
+    event.mime_type_length = (uint16_t)zapp_string_to_utf8(
+        env,
+        mime_type,
+        event.mime_type_buffer,
+        sizeof(event.mime_type_buffer)
+    );
     if (data != NULL) {
         const jsize length = (*env)->GetArrayLength(env, data);
         event.text_length = (size_t)(length < (jsize)sizeof(event.text_buffer) ? length : (jsize)sizeof(event.text_buffer));

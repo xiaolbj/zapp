@@ -4,9 +4,11 @@ import android.Manifest;
 import android.app.NativeActivity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.graphics.Rect;
 import android.util.SparseArray;
@@ -30,6 +32,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.io.FileNotFoundException;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.ExecutorService;
@@ -79,7 +82,15 @@ public final class ZappActivity extends NativeActivity {
     private static native void nativePermissionResult(long requestId, int permission, boolean granted);
     private static native void nativeFileSelected(long requestId, String uri);
     private static native void nativeFileSelectionCancelled(long requestId);
-    private static native void nativeFileReadCompleted(long requestId, byte[] data, boolean truncated);
+    private static native void nativeFileReadCompleted(
+        long requestId,
+        byte[] data,
+        boolean truncated,
+        String displayName,
+        String mimeType,
+        long fileSize,
+        boolean fileSizeKnown
+    );
     private static native void nativeFileReadFailed(long requestId, int errorKind);
     private static native int nativeAccessibilityNodeCount();
     private static native boolean nativeAccessibilityNodeAt(
@@ -267,6 +278,7 @@ public final class ZappActivity extends NativeActivity {
             return;
         }
 
+        FileMetadata metadata = queryFileMetadata(uri);
         byte[] buffer = new byte[maxBytes + 1];
         int length = 0;
         try (InputStream input = getContentResolver().openInputStream(uri)) {
@@ -287,7 +299,19 @@ public final class ZappActivity extends NativeActivity {
             }
             boolean truncated = length > maxBytes;
             byte[] result = Arrays.copyOf(buffer, Math.min(length, maxBytes));
-            if (!destroyed) nativeFileReadCompleted(requestId, result, truncated);
+            if (!metadata.sizeKnown && !truncated) {
+                metadata.size = result.length;
+                metadata.sizeKnown = true;
+            }
+            if (!destroyed) nativeFileReadCompleted(
+                requestId,
+                result,
+                truncated,
+                metadata.displayName,
+                metadata.mimeType,
+                metadata.size,
+                metadata.sizeKnown
+            );
         } catch (FileNotFoundException exception) {
             if (!destroyed) nativeFileReadFailed(requestId, FILE_READ_ERROR_NOT_FOUND);
         } catch (SecurityException exception) {
@@ -295,6 +319,52 @@ public final class ZappActivity extends NativeActivity {
         } catch (IOException | RuntimeException exception) {
             if (!destroyed) nativeFileReadFailed(requestId, FILE_READ_ERROR_IO);
         }
+    }
+
+    private FileMetadata queryFileMetadata(Uri uri) {
+        FileMetadata metadata = new FileMetadata();
+        try {
+            String mimeType = getContentResolver().getType(uri);
+            if (mimeType != null) metadata.mimeType = mimeType;
+        } catch (RuntimeException ignored) {
+            // Metadata is best effort; stream access still determines read success.
+        }
+
+        if ("content".equals(uri.getScheme())) {
+            String[] projection = new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE};
+            try (Cursor cursor = getContentResolver().query(uri, projection, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (nameColumn >= 0 && !cursor.isNull(nameColumn)) {
+                        String displayName = cursor.getString(nameColumn);
+                        if (displayName != null) metadata.displayName = displayName;
+                    }
+                    int sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE);
+                    if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
+                        long size = cursor.getLong(sizeColumn);
+                        if (size >= 0) {
+                            metadata.size = size;
+                            metadata.sizeKnown = true;
+                        }
+                    }
+                }
+            } catch (RuntimeException ignored) {
+                // Providers may omit or reject metadata while allowing stream reads.
+            }
+        } else if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
+            File file = new File(uri.getPath());
+            metadata.displayName = file.getName();
+            if (file.isFile()) {
+                metadata.size = file.length();
+                metadata.sizeKnown = true;
+            }
+        }
+
+        if (metadata.displayName.isEmpty()) {
+            String fallback = uri.getLastPathSegment();
+            if (fallback != null) metadata.displayName = fallback;
+        }
+        return metadata;
     }
 
     private int allocatePermissionRequestCode() {
@@ -316,6 +386,13 @@ public final class ZappActivity extends NativeActivity {
             this.requestId = requestId;
             this.permission = permission;
         }
+    }
+
+    private static final class FileMetadata {
+        String displayName = "";
+        String mimeType = "";
+        long size;
+        boolean sizeKnown;
     }
 
     private static final class SemanticNode {

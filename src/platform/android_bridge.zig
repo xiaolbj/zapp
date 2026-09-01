@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const semantics = @import("../ui/semantics.zig");
 
 pub const max_payload_bytes = 4096;
+pub const max_file_display_name_bytes = 256;
+pub const max_file_mime_type_bytes = 128;
 pub const max_accessibility_nodes = semantics.max_nodes;
 pub const max_accessibility_text_bytes = 128;
 
@@ -50,7 +52,7 @@ const accessibility_flag_can_scroll_backward: u32 = 1 << 10;
 var last_accessibility_hash: ?u64 = null;
 
 comptime {
-    std.debug.assert(@sizeOf(Event) == 4136);
+    std.debug.assert(@sizeOf(Event) == 4536);
     std.debug.assert(@sizeOf(AccessibilityNode) == 296);
 }
 
@@ -80,6 +82,13 @@ pub const Event = extern struct {
     reserved: [2]u8,
     text_length: usize,
     text_buffer: [max_payload_bytes]u8,
+    file_size: u64,
+    display_name_length: u16,
+    mime_type_length: u16,
+    file_size_known: bool,
+    metadata_reserved: [3]u8,
+    display_name_buffer: [max_file_display_name_bytes]u8,
+    mime_type_buffer: [max_file_mime_type_bytes]u8,
 
     pub fn kind(self: *const Event) ?EventKind {
         return switch (self.kind_value) {
@@ -104,6 +113,20 @@ pub const Event = extern struct {
 
     pub fn payload(self: *const Event) []const u8 {
         return self.text_buffer[0..@min(self.text_length, self.text_buffer.len)];
+    }
+
+    pub fn displayName(self: *const Event) []const u8 {
+        const length = @min(@as(usize, self.display_name_length), self.display_name_buffer.len);
+        return self.display_name_buffer[0..length];
+    }
+
+    pub fn mimeType(self: *const Event) []const u8 {
+        const length = @min(@as(usize, self.mime_type_length), self.mime_type_buffer.len);
+        return self.mime_type_buffer[0..length];
+    }
+
+    pub fn fileSize(self: *const Event) ?u64 {
+        return if (self.file_size_known) self.file_size else null;
     }
 };
 
@@ -226,16 +249,32 @@ test "native event exposes request metadata and bounded payload" {
         .reserved = @splat(0),
         .text_length = 3,
         .text_buffer = @splat(0),
+        .file_size = 74,
+        .display_name_length = 0,
+        .mime_type_length = 0,
+        .file_size_known = true,
+        .metadata_reserved = @splat(0),
+        .display_name_buffer = @splat(0),
+        .mime_type_buffer = @splat(0),
     };
     @memcpy(event.text_buffer[0..3], "abc");
+    @memcpy(event.display_name_buffer[0..10], "中文.txt");
+    event.display_name_length = 10;
+    @memcpy(event.mime_type_buffer[0..10], "text/plain");
+    event.mime_type_length = 10;
     try std.testing.expectEqual(EventKind.file_selected, event.kind().?);
     try std.testing.expectEqual(@as(u64, 42), event.request_id);
     try std.testing.expectEqualStrings("abc", event.text());
+    try std.testing.expectEqualStrings("中文.txt", event.displayName());
+    try std.testing.expectEqualStrings("text/plain", event.mimeType());
+    try std.testing.expectEqual(@as(?u64, 74), event.fileSize());
 
     event.kind_value = 99;
     try std.testing.expect(event.kind() == null);
     event.text_length = max_payload_bytes + 100;
     try std.testing.expectEqual(max_payload_bytes, event.payload().len);
+    event.display_name_length = max_file_display_name_bytes + 1;
+    try std.testing.expectEqual(max_file_display_name_bytes, event.displayName().len);
 }
 
 test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {

@@ -1,8 +1,19 @@
 pub const RequestId = u64;
 pub const max_file_uri_bytes = 1024;
 pub const max_file_preview_bytes = 4096;
+pub const max_file_display_name_bytes = 256;
+pub const max_file_mime_type_bytes = 128;
 
 pub const android = @import("android_bridge.zig");
+
+comptime {
+    if (max_file_preview_bytes != android.max_payload_bytes or
+        max_file_display_name_bytes != android.max_file_display_name_bytes or
+        max_file_mime_type_bytes != android.max_file_mime_type_bytes)
+    {
+        @compileError("platform and Android file payload capacities must match");
+    }
+}
 
 pub const Permission = enum(c_int) {
     camera,
@@ -57,6 +68,9 @@ pub const FileReadResult = struct {
     request_id: RequestId,
     data: []const u8,
     truncated: bool,
+    display_name: []const u8 = "",
+    mime_type: []const u8 = "",
+    size: ?u64 = null,
 };
 
 pub const FileReadFailure = struct {

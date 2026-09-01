@@ -81,6 +81,8 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 - 成功结果是可持久化读取的 `content://` URI；业务层应通过平台桥读取内容，不应把 URI 当作文件系统路径。
 - 用户返回或取消时会产生明确的取消事件，不会阻塞渲染线程。
 - 选择成功后，Java 后台单线程通过 `ContentResolver.openInputStream()` 自动读取最多 4096 字节；渲染线程只消费 JNI 事件队列，不执行阻塞 I/O。
+- 同一个后台任务通过 `OpenableColumns.DISPLAY_NAME`/`SIZE` 和 `ContentResolver.getType()` 查询显示名称、可选文件大小与 MIME 类型；provider 不支持元数据查询时仍继续读取内容。
+- provider 未返回大小但内容完整读到 EOF 时，以实际读取字节数补全大小；内容已截断时不会把预览长度误报成文件大小。
 - 原始字节通过 JNI `byte[]` 返回。UTF-8 内容会清理换行等控制字符后预览，二进制内容显示前 64 字节十六进制；超过上限会显示“已截断”。
 - 无效 URI、文件不存在、权限拒绝、I/O 错误和平台不支持均映射为稳定的 `FileReadError`，陈旧请求结果会按 request ID 丢弃。
 
@@ -105,6 +107,6 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 adb logcat -s zapp sokol app
 ```
 
-当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、Home 暂停后同进程恢复，以及原生无障碍节点树。PNG 验证返回 4096 字节并正确标记截断，文本验证返回 74 字节且保留中文内容。UIAutomator 可发现 46 个可见虚拟节点，包括中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView 和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。以上流程均无崩溃日志。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
+当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、文件名称/MIME/大小元数据、Home 暂停后同进程恢复，以及原生无障碍节点树。PNG 验证返回 4096 字节并正确标记截断；最新文本验证返回名称 `zapp-metadata-sample.txt`、类型 `text/plain`、大小 89 字节并保留中文内容。UIAutomator 可发现 46 个可见虚拟节点，包括中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView 和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。以上流程均无崩溃日志。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
 
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。

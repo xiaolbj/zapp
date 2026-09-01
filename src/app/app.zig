@@ -176,10 +176,16 @@ test "platform actions enqueue stable request identifiers and consume results" {
         .request_id = read_request.request_id,
         .data = "hello",
         .truncated = false,
+        .display_name = "example.txt",
+        .mime_type = "text/plain",
+        .size = 5,
     } });
     try std.testing.expect(app.model.last_permission_granted);
     try std.testing.expectEqualStrings("content://zapp/example", app.model.selectedFileUri());
     try std.testing.expectEqualStrings("hello", app.model.filePreview());
+    try std.testing.expectEqualStrings("example.txt", app.model.fileDisplayName());
+    try std.testing.expectEqualStrings("text/plain", app.model.fileMimeType());
+    try std.testing.expectEqual(@as(u64, 5), app.model.file_size);
 }
 
 test {

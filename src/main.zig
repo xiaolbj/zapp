@@ -103,6 +103,9 @@ fn drainPlatformEvents() void {
                 .request_id = native_event.request_id,
                 .data = native_event.payload(),
                 .truncated = native_event.truncated,
+                .display_name = native_event.displayName(),
+                .mime_type = native_event.mimeType(),
+                .size = native_event.fileSize(),
             } }),
             .file_read_failed => {
                 const error_kind = fileReadErrorFromValue(native_event.detail_value) orelse .io;

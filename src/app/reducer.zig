@@ -114,6 +114,7 @@ pub fn update(model: *Model, action: Action) void {
             model.file_preview_length = 0;
             model.file_preview_truncated = false;
             model.file_read_error = null;
+            clearFileMetadata(model);
         },
         .platform_file_selection_cancelled => |request_id| {
             model.file_picker_pending = false;
@@ -127,6 +128,10 @@ pub fn update(model: *Model, action: Action) void {
             @memcpy(model.file_preview_buffer[0..model.file_preview_length], result.data[0..model.file_preview_length]);
             model.file_preview_truncated = result.truncated or result.data.len > model.file_preview_buffer.len;
             model.file_read_error = null;
+            model.file_display_name_length = copyUtf8Prefix(&model.file_display_name_buffer, result.display_name);
+            model.file_mime_type_length = copyUtf8Prefix(&model.file_mime_type_buffer, result.mime_type);
+            model.file_size = result.size orelse 0;
+            model.file_size_known = result.size != null;
         },
         .platform_file_read_failed => |failure| {
             if (failure.request_id != model.last_file_read_request_id) return;
@@ -384,10 +389,17 @@ test "platform results update permission and file picker state" {
         .request_id = 8,
         .data = "文件内容",
         .truncated = true,
+        .display_name = "中文.txt",
+        .mime_type = "text/plain",
+        .size = 8192,
     } });
     try std.testing.expect(!model.file_read_pending);
     try std.testing.expectEqualStrings("文件内容", model.filePreview());
     try std.testing.expect(model.file_preview_truncated);
+    try std.testing.expectEqualStrings("中文.txt", model.fileDisplayName());
+    try std.testing.expectEqualStrings("text/plain", model.fileMimeType());
+    try std.testing.expect(model.file_size_known);
+    try std.testing.expectEqual(@as(u64, 8192), model.file_size);
 
     update(&model, .{ .platform_file_read_failed = .{
         .request_id = 7,
@@ -532,10 +544,21 @@ fn setComposition(model: *Model, text: []const u8) void {
 }
 
 fn setSelectedFileUri(model: *Model, uri: []const u8) void {
-    var length = @min(uri.len, model.selected_file_uri_buffer.len);
-    while (length > 0 and length < uri.len and uri[length] & 0xC0 == 0x80) length -= 1;
-    @memcpy(model.selected_file_uri_buffer[0..length], uri[0..length]);
-    model.selected_file_uri_length = length;
+    model.selected_file_uri_length = copyUtf8Prefix(&model.selected_file_uri_buffer, uri);
+}
+
+fn clearFileMetadata(model: *Model) void {
+    model.file_display_name_length = 0;
+    model.file_mime_type_length = 0;
+    model.file_size = 0;
+    model.file_size_known = false;
+}
+
+fn copyUtf8Prefix(destination: []u8, source: []const u8) usize {
+    var length = @min(source.len, destination.len);
+    while (length > 0 and length < source.len and source[length] & 0xC0 == 0x80) length -= 1;
+    @memcpy(destination[0..length], source[0..length]);
+    return length;
 }
 
 test "tick advances only while active" {

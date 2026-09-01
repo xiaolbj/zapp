@@ -52,6 +52,12 @@ pub const Model = struct {
     file_preview_length: usize = 0,
     file_preview_truncated: bool = false,
     file_read_error: ?platform.FileReadError = null,
+    file_display_name_buffer: [platform.max_file_display_name_bytes]u8 = @splat(0),
+    file_display_name_length: usize = 0,
+    file_mime_type_buffer: [platform.max_file_mime_type_bytes]u8 = @splat(0),
+    file_mime_type_length: usize = 0,
+    file_size: u64 = 0,
+    file_size_known: bool = false,
     demo_navigation_index: u8 = 0,
     demo_tree_expanded_mask: u64 = 0b11,
     demo_tree_selected_index: u8 = 2,
@@ -87,5 +93,13 @@ pub const Model = struct {
 
     pub fn filePreview(self: *const Model) []const u8 {
         return self.file_preview_buffer[0..self.file_preview_length];
+    }
+
+    pub fn fileDisplayName(self: *const Model) []const u8 {
+        return self.file_display_name_buffer[0..self.file_display_name_length];
+    }
+
+    pub fn fileMimeType(self: *const Model) []const u8 {
+        return self.file_mime_type_buffer[0..self.file_mime_type_length];
     }
 };

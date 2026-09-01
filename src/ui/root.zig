@@ -48,6 +48,7 @@ const state = struct {
     var confirmation_text: [96]u8 = undefined;
     var permission_status_text: [160]u8 = undefined;
     var file_status_text: [256]u8 = undefined;
+    var file_metadata_text: [512]u8 = undefined;
     var file_preview_text: [768]u8 = undefined;
 };
 
@@ -241,6 +242,7 @@ pub fn build(model: *const Model) Frame {
         "文件选择：已取消或平台不支持"
     else
         "文件选择：尚未选择";
+    const file_metadata_text = formatFileMetadata(&state.file_metadata_text, model);
     const file_preview_text = formatFilePreview(&state.file_preview_text, model);
     const modal_open = state.focus_state.modalOpen();
 
@@ -509,6 +511,12 @@ pub fn build(model: *const Model) Frame {
                     label.draw(file_status_text, .{
                         .color = theme.controls.text_muted,
                         .semantic_id = .ID("FileSelectionStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (file_metadata_text.len > 0) label.draw(file_metadata_text, .{
+                        .color = theme.controls.text_muted,
+                        .wrap_mode = .words,
+                        .semantic_id = .ID("FileMetadataStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
                     if (file_preview_text.len > 0) label.draw(file_preview_text, .{
@@ -798,6 +806,32 @@ fn utf8Prefix(text: []const u8, max_bytes: usize) []const u8 {
     return text[0..length];
 }
 
+fn formatFileMetadata(buffer: []u8, model: *const Model) []const u8 {
+    if (model.file_read_pending or model.selectedFileUri().len == 0) return "";
+    if (model.fileDisplayName().len == 0 and model.fileMimeType().len == 0 and !model.file_size_known) return "";
+
+    const display_name = if (model.fileDisplayName().len > 0)
+        utf8Prefix(model.fileDisplayName(), 160)
+    else
+        "未知";
+    const mime_type = if (model.fileMimeType().len > 0)
+        utf8Prefix(model.fileMimeType(), 96)
+    else
+        "未知";
+    return if (model.file_size_known)
+        std.fmt.bufPrint(
+            buffer,
+            "文件信息：名称 {s}｜类型 {s}｜大小 {d} 字节",
+            .{ display_name, mime_type, model.file_size },
+        ) catch "文件信息不可用"
+    else
+        std.fmt.bufPrint(
+            buffer,
+            "文件信息：名称 {s}｜类型 {s}｜大小未知",
+            .{ display_name, mime_type },
+        ) catch "文件信息不可用";
+}
+
 fn formatFilePreview(buffer: []u8, model: *const Model) []const u8 {
     if (model.file_read_pending) return "内容读取：正在读取…";
     if (model.file_read_error) |error_kind| return switch (error_kind) {
@@ -1037,4 +1071,22 @@ test "file previews preserve UTF-8 text and format binary as hex" {
     @memcpy(model.file_preview_buffer[0..4], &[_]u8{ 0x89, 0x50, 0x4e, 0x47 });
     const binary_preview = formatFilePreview(&buffer, &model);
     try std.testing.expect(std.mem.indexOf(u8, binary_preview, "89 50 4E 47") != null);
+}
+
+test "file metadata formats name MIME type and exact size" {
+    var model: Model = .{};
+    model.selected_file_uri_length = "content://sample".len;
+    @memcpy(model.selected_file_uri_buffer[0..model.selected_file_uri_length], "content://sample");
+    model.file_display_name_length = "中文资料.txt".len;
+    @memcpy(model.file_display_name_buffer[0..model.file_display_name_length], "中文资料.txt");
+    model.file_mime_type_length = "text/plain".len;
+    @memcpy(model.file_mime_type_buffer[0..model.file_mime_type_length], "text/plain");
+    model.file_size = 74;
+    model.file_size_known = true;
+
+    var buffer: [512]u8 = undefined;
+    const metadata = formatFileMetadata(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, metadata, "中文资料.txt") != null);
+    try std.testing.expect(std.mem.indexOf(u8, metadata, "text/plain") != null);
+    try std.testing.expect(std.mem.indexOf(u8, metadata, "74 字节") != null);
 }
