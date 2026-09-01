@@ -28,6 +28,15 @@ cd android
 .\gradlew.bat assembleDebug '-PzappNdkPath=D:\Android\android-ndk-r25c'
 ```
 
+Release APK/AAB（未提供外部密钥时生成未签名 APK）：
+
+```powershell
+.\gradlew.bat verifyReleaseArtifacts `
+  '-PzappNdkPath=D:\Android\android-ndk-r25c' `
+  '-PzappVersionCode=1' `
+  '-PzappVersionName=0.1.0'
+```
+
 Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`。完整环境变量和安装命令见 [android/README.md](android/README.md)。
 
 ## UI 控件

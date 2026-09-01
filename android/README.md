@@ -41,7 +41,38 @@ zig build android-lib `
   -Dandroid-api=26
 ```
 
-输出位置为 `zig-out/android/<abi>/libzapp.so`。
+默认输出位置为 `zig-out/android/<abi>/libzapp.so`；Gradle 会使用 `android-output-dir` 将 Debug 和 Release 分别写入 `zig-out/android/debug/<abi>` 与 `zig-out/android/release/<abi>`，避免变体之间复用错误的原生库。Android Debug 使用保留运行时安全检查且兼容 NDK 双 ABI 的 Zig `ReleaseSafe`，Release 使用 `ReleaseSmall`；Gradle Debug APK 本身仍保持 `debuggable=true`。
+
+## 发布构建
+
+版本号可以通过 Gradle property 或环境变量提供：
+
+```powershell
+.\gradlew.bat verifyReleaseArtifacts `
+  '-PzappNdkPath=D:\Android\android-ndk-r25c' `
+  '-PzappVersionCode=42' `
+  '-PzappVersionName=0.2.0-rc1'
+```
+
+该任务会构建经过 R8/资源收缩的 Release APK 和 AAB，并检查版本元数据以及 `arm64-v8a`、`x86_64` 两个 `libzapp.so`。输出位于：
+
+```text
+android/app/build/outputs/apk/release/
+android/app/build/outputs/bundle/release/app-release.aab
+```
+
+正式发布签名只从外部注入，仓库不保存密钥或密码：
+
+```powershell
+$env:ZAPP_KEYSTORE_PATH = 'D:\keys\zapp-release.jks'
+$env:ZAPP_KEYSTORE_PASSWORD = '<store password>'
+$env:ZAPP_KEY_ALIAS = '<key alias>'
+$env:ZAPP_KEY_PASSWORD = '<key password>'
+$env:ZAPP_REQUIRE_RELEASE_SIGNING = 'true'
+.\gradlew.bat verifyReleaseSigning verifyReleaseArtifacts
+```
+
+也可以使用对应的 `-PzappKeystorePath`、`-PzappKeystorePassword`、`-PzappKeyAlias`、`-PzappKeyPassword` 和 `-PzappRequireReleaseSigning=true`。四项签名参数必须全部提供，否则配置阶段会失败。CI 刻意只生成未签名发布产物，不接触发布密钥；商店上传应在受保护环境中完成签名构建。
 
 ## 中文输入法桥接
 

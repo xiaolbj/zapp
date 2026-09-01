@@ -85,6 +85,11 @@ fn configureAndroidBuild(
     };
     const abi = b.option(AndroidAbi, "android-abi", "Android ABI: arm64-v8a or x86_64") orelse .@"arm64-v8a";
     const api_level = b.option(u32, "android-api", "Android API level") orelse 26;
+    const output_dir = b.option(
+        []const u8,
+        "android-output-dir",
+        "Install subdirectory for Android libraries",
+    ) orelse "android";
     const target = b.resolveTargetQuery(.{
         .cpu_arch = switch (abi) {
             .@"arm64-v8a" => .aarch64,
@@ -201,7 +206,7 @@ fn configureAndroidBuild(
     const shared_library = linker.addOutputFileArg("libzapp.so");
     const install = b.addInstallFile(
         shared_library,
-        b.fmt("android/{s}/libzapp.so", .{@tagName(abi)}),
+        b.fmt("{s}/{s}/libzapp.so", .{ output_dir, @tagName(abi) }),
     );
     android_step.dependOn(&install.step);
 }
