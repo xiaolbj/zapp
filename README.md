@@ -57,7 +57,7 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 
 手柄、电视遥控器和辅助输入设备通过平台层的 `NavigationCommand` 接入：`next`/`previous` 移动焦点，`activate` 激活控件，`decrement`/`increment` 调节 Slider，`back` 复用 Escape/Android 返回逻辑。具体平台只需把原生按键或轴事件翻译成该命令。
 
-路线图第一批控件（Button、IconButton、Label、Checkbox/Switch、Slider、ScrollView/List、Dialog、Toast、NavigationBar、基础单行 TextField）以及补充的 TreeView 均已有可运行实现。TreeView 的展开掩码和选择项由 AppModel 持有，折叠节点会从布局、焦点顺序和语义树中移除。TextField 已支持 UTF-8 光标、鼠标/触摸定位与拖选、Shift 选择、全选、复制、剪切、粘贴、选区替换以及独立的 IME 组合态；Android APK 已通过自定义 `NativeActivity`、`InputConnection` 和 JNI 事件队列接入中文软键盘。权限请求与系统文件选择器也已通过同一异步平台桥接入，文件读取结果包含显示名称、MIME 类型、可选大小和内容预览，并统一回到 App reducer。
+路线图第一批控件（Button、IconButton、Label、Checkbox/Switch、Slider、ScrollView/List、Dialog、Toast、NavigationBar、基础单行 TextField）以及补充的 TreeView 均已有可运行实现。TreeView 的展开掩码和选择项由 AppModel 持有，折叠节点会从布局、焦点顺序和语义树中移除。TextField 已支持 UTF-8 光标、鼠标/触摸定位与拖选、Shift 选择、全选、复制、剪切、粘贴、选区替换以及独立的 IME 组合态；Android APK 已通过自定义 `NativeActivity`、`InputConnection` 和 JNI 事件队列接入中文软键盘。权限请求与系统文件选择器也已通过同一异步平台桥接入，文件读取结果包含显示名称、MIME 类型、可选大小和内容预览；大文件可以按 4096 字节分块完整消费、取消并显示进度与增量摘要，所有结果统一回到 App reducer。
 
 交互控件已接入循环键盘焦点顺序：`Tab`/`Shift+Tab` 前后移动，`Enter`/`Space` 激活当前按钮或选择控件，Slider 使用左右方向键按 `0.05` 调整；Dialog 打开时焦点顺序被限制在取消和确认按钮内。Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar 和 TreeView 均通过统一 Theme 令牌显示焦点环。
 
@@ -82,7 +82,7 @@ if (button.draw(&state.button_state, input, .{
 - Clay 是正式产品 UI 的布局层；ImGui 仅作为未来可选的开发调试层。
 - UI 发出 Action，由 AppModel/reducer 统一更新业务状态。
 - Android、iOS 等系统 API 通过异步平台桥接层接入。
-- Android 端已实现相机、麦克风、通知、媒体权限请求和 Storage Access Framework 文件选择；文件结果使用 `content://` URI，不假定存在真实文件路径。选中后会在后台自动读取最多 4096 字节预览，UTF-8 文本直接显示，二进制内容使用十六进制显示并标记截断。
+- Android 端已实现相机、麦克风、通知、媒体权限请求和 Storage Access Framework 文件选择；文件结果使用 `content://` URI，不假定存在真实文件路径。选中后会在后台自动读取最多 4096 字节预览，UTF-8 文本直接显示，二进制内容使用十六进制显示并标记截断；也可启动带背压和取消能力的完整分块读取。
 - Noto Sans SC 使用 OFL-1.1 许可证，许可证随字体保存在 `assets/fonts`。
 
 完整架构方案见 [docs/sokol-clay-app-plan.md](docs/sokol-clay-app-plan.md)。

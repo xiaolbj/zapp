@@ -3,6 +3,7 @@ pub const max_file_uri_bytes = 1024;
 pub const max_file_preview_bytes = 4096;
 pub const max_file_display_name_bytes = 256;
 pub const max_file_mime_type_bytes = 128;
+pub const file_stream_chunk_bytes = 4096;
 
 pub const android = @import("android_bridge.zig");
 
@@ -78,6 +79,40 @@ pub const FileReadFailure = struct {
     error_kind: FileReadError,
 };
 
+pub const FileStreamRequest = struct {
+    request_id: RequestId,
+    uri_length: usize,
+    uri_buffer: [max_file_uri_bytes]u8,
+    chunk_bytes: u32,
+
+    pub fn init(request_id: RequestId, uri_text: []const u8, chunk_bytes: u32) ?FileStreamRequest {
+        if (uri_text.len == 0 or uri_text.len > max_file_uri_bytes or chunk_bytes == 0) return null;
+        var request: FileStreamRequest = .{
+            .request_id = request_id,
+            .uri_length = uri_text.len,
+            .uri_buffer = @splat(0),
+            .chunk_bytes = @min(chunk_bytes, file_stream_chunk_bytes),
+        };
+        @memcpy(request.uri_buffer[0..uri_text.len], uri_text);
+        return request;
+    }
+
+    pub fn uri(self: *const FileStreamRequest) []const u8 {
+        return self.uri_buffer[0..self.uri_length];
+    }
+};
+
+pub const FileStreamChunk = struct {
+    request_id: RequestId,
+    offset: u64,
+    data: []const u8,
+};
+
+pub const FileStreamTerminal = struct {
+    request_id: RequestId,
+    total_bytes: u64,
+};
+
 pub const PlatformRequest = union(enum) {
     request_permission: struct {
         request_id: RequestId,
@@ -87,6 +122,8 @@ pub const PlatformRequest = union(enum) {
         request_id: RequestId,
     },
     read_file: FileReadRequest,
+    stream_file: FileStreamRequest,
+    cancel_file_stream: RequestId,
 };
 
 /// Logical navigation produced by a gamepad, TV remote, keyboard adapter, or
@@ -107,6 +144,10 @@ pub const PlatformEvent = union(enum) {
     file_selection_cancelled: RequestId,
     file_read_completed: FileReadResult,
     file_read_failed: FileReadFailure,
+    file_stream_chunk: FileStreamChunk,
+    file_stream_completed: FileStreamTerminal,
+    file_stream_failed: FileReadFailure,
+    file_stream_cancelled: FileStreamTerminal,
     ime_composition_changed: []const u8,
     ime_composition_committed: []const u8,
     ime_composition_cancelled,
@@ -134,4 +175,14 @@ test "file read requests own URI bytes and clamp preview size" {
     try std.testing.expectEqualStrings("content://x", request.uri());
     try std.testing.expectEqual(@as(u32, max_file_preview_bytes), request.max_bytes);
     try std.testing.expect(FileReadRequest.init(1, "", 1) == null);
+}
+
+test "file stream requests own URI bytes and clamp chunk size" {
+    const std = @import("std");
+    var source = [_]u8{ 'c', 'o', 'n', 't', 'e', 'n', 't', ':', '/', '/', 'x' };
+    const request = FileStreamRequest.init(10, &source, file_stream_chunk_bytes + 100).?;
+    source[0] = 'X';
+    try std.testing.expectEqualStrings("content://x", request.uri());
+    try std.testing.expectEqual(@as(u32, file_stream_chunk_bytes), request.chunk_bytes);
+    try std.testing.expect(FileStreamRequest.init(1, "", 1) == null);
 }

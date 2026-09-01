@@ -50,6 +50,7 @@ const state = struct {
     var file_status_text: [256]u8 = undefined;
     var file_metadata_text: [512]u8 = undefined;
     var file_preview_text: [768]u8 = undefined;
+    var file_stream_status_text: [320]u8 = undefined;
 };
 
 pub const Frame = struct {
@@ -143,6 +144,7 @@ pub fn build(model: *const Model) Frame {
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
+    const file_stream_button_id = clay.ElementId.ID("StreamSelectedFile").id;
     if (model.demo_dialog_open) {
         state.focus_state.openModal(dialog_id, dialog_confirm_id);
         state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
@@ -162,6 +164,7 @@ pub fn build(model: *const Model) Frame {
             text_field_id,
             permission_button_id,
             file_picker_button_id,
+            file_stream_button_id,
         };
         @memcpy(focus_order[0..base_order.len], &base_order);
         var focus_order_count = base_order.len;
@@ -244,6 +247,7 @@ pub fn build(model: *const Model) Frame {
         "文件选择：尚未选择";
     const file_metadata_text = formatFileMetadata(&state.file_metadata_text, model);
     const file_preview_text = formatFilePreview(&state.file_preview_text, model);
+    const file_stream_status_text = formatFileStreamStatus(&state.file_stream_status_text, model);
     const modal_open = state.focus_state.modalOpen();
 
     clay.UI()(.{
@@ -495,12 +499,32 @@ pub fn build(model: *const Model) Frame {
                             .id = "OpenFilePicker",
                             .text = if (model.file_picker_pending) "选择中…" else "选择文件",
                             .width = control_width,
-                            .disabled = modal_open or model.file_picker_pending,
+                            .disabled = modal_open or model.file_picker_pending or model.file_stream_pending,
                             .focused = state.focus_state.isFocused(file_picker_button_id),
                             .semantic_registry = &state.semantic_registry,
                         })) {
                             state.focus_state.focus(file_picker_button_id);
                             emit(.platform_file_picker_requested);
+                        }
+                        if (button.draw(&state.interaction_state, input, .{
+                            .id = "StreamSelectedFile",
+                            .text = if (model.file_stream_cancel_pending)
+                                "取消中…"
+                            else if (model.file_stream_pending)
+                                "取消完整读取"
+                            else
+                                "读取完整文件",
+                            .width = control_width,
+                            .disabled = modal_open or model.selectedFileUri().len == 0 or
+                                model.file_read_pending or model.file_stream_cancel_pending,
+                            .focused = state.focus_state.isFocused(file_stream_button_id),
+                            .semantic_registry = &state.semantic_registry,
+                        })) {
+                            state.focus_state.focus(file_stream_button_id);
+                            emit(if (model.file_stream_pending)
+                                .platform_file_stream_cancel_requested
+                            else
+                                .platform_file_stream_requested);
                         }
                     });
                     label.draw(permission_status_text, .{
@@ -522,6 +546,12 @@ pub fn build(model: *const Model) Frame {
                     if (file_preview_text.len > 0) label.draw(file_preview_text, .{
                         .color = theme.controls.text_muted,
                         .semantic_id = .ID("FilePreviewStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (file_stream_status_text.len > 0) label.draw(file_stream_status_text, .{
+                        .color = theme.controls.text_muted,
+                        .wrap_mode = .words,
+                        .semantic_id = .ID("FileStreamStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
                     label.draw(confirmation_text, .{
@@ -658,6 +688,7 @@ pub fn handleSemanticAction(
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_id = clay.ElementId.ID("OpenFilePicker").id;
+    const file_stream_id = clay.ElementId.ID("StreamSelectedFile").id;
     const dialog_cancel_id = clay.ElementId.ID("DemoDialogCancel").id;
     const dialog_confirm_id = clay.ElementId.ID("DemoDialogConfirm").id;
 
@@ -681,7 +712,17 @@ pub fn handleSemanticAction(
             }
             if (element_id == primary_id) emit(.primary_button_pressed) else if (element_id == progress_id) emit(.demo_progress_incremented) else if (element_id == dialog_open_id) emit(.demo_dialog_opened) else if (element_id == checkbox_id) emit(.demo_checkbox_toggled) else if (element_id == switch_id) emit(.demo_switch_toggled) else if (element_id == text_field_id) {
                 if (!model.text_field_focused) emit(.{ .text_field_focus_changed = true });
-            } else if (element_id == permission_id) emit(.{ .platform_permission_requested = .camera }) else if (element_id == file_picker_id) emit(.platform_file_picker_requested) else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index });
+            } else if (element_id == permission_id) emit(.{ .platform_permission_requested = .camera }) else if (element_id == file_picker_id) {
+                if (!model.file_picker_pending and !model.file_stream_pending) {
+                    emit(.platform_file_picker_requested);
+                }
+            } else if (element_id == file_stream_id) {
+                if (model.file_stream_pending and !model.file_stream_cancel_pending) {
+                    emit(.platform_file_stream_cancel_requested);
+                } else if (!model.file_stream_pending and !model.file_read_pending and model.selectedFileUri().len > 0) {
+                    emit(.platform_file_stream_requested);
+                }
+            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index });
         },
         .increment, .decrement => if (element_id == slider_id) {
             const delta: f32 = if (semantic_action == .increment) 0.05 else -0.05;
@@ -742,6 +783,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "DemoTextField",
         "RequestCameraPermission",
         "OpenFilePicker",
+        "StreamSelectedFile",
         "DemoDialogCancel",
         "DemoDialogConfirm",
     }) |id| if (element_id == clay.ElementId.ID(id).id) return true;
@@ -877,6 +919,42 @@ fn formatFilePreview(buffer: []u8, model: *const Model) []const u8 {
         }
     }
     return buffer[0..length];
+}
+
+fn formatFileStreamStatus(buffer: []u8, model: *const Model) []const u8 {
+    if (model.file_stream_error) |error_kind| return switch (error_kind) {
+        .invalid_uri => "完整读取失败：URI 无效",
+        .not_found => "完整读取失败：文件不存在",
+        .permission_denied => "完整读取失败：没有读取权限",
+        .io => "完整读取失败：数据不连续或 I/O 错误",
+        .unsupported => "完整读取失败：平台不支持",
+    };
+    if (model.file_stream_pending) {
+        const phase = if (model.file_stream_cancel_pending) "正在取消" else "处理中";
+        return if (model.file_size_known)
+            std.fmt.bufPrint(
+                buffer,
+                "完整读取{s}：{d} / {d} 字节（{d} 块）",
+                .{ phase, model.file_stream_bytes_consumed, model.file_size, model.file_stream_chunk_count },
+            ) catch "完整读取状态不可用"
+        else
+            std.fmt.bufPrint(
+                buffer,
+                "完整读取{s}：{d} 字节（{d} 块）",
+                .{ phase, model.file_stream_bytes_consumed, model.file_stream_chunk_count },
+            ) catch "完整读取状态不可用";
+    }
+    if (model.file_stream_completed) return std.fmt.bufPrint(
+        buffer,
+        "完整读取完成：{d} 字节（{d} 块），FNV-1a {x}",
+        .{ model.file_stream_bytes_consumed, model.file_stream_chunk_count, model.file_stream_hash },
+    ) catch "完整读取状态不可用";
+    if (model.file_stream_cancelled) return std.fmt.bufPrint(
+        buffer,
+        "完整读取已取消：已消费 {d} 字节（{d} 块）",
+        .{ model.file_stream_bytes_consumed, model.file_stream_chunk_count },
+    ) catch "完整读取状态不可用";
+    return "";
 }
 
 test "responsive shell emits controls and text" {
@@ -1055,6 +1133,26 @@ test "semantic actions reuse reducer-facing UI actions" {
         actions[0].semantic_scroll_requested.element_id,
     );
     try std.testing.expectEqual(@as(i8, 1), actions[0].semantic_scroll_requested.direction);
+
+    model.selected_file_uri_length = "content://sample".len;
+    @memcpy(model.selected_file_uri_buffer[0..model.selected_file_uri_length], "content://sample");
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("StreamSelectedFile").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expect(actions[0] == .platform_file_stream_requested);
+
+    model.file_stream_pending = true;
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("OpenFilePicker").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 0), actions.len);
 }
 
 test "file previews preserve UTF-8 text and format binary as hex" {
@@ -1089,4 +1187,23 @@ test "file metadata formats name MIME type and exact size" {
     try std.testing.expect(std.mem.indexOf(u8, metadata, "中文资料.txt") != null);
     try std.testing.expect(std.mem.indexOf(u8, metadata, "text/plain") != null);
     try std.testing.expect(std.mem.indexOf(u8, metadata, "74 字节") != null);
+}
+
+test "file stream status reports progress completion and digest" {
+    var model: Model = .{
+        .file_size = 8192,
+        .file_size_known = true,
+        .file_stream_pending = true,
+        .file_stream_bytes_consumed = 4096,
+        .file_stream_chunk_count = 1,
+    };
+    var buffer: [320]u8 = undefined;
+    const progress = formatFileStreamStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, progress, "4096 / 8192") != null);
+
+    model.file_stream_pending = false;
+    model.file_stream_completed = true;
+    model.file_stream_hash = 0x1234;
+    const completed = formatFileStreamStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, completed, "FNV-1a 1234") != null);
 }

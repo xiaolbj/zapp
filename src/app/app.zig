@@ -47,6 +47,32 @@ pub const App = struct {
                     } });
                 }
             },
+            .platform_file_stream_requested => {
+                const request_id = self.allocateRequestId();
+                self.dispatch(.{ .platform_file_stream_started = request_id });
+                const stream_request = platform.FileStreamRequest.init(
+                    request_id,
+                    self.model.selectedFileUri(),
+                    platform.file_stream_chunk_bytes,
+                );
+                if (stream_request == null or !self.enqueuePlatformRequest(.{ .stream_file = stream_request.? })) {
+                    self.dispatch(.{ .platform_file_stream_failed = .{
+                        .request_id = request_id,
+                        .error_kind = if (stream_request == null) .invalid_uri else .unsupported,
+                    } });
+                }
+            },
+            .platform_file_stream_cancel_requested => {
+                const request_id = self.model.last_file_stream_request_id;
+                if (request_id != 0 and self.model.file_stream_pending and
+                    !self.enqueuePlatformRequest(.{ .cancel_file_stream = request_id }))
+                {
+                    self.dispatch(.{ .platform_file_stream_failed = .{
+                        .request_id = request_id,
+                        .error_kind = .unsupported,
+                    } });
+                }
+            },
             else => {},
         }
     }
@@ -72,6 +98,10 @@ pub const App = struct {
             }),
             .file_read_completed => |result| self.dispatch(.{ .platform_file_read_completed = result }),
             .file_read_failed => |failure| self.dispatch(.{ .platform_file_read_failed = failure }),
+            .file_stream_chunk => |chunk| self.dispatch(.{ .platform_file_stream_chunk = chunk }),
+            .file_stream_completed => |result| self.dispatch(.{ .platform_file_stream_completed = result }),
+            .file_stream_failed => |failure| self.dispatch(.{ .platform_file_stream_failed = failure }),
+            .file_stream_cancelled => |result| self.dispatch(.{ .platform_file_stream_cancelled = result }),
             .ime_composition_changed => |text| self.dispatch(.{ .text_composition_changed = text }),
             .ime_composition_committed => |text| self.dispatch(.{ .text_composition_committed = text }),
             .ime_composition_cancelled => self.dispatch(.text_composition_cancelled),
@@ -186,6 +216,33 @@ test "platform actions enqueue stable request identifiers and consume results" {
     try std.testing.expectEqualStrings("example.txt", app.model.fileDisplayName());
     try std.testing.expectEqualStrings("text/plain", app.model.fileMimeType());
     try std.testing.expectEqual(@as(u64, 5), app.model.file_size);
+}
+
+test "file stream requests and cancellation use stable identifiers" {
+    const std = @import("std");
+    var app: App = .{};
+    app.dispatchPlatformEvent(.{ .file_selected = .{
+        .request_id = 7,
+        .uri = "content://zapp/large.bin",
+    } });
+    _ = app.takePlatformRequest().?.read_file;
+    app.dispatchPlatformEvent(.{ .file_read_completed = .{
+        .request_id = 7,
+        .data = "preview",
+        .truncated = true,
+        .size = 8192,
+    } });
+
+    app.dispatch(.platform_file_stream_requested);
+    const stream_request = app.takePlatformRequest().?.stream_file;
+    try std.testing.expectEqual(app.model.last_file_stream_request_id, stream_request.request_id);
+    try std.testing.expectEqualStrings("content://zapp/large.bin", stream_request.uri());
+    try std.testing.expect(app.model.file_stream_pending);
+
+    app.dispatch(.platform_file_stream_cancel_requested);
+    const cancel_request = app.takePlatformRequest().?.cancel_file_stream;
+    try std.testing.expectEqual(stream_request.request_id, cancel_request);
+    try std.testing.expect(app.model.file_stream_cancel_pending);
 }
 
 test {

@@ -66,6 +66,7 @@ public final class ZappActivity extends NativeActivity {
     private int nextPermissionRequestCode = FIRST_PERMISSION_REQUEST_CODE;
     private long pendingFileRequestId;
     private final ExecutorService fileReadExecutor = Executors.newSingleThreadExecutor();
+    private volatile long activeStreamRequestId;
     private volatile boolean destroyed;
 
     static {
@@ -92,6 +93,10 @@ public final class ZappActivity extends NativeActivity {
         boolean fileSizeKnown
     );
     private static native void nativeFileReadFailed(long requestId, int errorKind);
+    private static native boolean nativeFileStreamChunk(long requestId, long offset, byte[] data, int length);
+    private static native void nativeFileStreamCompleted(long requestId, long totalBytes);
+    private static native void nativeFileStreamFailed(long requestId, int errorKind);
+    private static native void nativeFileStreamCancelled(long requestId, long totalBytes);
     private static native int nativeAccessibilityNodeCount();
     private static native boolean nativeAccessibilityNodeAt(
         int index,
@@ -125,6 +130,7 @@ public final class ZappActivity extends NativeActivity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        activeStreamRequestId = 0;
         fileReadExecutor.shutdownNow();
         super.onDestroy();
     }
@@ -365,6 +371,108 @@ public final class ZappActivity extends NativeActivity {
             if (fallback != null) metadata.displayName = fallback;
         }
         return metadata;
+    }
+
+    @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
+    public void streamFileFromNative(long requestId, String uriText, int requestedChunkBytes) {
+        final int chunkBytes = Math.min(Math.max(requestedChunkBytes, 1), MAX_FILE_PREVIEW_BYTES);
+        activeStreamRequestId = requestId;
+        fileReadExecutor.execute(() -> streamFileInBackground(requestId, uriText, chunkBytes));
+    }
+
+    @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
+    public void cancelFileStreamFromNative(long requestId) {
+        if (activeStreamRequestId == requestId) activeStreamRequestId = 0;
+    }
+
+    private void streamFileInBackground(long requestId, String uriText, int chunkBytes) {
+        Uri uri = uriText == null ? null : Uri.parse(uriText);
+        String scheme = uri == null ? null : uri.getScheme();
+        if (scheme == null || !(scheme.equals("content") || scheme.equals("file") ||
+            scheme.equals("android.resource"))) {
+            finishFileStreamFailure(requestId, FILE_READ_ERROR_INVALID_URI);
+            return;
+        }
+        if (!isFileStreamActive(requestId)) {
+            finishFileStreamCancelled(requestId, 0);
+            return;
+        }
+
+        byte[] buffer = new byte[chunkBytes];
+        long offset = 0;
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            if (input == null) {
+                finishFileStreamFailure(requestId, FILE_READ_ERROR_IO);
+                return;
+            }
+            while (true) {
+                int length = 0;
+                boolean reachedEnd = false;
+                while (length < buffer.length) {
+                    if (!isFileStreamActive(requestId)) {
+                        finishFileStreamCancelled(requestId, offset);
+                        return;
+                    }
+                    int read = input.read(buffer, length, buffer.length - length);
+                    if (read < 0) {
+                        reachedEnd = true;
+                        break;
+                    }
+                    if (read == 0) {
+                        int oneByte = input.read();
+                        if (oneByte < 0) {
+                            reachedEnd = true;
+                            break;
+                        }
+                        buffer[length++] = (byte)oneByte;
+                    } else {
+                        length += read;
+                    }
+                }
+
+                if (length > 0) {
+                    if (Long.MAX_VALUE - offset < length) {
+                        finishFileStreamFailure(requestId, FILE_READ_ERROR_IO);
+                        return;
+                    }
+                    if (!nativeFileStreamChunk(requestId, offset, buffer, length)) return;
+                    offset += length;
+                }
+                if (!isFileStreamActive(requestId)) {
+                    finishFileStreamCancelled(requestId, offset);
+                    return;
+                }
+                if (reachedEnd) {
+                    activeStreamRequestId = 0;
+                    if (!destroyed) nativeFileStreamCompleted(requestId, offset);
+                    return;
+                }
+            }
+        } catch (FileNotFoundException exception) {
+            finishFileStreamFailure(requestId, FILE_READ_ERROR_NOT_FOUND);
+        } catch (SecurityException exception) {
+            finishFileStreamFailure(requestId, FILE_READ_ERROR_PERMISSION_DENIED);
+        } catch (IOException | RuntimeException exception) {
+            if (isFileStreamActive(requestId)) {
+                finishFileStreamFailure(requestId, FILE_READ_ERROR_IO);
+            } else {
+                finishFileStreamCancelled(requestId, offset);
+            }
+        }
+    }
+
+    private boolean isFileStreamActive(long requestId) {
+        return !destroyed && activeStreamRequestId == requestId;
+    }
+
+    private void finishFileStreamFailure(long requestId, int errorKind) {
+        if (activeStreamRequestId == requestId) activeStreamRequestId = 0;
+        if (!destroyed) nativeFileStreamFailed(requestId, errorKind);
+    }
+
+    private void finishFileStreamCancelled(long requestId, long totalBytes) {
+        if (activeStreamRequestId == requestId) activeStreamRequestId = 0;
+        if (!destroyed) nativeFileStreamCancelled(requestId, totalBytes);
     }
 
     private int allocatePermissionRequestCode() {

@@ -64,7 +64,7 @@ Android IME
 - 文本框获得/失去焦点时显示或隐藏软键盘；
 - UI 线程与 Sokol 渲染线程隔离，JNI 回调不会直接修改 AppModel。
 
-JNI 层直接把 Java UTF-16 转成标准 UTF-8，并正确合并代理项；每个事件最多携带 256 字节文本，队列最多保存 64 个事件。队列满时丢弃最旧事件并写入 `zapp-ime` 警告日志，避免阻塞 UI 线程。
+JNI 层直接把 Java UTF-16 转成标准 UTF-8，并正确合并代理项；每个 IME 事件最多携带 256 字节文本，队列最多保存 64 个事件。普通事件在队列完全占满时丢弃当前新事件并写入 `zapp-platform` 警告日志，不会破坏已经入队的有序流块。
 
 ## 权限与文件选择
 
@@ -84,6 +84,9 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 - 同一个后台任务通过 `OpenableColumns.DISPLAY_NAME`/`SIZE` 和 `ContentResolver.getType()` 查询显示名称、可选文件大小与 MIME 类型；provider 不支持元数据查询时仍继续读取内容。
 - provider 未返回大小但内容完整读到 EOF 时，以实际读取字节数补全大小；内容已截断时不会把预览长度误报成文件大小。
 - 原始字节通过 JNI `byte[]` 返回。UTF-8 内容会清理换行等控制字符后预览，二进制内容显示前 64 字节十六进制；超过上限会显示“已截断”。
+- “读取完整文件”使用 4096 字节有序块，每块携带请求 ID 和绝对偏移；reducer 拒绝不连续数据，并增量统计字节数、块数和 FNV-1a 摘要，不把完整文件保存在内存中。
+- native 队列为普通交互保留 8 个槽位；流式后台线程在 56 个待消费事件处通过条件变量背压。主循环每帧最多消费 32 个平台事件，避免生产者淹没队列或一次读取长期占用渲染帧。
+- 完整读取支持显式取消。已成功入队的块仍按顺序消费，随后以取消事件和实际消费总数收尾；Activity 清理会唤醒等待中的 native 回调。
 - 无效 URI、文件不存在、权限拒绝、I/O 错误和平台不支持均映射为稳定的 `FileReadError`，陈旧请求结果会按 request ID 丢弃。
 
 ## 原生无障碍语义
@@ -107,6 +110,6 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 adb logcat -s zapp sokol app
 ```
 
-当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、文件名称/MIME/大小元数据、Home 暂停后同进程恢复，以及原生无障碍节点树。PNG 验证返回 4096 字节并正确标记截断；最新文本验证返回名称 `zapp-metadata-sample.txt`、类型 `text/plain`、大小 89 字节并保留中文内容。UIAutomator 可发现 46 个可见虚拟节点，包括中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView 和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。以上流程均无崩溃日志。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
+当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、文件名称/MIME/大小元数据、完整流式读取与取消、Home 暂停后同进程恢复，以及原生无障碍节点树。17,772,300 字节字体样本完整读取为 4,339 块，App 摘要 `2adecf5b9049c2ad` 与本地独立 FNV-1a 计算一致；取消验证在 3,719,168 字节、908 块处有序结束，读取期间 UI 保持响应，日志无丢块或崩溃。UIAutomator 可发现中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView、流式控制和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
 
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。

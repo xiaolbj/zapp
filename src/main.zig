@@ -8,6 +8,7 @@ const builtin = @import("builtin");
 
 const App = zapp.app.App;
 const ClayRenderer = zapp.render.ClayRenderer;
+const max_platform_events_per_frame = 32;
 
 const state = struct {
     var app: App = .{};
@@ -49,7 +50,9 @@ fn drainPlatformEvents() void {
     if (comptime !builtin.abi.isAndroid()) return;
 
     var native_event: zapp.platform.android.Event = undefined;
-    while (zapp.platform.android.poll(&native_event)) {
+    var event_count: usize = 0;
+    while (event_count < max_platform_events_per_frame) : (event_count += 1) {
+        if (!zapp.platform.android.poll(&native_event)) break;
         const kind = native_event.kind() orelse continue;
         switch (kind) {
             .composition_changed => state.app.dispatchPlatformEvent(.{
@@ -114,6 +117,26 @@ fn drainPlatformEvents() void {
                     .error_kind = error_kind,
                 } });
             },
+            .file_stream_chunk => state.app.dispatchPlatformEvent(.{ .file_stream_chunk = .{
+                .request_id = native_event.request_id,
+                .offset = native_event.file_size,
+                .data = native_event.payload(),
+            } }),
+            .file_stream_completed => state.app.dispatchPlatformEvent(.{ .file_stream_completed = .{
+                .request_id = native_event.request_id,
+                .total_bytes = native_event.file_size,
+            } }),
+            .file_stream_failed => {
+                const error_kind = fileReadErrorFromValue(native_event.detail_value) orelse .io;
+                state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
+                    .request_id = native_event.request_id,
+                    .error_kind = error_kind,
+                } });
+            },
+            .file_stream_cancelled => state.app.dispatchPlatformEvent(.{ .file_stream_cancelled = .{
+                .request_id = native_event.request_id,
+                .total_bytes = native_event.file_size,
+            } }),
         }
     }
 }
@@ -155,6 +178,30 @@ fn processPlatformRequests() void {
                     false;
                 if (!started) state.app.dispatchPlatformEvent(.{ .file_read_failed = .{
                     .request_id = file_request.request_id,
+                    .error_kind = .unsupported,
+                } });
+            },
+            .stream_file => |stream_request| {
+                const started = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.streamFile(
+                        stream_request.request_id,
+                        stream_request.uri(),
+                        stream_request.chunk_bytes,
+                    )
+                else
+                    false;
+                if (!started) state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
+                    .request_id = stream_request.request_id,
+                    .error_kind = .unsupported,
+                } });
+            },
+            .cancel_file_stream => |request_id| {
+                const cancelled = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.cancelFileStream(request_id)
+                else
+                    false;
+                if (!cancelled) state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
+                    .request_id = request_id,
                     .error_kind = .unsupported,
                 } });
             },

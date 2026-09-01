@@ -115,6 +115,7 @@ pub fn update(model: *Model, action: Action) void {
             model.file_preview_truncated = false;
             model.file_read_error = null;
             clearFileMetadata(model);
+            resetFileStream(model);
         },
         .platform_file_selection_cancelled => |request_id| {
             model.file_picker_pending = false;
@@ -139,6 +140,60 @@ pub fn update(model: *Model, action: Action) void {
             model.file_preview_length = 0;
             model.file_preview_truncated = false;
             model.file_read_error = failure.error_kind;
+        },
+        .platform_file_stream_requested => {
+            resetFileStream(model);
+            model.file_stream_pending = true;
+        },
+        .platform_file_stream_started => |request_id| {
+            model.last_file_stream_request_id = request_id;
+            model.file_stream_pending = true;
+        },
+        .platform_file_stream_cancel_requested => {
+            if (model.file_stream_pending) model.file_stream_cancel_pending = true;
+        },
+        .platform_file_stream_chunk => |chunk| {
+            if (chunk.request_id != model.last_file_stream_request_id or !model.file_stream_pending) return;
+            if (chunk.offset != model.file_stream_bytes_consumed) {
+                model.file_stream_pending = false;
+                model.file_stream_cancel_pending = false;
+                model.file_stream_error = .io;
+                return;
+            }
+            for (chunk.data) |byte| {
+                model.file_stream_hash ^= byte;
+                model.file_stream_hash *%= 1099511628211;
+            }
+            model.file_stream_bytes_consumed += chunk.data.len;
+            model.file_stream_chunk_count += 1;
+        },
+        .platform_file_stream_completed => |result| {
+            if (result.request_id != model.last_file_stream_request_id) return;
+            model.file_stream_pending = false;
+            model.file_stream_cancel_pending = false;
+            if (result.total_bytes == model.file_stream_bytes_consumed) {
+                model.file_stream_completed = true;
+                model.file_stream_cancelled = false;
+                model.file_stream_error = null;
+            } else {
+                model.file_stream_completed = false;
+                model.file_stream_error = .io;
+            }
+        },
+        .platform_file_stream_failed => |failure| {
+            if (failure.request_id != model.last_file_stream_request_id) return;
+            model.file_stream_pending = false;
+            model.file_stream_cancel_pending = false;
+            model.file_stream_completed = false;
+            model.file_stream_error = failure.error_kind;
+        },
+        .platform_file_stream_cancelled => |result| {
+            if (result.request_id != model.last_file_stream_request_id) return;
+            model.file_stream_pending = false;
+            model.file_stream_cancel_pending = false;
+            model.file_stream_completed = false;
+            model.file_stream_cancelled = result.total_bytes == model.file_stream_bytes_consumed;
+            model.file_stream_error = if (model.file_stream_cancelled) null else .io;
         },
         .demo_navigation_selected => |index| model.demo_navigation_index = index,
         .demo_tree_toggled => |index| {
@@ -428,6 +483,55 @@ test "matching file read failures clear pending preview state" {
     try std.testing.expectEqual(@as(usize, 0), model.filePreview().len);
 }
 
+test "file stream consumes ordered chunks and verifies terminal size" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .platform_file_stream_requested);
+    update(&model, .{ .platform_file_stream_started = 21 });
+    update(&model, .{ .platform_file_stream_chunk = .{
+        .request_id = 21,
+        .offset = 0,
+        .data = "abc",
+    } });
+    update(&model, .{ .platform_file_stream_chunk = .{
+        .request_id = 21,
+        .offset = 3,
+        .data = "def",
+    } });
+
+    var expected_hash: u64 = 14695981039346656037;
+    for ("abcdef") |byte| {
+        expected_hash ^= byte;
+        expected_hash *%= 1099511628211;
+    }
+    try std.testing.expectEqual(@as(u64, 6), model.file_stream_bytes_consumed);
+    try std.testing.expectEqual(@as(u64, 2), model.file_stream_chunk_count);
+    try std.testing.expectEqual(expected_hash, model.file_stream_hash);
+
+    update(&model, .{ .platform_file_stream_completed = .{
+        .request_id = 21,
+        .total_bytes = 6,
+    } });
+    try std.testing.expect(!model.file_stream_pending);
+    try std.testing.expect(model.file_stream_completed);
+    try std.testing.expect(model.file_stream_error == null);
+}
+
+test "file stream rejects discontinuous offsets" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .platform_file_stream_requested);
+    update(&model, .{ .platform_file_stream_started = 22 });
+    update(&model, .{ .platform_file_stream_chunk = .{
+        .request_id = 22,
+        .offset = 4,
+        .data = "lost",
+    } });
+    try std.testing.expect(!model.file_stream_pending);
+    try std.testing.expect(model.file_stream_error == .io);
+    try std.testing.expectEqual(@as(u64, 0), model.file_stream_bytes_consumed);
+}
+
 fn insertSingleLine(model: *Model, text: []const u8) void {
     deleteSelection(model);
     var index: usize = 0;
@@ -552,6 +656,18 @@ fn clearFileMetadata(model: *Model) void {
     model.file_mime_type_length = 0;
     model.file_size = 0;
     model.file_size_known = false;
+}
+
+fn resetFileStream(model: *Model) void {
+    model.file_stream_pending = false;
+    model.file_stream_cancel_pending = false;
+    model.file_stream_completed = false;
+    model.file_stream_cancelled = false;
+    model.last_file_stream_request_id = 0;
+    model.file_stream_bytes_consumed = 0;
+    model.file_stream_chunk_count = 0;
+    model.file_stream_hash = 14695981039346656037;
+    model.file_stream_error = null;
 }
 
 fn copyUtf8Prefix(destination: []u8, source: []const u8) usize {

@@ -68,6 +68,10 @@ pub const EventKind = enum(c_int) {
     accessibility_action = 9,
     file_read_completed = 10,
     file_read_failed = 11,
+    file_stream_chunk = 12,
+    file_stream_completed = 13,
+    file_stream_failed = 14,
+    file_stream_cancelled = 15,
 };
 
 pub const Event = extern struct {
@@ -103,6 +107,10 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.accessibility_action) => .accessibility_action,
             @intFromEnum(EventKind.file_read_completed) => .file_read_completed,
             @intFromEnum(EventKind.file_read_failed) => .file_read_failed,
+            @intFromEnum(EventKind.file_stream_chunk) => .file_stream_chunk,
+            @intFromEnum(EventKind.file_stream_completed) => .file_stream_completed,
+            @intFromEnum(EventKind.file_stream_failed) => .file_stream_failed,
+            @intFromEnum(EventKind.file_stream_cancelled) => .file_stream_cancelled,
             else => null,
         };
     }
@@ -135,6 +143,8 @@ extern fn zapp_android_bridge_set_ime_visible(visible: bool) void;
 extern fn zapp_android_bridge_request_permission(request_id: u64, permission: c_int) bool;
 extern fn zapp_android_bridge_open_file(request_id: u64) bool;
 extern fn zapp_android_bridge_read_file(request_id: u64, uri: [*]const u8, uri_length: usize, max_bytes: u32) bool;
+extern fn zapp_android_bridge_stream_file(request_id: u64, uri: [*]const u8, uri_length: usize, chunk_bytes: u32) bool;
+extern fn zapp_android_bridge_cancel_file_stream(request_id: u64) bool;
 extern fn zapp_android_bridge_update_accessibility(nodes: [*]const AccessibilityNode, count: usize) void;
 extern fn zapp_android_bridge_poll(event: *Event) bool;
 extern fn zapp_android_bridge_reset() void;
@@ -163,6 +173,18 @@ pub fn readFile(request_id: u64, uri: []const u8, max_bytes: u32) bool {
     if (comptime builtin.abi.isAndroid()) {
         return zapp_android_bridge_read_file(request_id, uri.ptr, uri.len, max_bytes);
     }
+    return false;
+}
+
+pub fn streamFile(request_id: u64, uri: []const u8, chunk_bytes: u32) bool {
+    if (comptime builtin.abi.isAndroid()) {
+        return zapp_android_bridge_stream_file(request_id, uri.ptr, uri.len, chunk_bytes);
+    }
+    return false;
+}
+
+pub fn cancelFileStream(request_id: u64) bool {
+    if (comptime builtin.abi.isAndroid()) return zapp_android_bridge_cancel_file_stream(request_id);
     return false;
 }
 
