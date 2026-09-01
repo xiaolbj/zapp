@@ -14,6 +14,8 @@ pub const Role = enum {
     status,
     group,
     list,
+    tree,
+    tree_item,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.
@@ -29,6 +31,8 @@ pub const Node = struct {
     focused: bool = false,
     selected: bool = false,
     modal: bool = false,
+    expanded: ?bool = null,
+    level: u16 = 0,
 };
 
 pub const max_nodes = 64;

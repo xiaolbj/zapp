@@ -20,9 +20,20 @@ const scroll_view = @import("widgets/scroll_view.zig");
 const slider = @import("widgets/slider.zig");
 const text_field = @import("widgets/text_field.zig");
 const toast = @import("widgets/toast.zig");
+const tree_view = @import("widgets/tree_view.zig");
 const toggle_switch = @import("widgets/switch.zig");
 
 const max_actions = 8;
+
+const demo_tree_items = [_]tree_view.Item{
+    .{ .text = "zapp" },
+    .{ .text = "src", .parent_index = 0 },
+    .{ .text = "app", .parent_index = 1 },
+    .{ .text = "ui", .parent_index = 1 },
+    .{ .text = "render", .parent_index = 1 },
+    .{ .text = "assets", .parent_index = 0 },
+    .{ .text = "README.md", .parent_index = 0 },
+};
 
 const state = struct {
     var memory: ?[]u8 = null;
@@ -118,7 +129,8 @@ pub fn build(model: *const Model) Frame {
         state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
     } else {
         state.focus_state.closeModal(dialog_id);
-        state.focus_state.setOrder(&.{
+        var focus_order: [32]u32 = undefined;
+        const base_order = [_]u32{
             clay.ElementId.IDI("MainNavigation", 0).id,
             clay.ElementId.IDI("MainNavigation", 1).id,
             clay.ElementId.IDI("MainNavigation", 2).id,
@@ -129,7 +141,16 @@ pub fn build(model: *const Model) Frame {
             switch_id,
             slider_id,
             text_field_id,
-        });
+        };
+        @memcpy(focus_order[0..base_order.len], &base_order);
+        var focus_order_count = base_order.len;
+        for (demo_tree_items, 0..) |_, tree_index| {
+            if (tree_view.isVisible(&demo_tree_items, tree_index, model.demo_tree_expanded_mask)) {
+                focus_order[focus_order_count] = tree_view.itemId("ProjectTree", tree_index).id;
+                focus_order_count += 1;
+            }
+        }
+        state.focus_state.setOrder(focus_order[0..focus_order_count]);
     }
     if (model.focus_next_requested) {
         _ = state.focus_state.move(1);
@@ -407,6 +428,34 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("DialogConfirmationCount"),
                         .semantic_registry = &state.semantic_registry,
                     });
+                    label.draw("项目结构", .{
+                        .font_size = 18,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("ProjectTreeLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const tree_result = tree_view.draw(&state.interaction_state, input, .{
+                        .id = "ProjectTree",
+                        .items = &demo_tree_items,
+                        .expanded_mask = model.demo_tree_expanded_mask,
+                        .selected_index = model.demo_tree_selected_index,
+                        .focused_id = state.focus_state.focused_id,
+                        .width = control_width,
+                        .disabled = modal_open,
+                        .semantic_label = "项目结构",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (tree_result.focus_index) |index| {
+                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                    }
+                    if (tree_result.toggled_index) |index| {
+                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                        emit(.{ .demo_tree_toggled = @intCast(index) });
+                    }
+                    if (tree_result.selected_index) |index| {
+                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                        emit(.{ .demo_tree_selected = @intCast(index) });
+                    }
                 });
 
                 clay.UI()(scroll_view.declaration(.{
@@ -538,18 +587,24 @@ test "responsive shell emits controls and text" {
     var has_text_semantics = false;
     var has_progress_semantics = false;
     var has_list_semantics = false;
+    var has_tree_semantics = false;
+    var has_expanded_tree_item = false;
     for (result.semantic_nodes) |node| {
         if (node.role == .slider and node.value != null) has_slider_semantics = true;
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
         if (node.role == .text) has_text_semantics = true;
         if (node.role == .progress_bar and node.value != null) has_progress_semantics = true;
         if (node.role == .list) has_list_semantics = true;
+        if (node.role == .tree) has_tree_semantics = true;
+        if (node.role == .tree_item and node.expanded != null) has_expanded_tree_item = true;
     }
     try std.testing.expect(has_slider_semantics);
     try std.testing.expect(has_text_field_semantics);
     try std.testing.expect(has_text_semantics);
     try std.testing.expect(has_progress_semantics);
     try std.testing.expect(has_list_semantics);
+    try std.testing.expect(has_tree_semantics);
+    try std.testing.expect(has_expanded_tree_item);
 
     state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
     const focused_frame = build(&model);

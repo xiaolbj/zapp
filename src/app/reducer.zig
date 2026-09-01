@@ -89,6 +89,10 @@ pub fn update(model: *Model, action: Action) void {
         .text_composition_cancelled => model.text_composition_length = 0,
         .text_submitted => model.text_submission_count += 1,
         .demo_navigation_selected => |index| model.demo_navigation_index = index,
+        .demo_tree_toggled => |index| {
+            if (index < 64) model.demo_tree_expanded_mask ^= @as(u64, 1) << @intCast(index);
+        },
+        .demo_tree_selected => |index| model.demo_tree_selected_index = index,
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -224,6 +228,15 @@ test "text submission and navigation remain controlled by the model" {
     try std.testing.expect(model.text_field_focused);
     try std.testing.expectEqual(@as(u32, 1), model.text_submission_count);
     try std.testing.expectEqual(@as(u8, 2), model.demo_navigation_index);
+}
+
+test "tree expansion and selection remain controlled by the model" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_tree_toggled = 0 });
+    try std.testing.expectEqual(@as(u64, 0b10), model.demo_tree_expanded_mask);
+    update(&model, .{ .demo_tree_selected = 4 });
+    try std.testing.expectEqual(@as(u8, 4), model.demo_tree_selected_index);
 }
 
 test "UTF-8 cursor selection replaces complete codepoints" {

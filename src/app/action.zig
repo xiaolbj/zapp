@@ -59,6 +59,8 @@ pub const Action = union(enum) {
     text_composition_cancelled,
     text_submitted,
     demo_navigation_selected: u8,
+    demo_tree_toggled: u8,
+    demo_tree_selected: u8,
     suspended,
     resumed,
 };

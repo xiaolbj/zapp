@@ -27,4 +27,5 @@ test {
     _ = @import("src/ui/widgets/switch.zig");
     _ = @import("src/ui/widgets/text_field.zig");
     _ = @import("src/ui/widgets/toast.zig");
+    _ = @import("src/ui/widgets/tree_view.zig");
 }

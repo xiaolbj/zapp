@@ -72,6 +72,7 @@ pub const controls = struct {
     pub const radius_track: f32 = 4;
     pub const radius_medium: f32 = 10;
     pub const radius_large: f32 = 14;
+    pub const gap_tiny: u16 = 2;
     pub const gap_small: u16 = 8;
     pub const gap_medium: u16 = 12;
     pub const focus_width: u16 = 2;

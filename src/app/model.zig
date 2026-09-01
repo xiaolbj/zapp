@@ -34,6 +34,8 @@ pub const Model = struct {
     text_composition_length: usize = 0,
     text_submission_count: u32 = 0,
     demo_navigation_index: u8 = 0,
+    demo_tree_expanded_mask: u64 = 0b11,
+    demo_tree_selected_index: u8 = 2,
     suspended: bool = false,
 
     pub fn text(self: *const Model) []const u8 {
