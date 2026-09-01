@@ -30,6 +30,8 @@ pub const Model = struct {
     text_length: usize = 0,
     text_cursor: usize = 0,
     text_selection_anchor: usize = 0,
+    text_composition_buffer: [256]u8 = @splat(0),
+    text_composition_length: usize = 0,
     text_submission_count: u32 = 0,
     demo_navigation_index: u8 = 0,
     suspended: bool = false,
@@ -52,5 +54,9 @@ pub const Model = struct {
 
     pub fn selectedText(self: *const Model) []const u8 {
         return self.text_buffer[self.selectionStart()..self.selectionEnd()];
+    }
+
+    pub fn textComposition(self: *const Model) []const u8 {
+        return self.text_composition_buffer[0..self.text_composition_length];
     }
 };

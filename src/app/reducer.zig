@@ -63,9 +63,14 @@ pub fn update(model: *Model, action: Action) void {
             if (focused) {
                 model.text_cursor = model.text_length;
                 model.text_selection_anchor = model.text_cursor;
+            } else {
+                model.text_composition_length = 0;
             }
         },
-        .text_inserted => |text| insertSingleLine(model, text),
+        .text_inserted => |text| {
+            model.text_composition_length = 0;
+            insertSingleLine(model, text);
+        },
         .text_backspace => backspace(model),
         .text_delete_selection => deleteSelection(model),
         .text_cursor_moved => |movement| moveCursor(model, movement.direction, movement.selecting),
@@ -76,6 +81,12 @@ pub fn update(model: *Model, action: Action) void {
             model.text_selection_anchor = 0;
             model.text_cursor = model.text_length;
         },
+        .text_composition_changed => |text| setComposition(model, text),
+        .text_composition_committed => |text| {
+            model.text_composition_length = 0;
+            insertSingleLine(model, text);
+        },
+        .text_composition_cancelled => model.text_composition_length = 0,
         .text_submitted => model.text_submission_count += 1,
         .demo_navigation_selected => |index| model.demo_navigation_index = index,
         .suspended => model.suspended = true,
@@ -240,6 +251,19 @@ test "select all and delete selection clear the field" {
     try std.testing.expectEqual(@as(usize, 0), model.text_cursor);
 }
 
+test "IME composition remains provisional until committed" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .text_inserted = "A" });
+    update(&model, .{ .text_composition_changed = "zhong" });
+    try std.testing.expectEqualStrings("A", model.text());
+    try std.testing.expectEqualStrings("zhong", model.textComposition());
+
+    update(&model, .{ .text_composition_committed = "中" });
+    try std.testing.expectEqualStrings("A中", model.text());
+    try std.testing.expectEqual(@as(usize, 0), model.text_composition_length);
+}
+
 test "keyboard navigation requests are frame-latched" {
     const std = @import("std");
     var model: Model = .{};
@@ -342,6 +366,33 @@ fn nextCodepoint(text: []const u8, cursor: usize) usize {
     var index = cursor + 1;
     while (index < text.len and text[index] & 0xC0 == 0x80) index += 1;
     return index;
+}
+
+fn setComposition(model: *Model, text: []const u8) void {
+    model.text_composition_length = 0;
+    var index: usize = 0;
+    while (index < text.len) {
+        const first = text[index];
+        if (first == '\r' or first == '\n') break;
+        const sequence_length: usize = if (first < 0x80)
+            1
+        else if (first & 0xE0 == 0xC0)
+            2
+        else if (first & 0xF0 == 0xE0)
+            3
+        else if (first & 0xF8 == 0xF0)
+            4
+        else
+            1;
+        if (index + sequence_length > text.len or
+            model.text_composition_length + sequence_length > model.text_composition_buffer.len) break;
+        @memcpy(
+            model.text_composition_buffer[model.text_composition_length .. model.text_composition_length + sequence_length],
+            text[index .. index + sequence_length],
+        );
+        model.text_composition_length += sequence_length;
+        index += sequence_length;
+    }
 }
 
 test "tick advances only while active" {

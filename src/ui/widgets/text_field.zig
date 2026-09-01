@@ -9,6 +9,7 @@ pub const Config = struct {
     placeholder: []const u8,
     cursor: usize = 0,
     selection_anchor: usize = 0,
+    composition: []const u8 = "",
     width: f32 = 320,
     focused: bool = false,
     disabled: bool = false,
@@ -79,6 +80,7 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
                 });
             }
             if (config.focused and (!has_selection or cursor == selection_end)) drawCursor();
+            if (config.focused and config.composition.len > 0) drawComposition(config.composition);
             drawText(config.text[selection_end..], config.disabled);
         } else {
             if (config.focused and !config.disabled) drawCursor();
@@ -130,6 +132,20 @@ fn drawCursor() void {
         .background_color = .{ 116, 184, 255, 255 },
         .corner_radius = .all(1),
     })({});
+}
+
+fn drawComposition(text: []const u8) void {
+    clay.UI()(.{
+        .layout = .{
+            .sizing = .fit,
+            .padding = .axes(1, 2),
+            .child_alignment = .center,
+        },
+        .background_color = .{ 60, 82, 116, 255 },
+        .corner_radius = .all(2),
+    })({
+        label.draw(text, .{ .font_size = 16, .color = .{ 183, 220, 255, 255 } });
+    });
 }
 
 test "outside press requests blur only for focused field" {

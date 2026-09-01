@@ -18,6 +18,9 @@ pub const PlatformEvent = union(enum) {
         path: []const u8,
     },
     file_selection_cancelled: RequestId,
+    ime_composition_changed: []const u8,
+    ime_composition_committed: []const u8,
+    ime_composition_cancelled,
 };
 
 /// Platform implementations enqueue results and the app consumes them on its
