@@ -18,6 +18,7 @@ const navigation_bar = @import("widgets/navigation_bar.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const radio_group = @import("widgets/radio_group.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
+const select = @import("widgets/select.zig");
 const slider = @import("widgets/slider.zig");
 const text_field = @import("widgets/text_field.zig");
 const toast = @import("widgets/toast.zig");
@@ -40,6 +41,12 @@ const demo_density_items = [_]radio_group.Item{
     .{ .text = "紧凑" },
     .{ .text = "舒适" },
     .{ .text = "宽松" },
+};
+
+const demo_sort_items = [_]select.Item{
+    .{ .text = "最近更新" },
+    .{ .text = "名称" },
+    .{ .text = "大小" },
 };
 
 const state = struct {
@@ -151,6 +158,7 @@ pub fn build(model: *const Model) Frame {
     const open_dialog_id = clay.ElementId.ID("OpenDemoDialog").id;
     const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
+    const sort_select_id = select.triggerId("SortSelect").id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -194,6 +202,16 @@ pub fn build(model: *const Model) Frame {
             focus_order[focus_order_count] = radio_group.itemId("DensityRadio", density_index).id;
             focus_order_count += 1;
         }
+        focus_order[focus_order_count] = sort_select_id;
+        focus_order_count += 1;
+        if (model.demo_sort_expanded) {
+            for (demo_sort_items, 0..) |_, sort_index| {
+                focus_order[focus_order_count] = select.optionId("SortSelect", sort_index).id;
+                focus_order_count += 1;
+            }
+        } else if (state.focus_state.focused_id) |focused_id| {
+            if (selectOptionIndex(focused_id) != null) state.focus_state.focus(sort_select_id);
+        }
         const trailing_order = [_]u32{
             slider_id,
             text_field_id,
@@ -229,6 +247,10 @@ pub fn build(model: *const Model) Frame {
     }
     if (model.back_requested and model.text_field_focused and !model.demo_dialog_open) {
         emit(.{ .text_field_focus_changed = false });
+    }
+    if (model.back_requested and model.demo_sort_expanded and !model.demo_dialog_open) {
+        state.focus_state.focus(sort_select_id);
+        emit(.{ .demo_sort_expanded = false });
     }
 
     const compact = model.viewport_width < 900;
@@ -634,6 +656,31 @@ pub fn build(model: *const Model) Frame {
                         state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
                         emit(.{ .demo_density_selected = @intCast(index) });
                     }
+                    label.draw("内容排序", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("SortSelectLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const select_result = select.draw(&state.interaction_state, input, .{
+                        .id = "SortSelect",
+                        .items = &demo_sort_items,
+                        .selected_index = model.demo_sort_index,
+                        .expanded = model.demo_sort_expanded,
+                        .width = control_width,
+                        .disabled = modal_open,
+                        .focused_id = state.focus_state.focused_id,
+                        .semantic_label = "内容排序",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (select_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                    if (select_result.selected_index) |index| {
+                        emit(.{ .demo_sort_selected = @intCast(index) });
+                    }
+                    if (select_result.expanded) |expanded| {
+                        if (expanded != model.demo_sort_expanded) {
+                            emit(.{ .demo_sort_expanded = expanded });
+                        }
+                    }
                     label.draw("任务进度（点击 + 增加）", .{
                         .color = .{ 166, 187, 218, 255 },
                         .semantic_id = .ID("ProgressLabel"),
@@ -877,6 +924,7 @@ pub fn handleSemanticAction(
     const dialog_open_id = clay.ElementId.ID("OpenDemoDialog").id;
     const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
+    const sort_select_id = select.triggerId("SortSelect").id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -920,7 +968,11 @@ pub fn handleSemanticAction(
                 if (model.last_native_crash != null and !model.crash_report_export_pending) {
                     emit(.platform_crash_report_export_requested);
                 }
-            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index });
+            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (element_id == sort_select_id) emit(.{ .demo_sort_expanded = !model.demo_sort_expanded }) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
+                state.focus_state.focus(sort_select_id);
+                emit(.{ .demo_sort_selected = index });
+                if (model.demo_sort_expanded) emit(.{ .demo_sort_expanded = false });
+            }
         },
         .increment, .decrement => if (element_id == slider_id) {
             const delta: f32 = if (semantic_action == .increment) 0.05 else -0.05;
@@ -932,12 +984,19 @@ pub fn handleSemanticAction(
             emit(.text_select_all);
             emit(.{ .text_inserted = text });
         },
-        .expand, .collapse => if (treeIndex(element_id)) |index| {
-            const expanded = model.demo_tree_expanded_mask & (@as(u64, 1) << @intCast(index)) != 0;
+        .expand, .collapse => {
             const should_expand = semantic_action == .expand;
-            if (treeHasChildren(index) and expanded != should_expand) {
-                state.focus_state.focus(element_id);
-                emit(.{ .demo_tree_toggled = index });
+            if (element_id == sort_select_id) {
+                if (model.demo_sort_expanded != should_expand) {
+                    state.focus_state.focus(element_id);
+                    emit(.{ .demo_sort_expanded = should_expand });
+                }
+            } else if (treeIndex(element_id)) |index| {
+                const expanded = model.demo_tree_expanded_mask & (@as(u64, 1) << @intCast(index)) != 0;
+                if (treeHasChildren(index) and expanded != should_expand) {
+                    state.focus_state.focus(element_id);
+                    emit(.{ .demo_tree_toggled = index });
+                }
             }
         },
         .scroll_forward, .scroll_backward => if (isScrollableSemanticId(element_id)) {
@@ -976,9 +1035,17 @@ fn radioIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn selectOptionIndex(element_id: u32) ?u8 {
+    for (demo_sort_items, 0..) |_, index| {
+        if (element_id == select.optionId("SortSelect", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn isInteractiveSemanticId(element_id: u32) bool {
     if (navigationIndex(element_id) != null or treeIndex(element_id) != null or
-        radioIndex(element_id) != null) return true;
+        radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
+    if (element_id == select.triggerId("SortSelect").id) return true;
     inline for ([_][]const u8{
         "PrimaryAction",
         "IncrementProgress",
@@ -1233,6 +1300,7 @@ test "responsive shell emits controls and text" {
     var has_expanded_tree_item = false;
     var has_radio_group_semantics = false;
     var has_checked_radio_semantics = false;
+    var has_combo_box_semantics = false;
     var has_performance_label_semantics = false;
     var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
@@ -1250,6 +1318,9 @@ test "responsive shell emits controls and text" {
         if (node.role == .tree_item and node.expanded != null) has_expanded_tree_item = true;
         if (node.role == .radio_group) has_radio_group_semantics = true;
         if (node.role == .radio_button and node.checked == true) has_checked_radio_semantics = true;
+        if (node.role == .combo_box and node.expanded == false and node.value_text.len > 0) {
+            has_combo_box_semantics = true;
+        }
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
         if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
             has_crash_diagnostics_semantics = true;
@@ -1265,8 +1336,40 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_expanded_tree_item);
     try std.testing.expect(has_radio_group_semantics);
     try std.testing.expect(has_checked_radio_semantics);
+    try std.testing.expect(has_combo_box_semantics);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
+
+    model.demo_sort_expanded = true;
+    model.demo_sort_index = 1;
+    const expanded_select_frame = build(&model);
+    var has_expanded_combo = false;
+    var option_count: usize = 0;
+    var checked_option_count: usize = 0;
+    for (expanded_select_frame.semantic_nodes) |node| {
+        if (node.role == .combo_box and node.expanded == true) has_expanded_combo = true;
+        if (node.role == .option) {
+            option_count += 1;
+            if (node.selected and node.checked == true) checked_option_count += 1;
+        }
+    }
+    try std.testing.expect(has_expanded_combo);
+    try std.testing.expectEqual(demo_sort_items.len, option_count);
+    try std.testing.expectEqual(@as(usize, 1), checked_option_count);
+    model.pointer_x = 0;
+    model.pointer_y = 0;
+    model.pointer_pressed = true;
+    const outside_press_frame = build(&model);
+    var requested_select_close = false;
+    for (outside_press_frame.actions) |action| {
+        switch (action) {
+            .demo_sort_expanded => |expanded| requested_select_close = !expanded,
+            else => {},
+        }
+    }
+    try std.testing.expect(requested_select_close);
+    model.pointer_pressed = false;
+    model.demo_sort_expanded = false;
 
     model.last_native_crash = .{
         .signal_number = 11,
@@ -1441,6 +1544,26 @@ test "semantic actions reuse reducer-facing UI actions" {
     );
     try std.testing.expectEqual(@as(usize, 1), actions.len);
     try std.testing.expectEqual(@as(u8, 2), actions[0].demo_density_selected);
+
+    actions = handleSemanticAction(
+        &model,
+        select.triggerId("SortSelect").id,
+        .expand,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expect(actions[0].demo_sort_expanded);
+
+    model.demo_sort_expanded = true;
+    actions = handleSemanticAction(
+        &model,
+        select.optionId("SortSelect", 2).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 2), actions.len);
+    try std.testing.expectEqual(@as(u8, 2), actions[0].demo_sort_selected);
+    try std.testing.expect(!actions[1].demo_sort_expanded);
 
     actions = handleSemanticAction(
         &model,

@@ -612,6 +612,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `Toast`：非模态、输入穿透、定时消失的反馈浮层。
 - `TextField`：受控单行 UTF-8 文本，支持字符输入、完整码点退格、Enter 提交、系统粘贴和移动软键盘显示。
 - `RadioGroup`：受控互斥选择，支持横/纵布局、鼠标/触摸、四向键循环选择，以及 radio_group/radio_button 语义。
+- `Select`：受控单选下拉框，支持动态展开选项、键盘导航、外部点击/返回键收起，以及 combo_box/option 语义。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
@@ -622,6 +623,8 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 补充控件 TreeView 已实现：使用父索引描述扁平树数据，展开掩码与选择项由 AppModel/reducer 控制；仅为可见节点生成 Clay 布局，鼠标点击箭头可折叠/展开。获得焦点后，上/下键在可见节点间移动，右键展开或进入首个子节点，左键折叠或返回父节点；折叠父节点时，隐藏后代上的焦点会回收到最近的可见祖先。Tree/tree_item 语义包含层级、选中和展开状态。
 
 补充控件 RadioGroup 已实现：每项使用稳定派生 ID，选中索引由 AppModel/reducer 控制；鼠标或触摸点击改变互斥值，焦点项可用四向键循环移动并同步选择。Android 无障碍桥将容器和选项分别映射为原生 `RadioGroup` 与 `RadioButton`，暴露 checked/selected/focused 状态和点击动作。
+
+补充控件 Select 已实现：选中索引与展开状态均由 AppModel/reducer 控制；触发器支持鼠标/触摸、Enter/Space 和上下键，展开后选项动态加入布局、焦点顺序和语义树，选择、外部点击或返回键会收起并把焦点恢复到触发器。Android 无障碍桥将触发器和选项分别映射为原生 `Spinner` 与 `CheckedTextView`，并复用 expand/collapse/click 动作回传。
 
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar 和 TreeView，并由 Border RenderCommand 渲染。
 

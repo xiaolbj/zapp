@@ -80,6 +80,8 @@ pub const Model = struct {
     demo_tree_expanded_mask: u64 = 0b11,
     demo_tree_selected_index: u8 = 2,
     demo_density_index: u8 = 1,
+    demo_sort_index: u8 = 0,
+    demo_sort_expanded: bool = false,
     suspended: bool = false,
 
     pub fn text(self: *const Model) []const u8 {

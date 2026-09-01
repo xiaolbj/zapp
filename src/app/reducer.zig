@@ -223,6 +223,8 @@ pub fn update(model: *Model, action: Action) void {
         },
         .demo_tree_selected => |index| model.demo_tree_selected_index = index,
         .demo_density_selected => |index| model.demo_density_index = @min(index, 2),
+        .demo_sort_selected => |index| model.demo_sort_index = @min(index, 2),
+        .demo_sort_expanded => |expanded| model.demo_sort_expanded = expanded,
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -392,6 +394,17 @@ test "radio selection remains controlled and bounded" {
     try std.testing.expectEqual(@as(u8, 2), model.demo_density_index);
     update(&model, .{ .demo_density_selected = 99 });
     try std.testing.expectEqual(@as(u8, 2), model.demo_density_index);
+}
+
+test "select selection and expansion remain controlled" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_sort_expanded = true });
+    try std.testing.expect(model.demo_sort_expanded);
+    update(&model, .{ .demo_sort_selected = 99 });
+    try std.testing.expectEqual(@as(u8, 2), model.demo_sort_index);
+    update(&model, .{ .demo_sort_expanded = false });
+    try std.testing.expect(!model.demo_sort_expanded);
 }
 
 test "UTF-8 cursor selection replaces complete codepoints" {

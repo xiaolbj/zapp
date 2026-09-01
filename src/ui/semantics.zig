@@ -19,6 +19,8 @@ pub const Role = enum {
     tree_item,
     radio_group,
     radio_button,
+    combo_box,
+    option,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.
