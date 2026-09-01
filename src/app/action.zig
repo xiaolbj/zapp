@@ -58,9 +58,15 @@ pub const Action = union(enum) {
     text_composition_committed: []const u8,
     text_composition_cancelled,
     text_submitted,
+    platform_permission_requested: platform.Permission,
+    platform_permission_result: platform.PermissionResult,
+    platform_file_picker_requested,
+    platform_file_selected: platform.FileSelection,
+    platform_file_selection_cancelled: platform.RequestId,
     demo_navigation_selected: u8,
     demo_tree_toggled: u8,
     demo_tree_selected: u8,
     suspended,
     resumed,
 };
+const platform = @import("../platform/platform.zig");

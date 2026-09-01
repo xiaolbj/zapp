@@ -1,18 +1,62 @@
 pub const Action = @import("action.zig").Action;
 pub const Model = @import("model.zig").Model;
 const reducer = @import("reducer.zig");
-const PlatformEvent = @import("../platform/platform.zig").PlatformEvent;
+const platform = @import("../platform/platform.zig");
+const PlatformEvent = platform.PlatformEvent;
+
+const max_platform_requests = 8;
 
 pub const App = struct {
     model: Model = .{},
+    platform_requests: [max_platform_requests]platform.PlatformRequest = undefined,
+    platform_request_count: usize = 0,
+    next_request_id: platform.RequestId = 1,
 
     pub fn dispatch(self: *App, action: Action) void {
         reducer.update(&self.model, action);
+        switch (action) {
+            .platform_permission_requested => |permission| {
+                const request_id = self.allocateRequestId();
+                if (!self.enqueuePlatformRequest(.{ .request_permission = .{
+                    .request_id = request_id,
+                    .permission = permission,
+                } })) {
+                    reducer.update(&self.model, .{ .platform_permission_result = .{
+                        .request_id = request_id,
+                        .permission = permission,
+                        .granted = false,
+                    } });
+                }
+            },
+            .platform_file_picker_requested => {
+                const request_id = self.allocateRequestId();
+                if (!self.enqueuePlatformRequest(.{ .open_file = .{ .request_id = request_id } })) {
+                    reducer.update(&self.model, .{ .platform_file_selection_cancelled = request_id });
+                }
+            },
+            else => {},
+        }
+    }
+
+    pub fn takePlatformRequest(self: *App) ?platform.PlatformRequest {
+        if (self.platform_request_count == 0) return null;
+        const request = self.platform_requests[0];
+        var index: usize = 1;
+        while (index < self.platform_request_count) : (index += 1) {
+            self.platform_requests[index - 1] = self.platform_requests[index];
+        }
+        self.platform_request_count -= 1;
+        return request;
     }
 
     /// Platform event payloads are consumed synchronously on the update thread.
     pub fn dispatchPlatformEvent(self: *App, event: PlatformEvent) void {
         switch (event) {
+            .permission_result => |result| self.dispatch(.{ .platform_permission_result = result }),
+            .file_selected => |selection| self.dispatch(.{ .platform_file_selected = selection }),
+            .file_selection_cancelled => |request_id| self.dispatch(.{
+                .platform_file_selection_cancelled = request_id,
+            }),
             .ime_composition_changed => |text| self.dispatch(.{ .text_composition_changed = text }),
             .ime_composition_committed => |text| self.dispatch(.{ .text_composition_committed = text }),
             .ime_composition_cancelled => self.dispatch(.text_composition_cancelled),
@@ -28,8 +72,21 @@ pub const App = struct {
                 .increment => self.dispatch(.focused_control_right_requested),
                 .back => self.dispatch(.back_requested),
             },
-            else => {},
         }
+    }
+
+    fn allocateRequestId(self: *App) platform.RequestId {
+        const request_id = self.next_request_id;
+        self.next_request_id +%= 1;
+        if (self.next_request_id == 0) self.next_request_id = 1;
+        return request_id;
+    }
+
+    fn enqueuePlatformRequest(self: *App, request: platform.PlatformRequest) bool {
+        if (self.platform_request_count == self.platform_requests.len) return false;
+        self.platform_requests[self.platform_request_count] = request;
+        self.platform_request_count += 1;
+        return true;
     }
 };
 
@@ -71,6 +128,32 @@ test "IME editing commands use the same reducer actions as desktop input" {
 
     app.dispatchPlatformEvent(.ime_submit_requested);
     try std.testing.expectEqual(@as(u32, 1), app.model.text_submission_count);
+}
+
+test "platform actions enqueue stable request identifiers and consume results" {
+    const std = @import("std");
+    var app: App = .{};
+    app.dispatch(.{ .platform_permission_requested = .camera });
+    app.dispatch(.platform_file_picker_requested);
+
+    const permission_request = app.takePlatformRequest().?.request_permission;
+    const file_request = app.takePlatformRequest().?.open_file;
+    try std.testing.expectEqual(@as(platform.RequestId, 1), permission_request.request_id);
+    try std.testing.expectEqual(platform.Permission.camera, permission_request.permission);
+    try std.testing.expectEqual(@as(platform.RequestId, 2), file_request.request_id);
+    try std.testing.expect(app.takePlatformRequest() == null);
+
+    app.dispatchPlatformEvent(.{ .permission_result = .{
+        .request_id = permission_request.request_id,
+        .permission = permission_request.permission,
+        .granted = true,
+    } });
+    app.dispatchPlatformEvent(.{ .file_selected = .{
+        .request_id = file_request.request_id,
+        .uri = "content://zapp/example",
+    } });
+    try std.testing.expect(app.model.last_permission_granted);
+    try std.testing.expectEqualStrings("content://zapp/example", app.model.selectedFileUri());
 }
 
 test {

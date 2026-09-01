@@ -88,6 +88,27 @@ pub fn update(model: *Model, action: Action) void {
         },
         .text_composition_cancelled => model.text_composition_length = 0,
         .text_submitted => model.text_submission_count += 1,
+        .platform_permission_requested => |permission| {
+            model.permission_request_pending = true;
+            model.last_permission = permission;
+        },
+        .platform_permission_result => |result| {
+            model.permission_request_pending = false;
+            model.last_permission_request_id = result.request_id;
+            model.last_permission = result.permission;
+            model.last_permission_granted = result.granted;
+        },
+        .platform_file_picker_requested => model.file_picker_pending = true,
+        .platform_file_selected => |selection| {
+            model.file_picker_pending = false;
+            model.last_file_request_id = selection.request_id;
+            setSelectedFileUri(model, selection.uri);
+        },
+        .platform_file_selection_cancelled => |request_id| {
+            model.file_picker_pending = false;
+            model.last_file_request_id = request_id;
+            model.file_selection_cancel_count += 1;
+        },
         .demo_navigation_selected => |index| model.demo_navigation_index = index,
         .demo_tree_toggled => |index| {
             if (index < 64) model.demo_tree_expanded_mask ^= @as(u64, 1) << @intCast(index);
@@ -293,6 +314,34 @@ test "keyboard navigation requests are frame-latched" {
     try std.testing.expect(!model.focused_control_right_requested);
 }
 
+test "platform results update permission and file picker state" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .{ .platform_permission_requested = .camera });
+    try std.testing.expect(model.permission_request_pending);
+    update(&model, .{ .platform_permission_result = .{
+        .request_id = 7,
+        .permission = .camera,
+        .granted = true,
+    } });
+    try std.testing.expect(!model.permission_request_pending);
+    try std.testing.expect(model.last_permission_granted);
+
+    update(&model, .platform_file_picker_requested);
+    try std.testing.expect(model.file_picker_pending);
+    update(&model, .{ .platform_file_selected = .{
+        .request_id = 8,
+        .uri = "content://documents/example/中文.txt",
+    } });
+    try std.testing.expect(!model.file_picker_pending);
+    try std.testing.expectEqualStrings("content://documents/example/中文.txt", model.selectedFileUri());
+
+    update(&model, .platform_file_picker_requested);
+    update(&model, .{ .platform_file_selection_cancelled = 9 });
+    try std.testing.expectEqual(@as(u32, 1), model.file_selection_cancel_count);
+}
+
 fn insertSingleLine(model: *Model, text: []const u8) void {
     deleteSelection(model);
     var index: usize = 0;
@@ -406,6 +455,13 @@ fn setComposition(model: *Model, text: []const u8) void {
         model.text_composition_length += sequence_length;
         index += sequence_length;
     }
+}
+
+fn setSelectedFileUri(model: *Model, uri: []const u8) void {
+    var length = @min(uri.len, model.selected_file_uri_buffer.len);
+    while (length > 0 and length < uri.len and uri[length] & 0xC0 == 0x80) length -= 1;
+    @memcpy(model.selected_file_uri_buffer[0..length], uri[0..length]);
+    model.selected_file_uri_length = length;
 }
 
 test "tick advances only while active" {

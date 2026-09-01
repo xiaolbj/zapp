@@ -34,6 +34,7 @@ export fn frame() void {
     const ui_frame = zapp.ui.build(&state.app.model);
     const keyboard_was_visible = state.app.model.text_field_focused;
     for (ui_frame.actions) |action| state.app.dispatch(action);
+    processPlatformRequests();
     if (keyboard_was_visible != state.app.model.text_field_focused) {
         setKeyboardVisible(state.app.model.text_field_focused);
     }
@@ -59,8 +60,63 @@ fn drainPlatformEvents() void {
                 .ime_backspace_requested = @min(native_event.count, 64),
             }),
             .submit => state.app.dispatchPlatformEvent(.ime_submit_requested),
+            .permission_result => {
+                const permission = permissionFromValue(native_event.permission_value) orelse continue;
+                state.app.dispatchPlatformEvent(.{ .permission_result = .{
+                    .request_id = native_event.request_id,
+                    .permission = permission,
+                    .granted = native_event.granted,
+                } });
+            },
+            .file_selected => state.app.dispatchPlatformEvent(.{ .file_selected = .{
+                .request_id = native_event.request_id,
+                .uri = native_event.text(),
+            } }),
+            .file_selection_cancelled => state.app.dispatchPlatformEvent(.{
+                .file_selection_cancelled = native_event.request_id,
+            }),
         }
     }
+}
+
+fn processPlatformRequests() void {
+    while (state.app.takePlatformRequest()) |request| {
+        switch (request) {
+            .request_permission => |permission_request| {
+                const started = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.requestPermission(
+                        permission_request.request_id,
+                        @intFromEnum(permission_request.permission),
+                    )
+                else
+                    false;
+                if (!started) state.app.dispatchPlatformEvent(.{ .permission_result = .{
+                    .request_id = permission_request.request_id,
+                    .permission = permission_request.permission,
+                    .granted = false,
+                } });
+            },
+            .open_file => |file_request| {
+                const started = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.openFile(file_request.request_id)
+                else
+                    false;
+                if (!started) state.app.dispatchPlatformEvent(.{
+                    .file_selection_cancelled = file_request.request_id,
+                });
+            },
+        }
+    }
+}
+
+fn permissionFromValue(value: c_int) ?zapp.platform.Permission {
+    return switch (value) {
+        @intFromEnum(zapp.platform.Permission.camera) => .camera,
+        @intFromEnum(zapp.platform.Permission.microphone) => .microphone,
+        @intFromEnum(zapp.platform.Permission.notifications) => .notifications,
+        @intFromEnum(zapp.platform.Permission.media) => .media,
+        else => null,
+    };
 }
 
 fn setKeyboardVisible(visible: bool) void {

@@ -46,6 +46,8 @@ const state = struct {
     var action_count: usize = 0;
     var counter_text: [96]u8 = undefined;
     var confirmation_text: [96]u8 = undefined;
+    var permission_status_text: [160]u8 = undefined;
+    var file_status_text: [256]u8 = undefined;
 };
 
 pub const Frame = struct {
@@ -124,6 +126,8 @@ pub fn build(model: *const Model) Frame {
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
+    const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
+    const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
     if (model.demo_dialog_open) {
         state.focus_state.openModal(dialog_id, dialog_confirm_id);
         state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
@@ -141,6 +145,8 @@ pub fn build(model: *const Model) Frame {
             switch_id,
             slider_id,
             text_field_id,
+            permission_button_id,
+            file_picker_button_id,
         };
         @memcpy(focus_order[0..base_order.len], &base_order);
         var focus_order_count = base_order.len;
@@ -199,6 +205,28 @@ pub fn build(model: *const Model) Frame {
         "对话框确认次数：{d}",
         .{model.demo_dialog_confirmations},
     ) catch "对话框确认次数过多";
+    const permission_status_text = if (model.permission_request_pending)
+        "权限状态：等待系统响应…"
+    else if (model.last_permission) |permission|
+        std.fmt.bufPrint(
+            &state.permission_status_text,
+            "{s}权限：{s}",
+            .{ permissionName(permission), if (model.last_permission_granted) "已授权" else "未授权或平台不支持" },
+        ) catch "权限状态不可用"
+    else
+        "权限状态：尚未请求";
+    const file_status_text = if (model.file_picker_pending)
+        "文件选择：等待系统响应…"
+    else if (model.selectedFileUri().len > 0)
+        std.fmt.bufPrint(
+            &state.file_status_text,
+            "已选择：{s}",
+            .{utf8Prefix(model.selectedFileUri(), 180)},
+        ) catch "文件 URI 过长"
+    else if (model.file_selection_cancel_count > 0)
+        "文件选择：已取消或平台不支持"
+    else
+        "文件选择：尚未选择";
     const modal_open = state.focus_state.modalOpen();
 
     clay.UI()(.{
@@ -423,6 +451,51 @@ pub fn build(model: *const Model) Frame {
                             .selecting = text_result.selecting,
                         } });
                     }
+                    divider.draw(.{});
+                    label.draw("平台 API", .{
+                        .font_size = 18,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("PlatformApiLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    clay.UI()(.{ .layout = .{
+                        .sizing = .{ .w = .grow, .h = .fit },
+                        .child_gap = 12,
+                        .direction = control_direction,
+                    } })({
+                        if (button.draw(&state.interaction_state, input, .{
+                            .id = "RequestCameraPermission",
+                            .text = if (model.permission_request_pending) "请求中…" else "请求相机权限",
+                            .width = control_width,
+                            .disabled = modal_open or model.permission_request_pending,
+                            .focused = state.focus_state.isFocused(permission_button_id),
+                            .semantic_registry = &state.semantic_registry,
+                        })) {
+                            state.focus_state.focus(permission_button_id);
+                            emit(.{ .platform_permission_requested = .camera });
+                        }
+                        if (button.draw(&state.interaction_state, input, .{
+                            .id = "OpenFilePicker",
+                            .text = if (model.file_picker_pending) "选择中…" else "选择文件",
+                            .width = control_width,
+                            .disabled = modal_open or model.file_picker_pending,
+                            .focused = state.focus_state.isFocused(file_picker_button_id),
+                            .semantic_registry = &state.semantic_registry,
+                        })) {
+                            state.focus_state.focus(file_picker_button_id);
+                            emit(.platform_file_picker_requested);
+                        }
+                    });
+                    label.draw(permission_status_text, .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("PermissionStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    label.draw(file_status_text, .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("FileSelectionStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     label.draw(confirmation_text, .{
                         .color = .{ 145, 171, 207, 255 },
                         .semantic_id = .ID("DialogConfirmationCount"),
@@ -559,6 +632,21 @@ fn clayColor(color: theme.Color) clay.Color {
 fn clayError(data: clay.ErrorData) callconv(.c) void {
     const message = data.error_text.chars[0..@intCast(data.error_text.length)];
     std.log.err("Clay: {s}", .{message});
+}
+
+fn permissionName(permission: @import("../platform/platform.zig").Permission) []const u8 {
+    return switch (permission) {
+        .camera => "相机",
+        .microphone => "麦克风",
+        .notifications => "通知",
+        .media => "媒体",
+    };
+}
+
+fn utf8Prefix(text: []const u8, max_bytes: usize) []const u8 {
+    var length = @min(text.len, max_bytes);
+    while (length > 0 and length < text.len and text[length] & 0xC0 == 0x80) length -= 1;
+    return text[0..length];
 }
 
 test "responsive shell emits controls and text" {

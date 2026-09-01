@@ -1,3 +1,5 @@
+const platform = @import("../platform/platform.zig");
+
 pub const Model = struct {
     frame_count: u64 = 0,
     elapsed_seconds: f64 = 0,
@@ -33,6 +35,15 @@ pub const Model = struct {
     text_composition_buffer: [256]u8 = @splat(0),
     text_composition_length: usize = 0,
     text_submission_count: u32 = 0,
+    permission_request_pending: bool = false,
+    last_permission_request_id: platform.RequestId = 0,
+    last_permission: ?platform.Permission = null,
+    last_permission_granted: bool = false,
+    file_picker_pending: bool = false,
+    last_file_request_id: platform.RequestId = 0,
+    selected_file_uri_buffer: [1024]u8 = @splat(0),
+    selected_file_uri_length: usize = 0,
+    file_selection_cancel_count: u32 = 0,
     demo_navigation_index: u8 = 0,
     demo_tree_expanded_mask: u64 = 0b11,
     demo_tree_selected_index: u8 = 2,
@@ -60,5 +71,9 @@ pub const Model = struct {
 
     pub fn textComposition(self: *const Model) []const u8 {
         return self.text_composition_buffer[0..self.text_composition_length];
+    }
+
+    pub fn selectedFileUri(self: *const Model) []const u8 {
+        return self.selected_file_uri_buffer[0..self.selected_file_uri_length];
     }
 };

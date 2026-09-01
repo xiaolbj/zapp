@@ -162,6 +162,7 @@ fn configureAndroidBuild(
         .linkage = .static,
         .root_module = mod_main,
     });
+    library.bundle_compiler_rt = true;
     const clang_path = b.pathJoin(&.{
         ndk_root,
         "toolchains",
@@ -176,6 +177,7 @@ fn configureAndroidBuild(
         "-shared",
         "-fPIC",
         "-Wl,-soname,libzapp.so",
+        "-Wl,--no-undefined",
         "-Wl,--whole-archive",
     });
     linker.addArtifactArg(library);
@@ -191,6 +193,7 @@ fn configureAndroidBuild(
         "-lEGL",
         "-landroid",
         "-llog",
+        "-laaudio",
         "-lm",
         "-ldl",
         "-o",

@@ -616,7 +616,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 
 Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，最终退出时 `shutdown()`。当前绑定没有 context destroy/null API，因此测试中的多个 UI 场景必须复用同一个 Clay context，不能释放 arena 后在同一进程内重新初始化。
 
-路线图第一批控件已经全部具备可运行实现。TextField 已具备 UTF-8 光标移动、鼠标/触摸点击定位与拖选、Shift 选择、Home/End、全选、复制、剪切、粘贴、删除、选区替换和独立 IME 组合态。平台事件可同步更新、提交或取消组合文本；Android Kotlin/JNI 真机桥接仍需在 APK 壳建立后验收。
+路线图第一批控件已经全部具备可运行实现。TextField 已具备 UTF-8 光标移动、鼠标/触摸点击定位与拖选、Shift 选择、Home/End、全选、复制、剪切、粘贴、删除、选区替换和独立 IME 组合态。平台事件可同步更新、提交或取消组合文本；Android Java/JNI 桥已接入系统输入法，后续继续覆盖不同厂商输入法。
 
 补充控件 TreeView 已实现：使用父索引描述扁平树数据，展开掩码与选择项由 AppModel/reducer 控制；仅为可见节点生成 Clay 布局，鼠标点击箭头可折叠/展开，键盘或统一导航命令可用左右方向进入子节点、返回父节点或改变展开状态。Tree/tree_item 语义包含层级、选中和展开状态。
 
@@ -651,4 +651,4 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 - `zig build check` 和 `zig build test` 已在 Zig 0.16.0/Windows 上通过。
 - 已实际启动桌面窗口并保持正常响应；当前窗口自动化层未能枚举该原生窗口，因此本轮没有截图验收。
 
-Rectangle 圆角、Border RenderCommand、首批控件、平台无关语义元数据和统一导航命令均已实现。Android NativeActivity APK 壳也已建立：`android-lib` 使用 Zig 生成 PIC 静态归档并由 NDK Clang 链接 `libzapp.so`，Gradle 自动构建和打包 `arm64-v8a`/`x86_64`；Debug APK、Manifest、双 ABI 和入口符号已经在 Windows + NDK r25c 上验证。下一阶段是连接 Android 真机，完成生命周期、中文 IME、权限、文件选择和原生无障碍桥验证。
+Rectangle 圆角、Border RenderCommand、首批控件、平台无关语义元数据和统一导航命令均已实现。Android NativeActivity APK 壳也已建立：`android-lib` 使用 Zig 生成 PIC 静态归档并由 NDK Clang 链接 `libzapp.so`，Gradle 自动构建和打包 `arm64-v8a`/`x86_64`。Debug APK、Manifest、双 ABI 和入口符号已在 Windows + NDK r25c 上验证；API 28 x86_64 模拟器已验证启动渲染、相机权限结果、系统文件选择器启动与取消结果。下一阶段继续验证中文 IME、生命周期恢复、文件成功选择和原生无障碍桥。
