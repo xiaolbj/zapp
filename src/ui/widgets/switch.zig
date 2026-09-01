@@ -31,6 +31,11 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             .child_gap = theme.controls.gap_medium,
             .child_alignment = .{ .y = .center },
         },
+        .border = .{
+            .color = theme.controls.focus,
+            .width = if (config.focused) .outside(theme.controls.focus_width) else .{},
+        },
+        .corner_radius = .all(theme.controls.radius_small),
     })({
         clay.UI()(.{
             .layout = .{

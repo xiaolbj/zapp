@@ -74,6 +74,7 @@ pub const controls = struct {
     pub const radius_large: f32 = 14;
     pub const gap_small: u16 = 8;
     pub const gap_medium: u16 = 12;
+    pub const focus_width: u16 = 2;
     pub const control_height: f32 = 48;
 };
 

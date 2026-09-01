@@ -57,6 +57,10 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         },
         .background_color = background,
         .corner_radius = .all(theme.controls.radius_medium),
+        .border = .{
+            .color = theme.controls.focus,
+            .width = if (config.focused) .outside(theme.controls.focus_width) else .{},
+        },
         .clip = .{ .horizontal = true },
     })({
         const cursor = @min(config.cursor, config.text.len);

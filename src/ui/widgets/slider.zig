@@ -29,6 +29,11 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
             .sizing = .{ .w = .fixed(config.width), .h = .fixed(32) },
             .child_alignment = .{ .y = .center },
         },
+        .border = .{
+            .color = theme.controls.focus,
+            .width = if (config.focused) .outside(theme.controls.focus_width) else .{},
+        },
+        .corner_radius = .all(theme.controls.radius_small),
     })({
         clay.UI()(.{
             .layout = .{ .sizing = .{ .w = .fixed(fill_width), .h = .fixed(8) } },

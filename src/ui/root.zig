@@ -461,6 +461,14 @@ test "responsive shell emits controls and text" {
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
 
+    state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
+    const focused_frame = build(&model);
+    var border_count: usize = 0;
+    for (focused_frame.commands) |command| {
+        if (command.command_type == .border) border_count += 1;
+    }
+    try std.testing.expect(border_count >= 1);
+
     model.text_submission_count = 1;
     const toast_frame = build(&model);
     var has_toast_command = false;

@@ -39,6 +39,10 @@ pub fn draw(state: *State, input: Input, config: Config) bool {
         },
         .background_color = color,
         .corner_radius = .all(theme.controls.radius_medium),
+        .border = .{
+            .color = theme.controls.focus,
+            .width = if (config.focused) .outside(theme.controls.focus_width) else .{},
+        },
     })({
         label.draw(config.text, .{
             .font_size = 16,

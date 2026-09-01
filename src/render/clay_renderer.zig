@@ -67,6 +67,7 @@ fn recordCommands(frame: ui.Frame) void {
     for (frame.commands) |command| {
         switch (command.command_type) {
             .rectangle => drawRectangle(command.bounding_box, command.render_data.rectangle),
+            .border => drawBorder(command.bounding_box, command.render_data.border),
             .text => font.draw(command.bounding_box, command.render_data.text),
             .scissor_start => {
                 const bounds = command.bounding_box;
@@ -77,6 +78,27 @@ fn recordCommands(frame: ui.Frame) void {
         }
     }
     font.flush();
+}
+
+fn drawBorder(bounds: clay.BoundingBox, data: clay.BorderRenderData) void {
+    const color = data.color;
+    const r = color[0] / 255;
+    const g = color[1] / 255;
+    const b = color[2] / 255;
+    const a = color[3] / 255;
+    const x0 = bounds.x;
+    const y0 = bounds.y;
+    const x1 = bounds.x + bounds.width;
+    const y1 = bounds.y + bounds.height;
+    const left: f32 = @floatFromInt(data.width.left);
+    const right: f32 = @floatFromInt(data.width.right);
+    const top: f32 = @floatFromInt(data.width.top);
+    const bottom: f32 = @floatFromInt(data.width.bottom);
+
+    if (top > 0) drawQuad(x0, y0, x1, y0 + top, r, g, b, a);
+    if (bottom > 0) drawQuad(x0, y1 - bottom, x1, y1, r, g, b, a);
+    if (left > 0) drawQuad(x0, y0 + top, x0 + left, y1 - bottom, r, g, b, a);
+    if (right > 0) drawQuad(x1 - right, y0 + top, x1, y1 - bottom, r, g, b, a);
 }
 
 fn drawRectangle(bounds: clay.BoundingBox, data: clay.RectangleRenderData) void {

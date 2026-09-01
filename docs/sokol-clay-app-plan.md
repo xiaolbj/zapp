@@ -617,7 +617,7 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 路线图第一批控件已经全部具备可运行实现。TextField 已具备 UTF-8 光标移动、鼠标/触摸点击定位与拖选、Shift 选择、Home/End、全选、复制、剪切、粘贴、删除、选区替换和独立 IME 组合态。平台事件可同步更新、提交或取消组合文本；Android Kotlin/JNI 真机桥接仍需在 APK 壳建立后验收。
 
-键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进。后续焦点工作集中在可见焦点环的主题化、手柄导航和无障碍语义桥。
+键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField 和 NavigationBar，并由 Border RenderCommand 渲染。后续焦点工作集中在手柄导航和无障碍语义桥。
 
 控件主题一致性已完成：widgets 的状态颜色、文字颜色、常用圆角和间距统一引用 Theme 令牌，不再在各控件内维护独立调色板。
 
@@ -644,4 +644,4 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 - `zig build check` 和 `zig build test` 已在 Zig 0.16.0/Windows 上通过。
 - 已实际启动桌面窗口并保持正常响应；当前窗口自动化层未能枚举该原生窗口，因此本轮没有截图验收。
 
-下一实现任务是为 Rectangle 加入圆角并实现 Border RenderCommand，然后以这些能力建立第一个 Button 控件。
+Rectangle 圆角、Border RenderCommand 和首批控件均已实现；下一阶段是在保持现有控件 API 稳定的前提下补齐语义元数据、手柄导航与 Android 真机平台桥验证。

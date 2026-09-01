@@ -31,6 +31,10 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         },
         .background_color = color,
         .corner_radius = .all(config.size * 0.5),
+        .border = .{
+            .color = theme.controls.focus,
+            .width = if (config.focused) .outside(theme.controls.focus_width) else .{},
+        },
     })({
         label.draw(config.icon, .{
             .font_size = 24,
