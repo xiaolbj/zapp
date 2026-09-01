@@ -186,6 +186,8 @@ fn drainPlatformEvents() void {
                     @intFromEnum(zapp.platform.NavigationCommand.down) => .down,
                     @intFromEnum(zapp.platform.NavigationCommand.left) => .left,
                     @intFromEnum(zapp.platform.NavigationCommand.right) => .right,
+                    @intFromEnum(zapp.platform.NavigationCommand.first) => .first,
+                    @intFromEnum(zapp.platform.NavigationCommand.last) => .last,
                     else => continue,
                 };
                 state.app.dispatchPlatformEvent(.{ .navigation_requested = command });
@@ -379,6 +381,10 @@ export fn event(ev: [*c]const sapp.Event) void {
                 state.app.dispatch(.focused_control_left_requested);
             } else if (current.key_code == .RIGHT) {
                 state.app.dispatch(.focused_control_right_requested);
+            } else if (!current.key_repeat and current.key_code == .HOME) {
+                state.app.dispatch(.focused_control_home_requested);
+            } else if (!current.key_repeat and current.key_code == .END) {
+                state.app.dispatch(.focused_control_end_requested);
             }
         },
         .CHAR => {

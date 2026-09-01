@@ -134,6 +134,8 @@ pub const App = struct {
                 .down => self.dispatch(.focused_control_down_requested),
                 .left => self.dispatch(.focused_control_left_requested),
                 .right => self.dispatch(.focused_control_right_requested),
+                .first => self.dispatch(.focused_control_home_requested),
+                .last => self.dispatch(.focused_control_end_requested),
             },
             .native_crash_recovered => |report| self.dispatch(.{ .platform_native_crash_recovered = report }),
             .crash_report_export_result => |result| self.dispatch(.{
@@ -174,6 +176,8 @@ test "platform navigation commands share frame-latched focus actions" {
     app.dispatchPlatformEvent(.{ .navigation_requested = .increment });
     app.dispatchPlatformEvent(.{ .navigation_requested = .up });
     app.dispatchPlatformEvent(.{ .navigation_requested = .left });
+    app.dispatchPlatformEvent(.{ .navigation_requested = .first });
+    app.dispatchPlatformEvent(.{ .navigation_requested = .last });
     app.dispatchPlatformEvent(.{ .navigation_requested = .back });
 
     try std.testing.expect(app.model.focus_next_requested);
@@ -181,12 +185,16 @@ test "platform navigation commands share frame-latched focus actions" {
     try std.testing.expect(app.model.focused_control_right_requested);
     try std.testing.expect(app.model.focused_control_up_requested);
     try std.testing.expect(app.model.focused_control_left_requested);
+    try std.testing.expect(app.model.focused_control_home_requested);
+    try std.testing.expect(app.model.focused_control_end_requested);
     try std.testing.expect(app.model.back_requested);
 
     app.dispatch(.input_consumed);
     try std.testing.expect(!app.model.focus_next_requested);
     try std.testing.expect(!app.model.focused_control_activate_requested);
     try std.testing.expect(!app.model.focused_control_right_requested);
+    try std.testing.expect(!app.model.focused_control_home_requested);
+    try std.testing.expect(!app.model.focused_control_end_requested);
     try std.testing.expect(!app.model.back_requested);
 }
 

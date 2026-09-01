@@ -169,13 +169,14 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 
 Clay 完成每帧布局后，Zig 会为最多 96 个语义节点补齐最终边界，并序列化为固定容量 native 快照。快照内容不变时不会触发 JNI 更新。`AccessibilityBridgeView` 使用 `AccessibilityNodeProvider` 将快照暴露为 Android 虚拟子节点：
 
-- 角色映射到 Button、CheckBox、Switch、SeekBar、EditText、ProgressBar、Dialog 等系统类名。
+- 角色映射到 Button、CheckBox、Switch、SeekBar、EditText、ProgressBar、TabWidget、Menu/ListView、Dialog 等系统类名。
 - 中文标签、值、勾选/选中/禁用、焦点、范围、树层级和展开状态均随快照更新。
 - 节点边界转换到屏幕坐标，完全位于视口外的节点不会暴露给系统服务。
 - 点击、滑块增减、TextField 设置文本、TreeView 展开/折叠，以及 Card/ScrollView 的向前、向后翻页均通过线程安全事件队列回到 Zig，再复用 UI Action 和 reducer。
 - 可滚动节点只暴露当前方向实际可用的 `ACTION_SCROLL_FORWARD`/`BACKWARD` 与 `ACTION_SCROLL_DOWN`/`UP`；动作按可视高度的 80% 移动目标 Clay 容器，并在内容边界处夹紧。
 - 模态对话框打开时仅暴露 Dialog 及其按钮，避免读屏焦点进入被遮挡内容。
 - 全屏透明语义 View 不绘制内容，也不消费普通触摸；IME 仍由独立的 1×1 编辑 View 提供。
+- 透明语义 View 作为普通 UI 的键盘焦点宿主，将 DPAD、Tab、Enter/Space、手柄 A 和 Move Home/End 经 JNI 送回统一导航命令；文本编辑期间由 IME View 接管。
 
 ## 安装与日志
 

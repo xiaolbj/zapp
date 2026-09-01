@@ -338,6 +338,7 @@ test "native navigation event kind remains ABI-stable" {
     event.detail_value = @intFromEnum(@import("platform.zig").NavigationCommand.left);
     try std.testing.expectEqual(EventKind.navigation_requested, event.kind().?);
     try std.testing.expectEqual(@as(c_int, 8), event.detail_value);
+    try std.testing.expectEqual(@as(c_int, 11), @intFromEnum(@import("platform.zig").NavigationCommand.last));
 }
 
 test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {

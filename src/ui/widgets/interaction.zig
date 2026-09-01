@@ -13,6 +13,8 @@ pub const Input = struct {
     down_pressed: bool = false,
     left_pressed: bool = false,
     right_pressed: bool = false,
+    home_pressed: bool = false,
+    end_pressed: bool = false,
 };
 
 pub const Result = struct {

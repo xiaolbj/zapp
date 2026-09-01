@@ -14,6 +14,7 @@ const dialog = @import("widgets/dialog.zig");
 const icon_button = @import("widgets/icon_button.zig");
 const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
+const menu = @import("widgets/menu.zig");
 const navigation_bar = @import("widgets/navigation_bar.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const radio_group = @import("widgets/radio_group.zig");
@@ -50,6 +51,12 @@ const demo_sort_items = [_]select.Item{
     .{ .text = "大小" },
 };
 
+const demo_menu_items = [_]menu.Item{
+    .{ .text = "打开详情" },
+    .{ .text = "复制链接" },
+    .{ .text = "删除（不可用）", .disabled = true },
+};
+
 const demo_tab_items = [_]tabs.Item{
     .{ .text = "概览" },
     .{ .text = "明细" },
@@ -67,6 +74,7 @@ const state = struct {
     var action_count: usize = 0;
     var counter_text: [96]u8 = undefined;
     var confirmation_text: [96]u8 = undefined;
+    var menu_status_text: [128]u8 = undefined;
     var permission_status_text: [160]u8 = undefined;
     var file_status_text: [256]u8 = undefined;
     var file_metadata_text: [512]u8 = undefined;
@@ -166,6 +174,7 @@ pub fn build(model: *const Model) Frame {
     const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
     const sort_select_id = select.triggerId("SortSelect").id;
+    const actions_menu_id = menu.triggerId("ActionsMenu").id;
     const active_tab_index = tabs.boundedIndex(model.demo_tab_index, demo_tab_items.len) orelse 0;
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
@@ -179,7 +188,7 @@ pub fn build(model: *const Model) Frame {
         state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
     } else {
         state.focus_state.closeModal(dialog_id);
-        var focus_order: [32]u32 = undefined;
+        var focus_order: [48]u32 = undefined;
         const navigation_order = [_]u32{
             clay.ElementId.IDI("MainNavigation", 0).id,
             clay.ElementId.IDI("MainNavigation", 1).id,
@@ -222,6 +231,18 @@ pub fn build(model: *const Model) Frame {
             }
         } else if (state.focus_state.focused_id) |focused_id| {
             if (selectOptionIndex(focused_id) != null) state.focus_state.focus(sort_select_id);
+        }
+        focus_order[focus_order_count] = actions_menu_id;
+        focus_order_count += 1;
+        if (model.demo_menu_expanded) {
+            for (demo_menu_items, 0..) |item, menu_index| {
+                if (!item.disabled) {
+                    focus_order[focus_order_count] = menu.itemId("ActionsMenu", menu_index).id;
+                    focus_order_count += 1;
+                }
+            }
+        } else if (state.focus_state.focused_id) |focused_id| {
+            if (menuItemIndex(focused_id) != null) state.focus_state.focus(actions_menu_id);
         }
         const trailing_order = [_]u32{
             slider_id,
@@ -266,6 +287,10 @@ pub fn build(model: *const Model) Frame {
         state.focus_state.focus(sort_select_id);
         emit(.{ .demo_sort_expanded = false });
     }
+    if (model.back_requested and model.demo_menu_expanded and !model.demo_dialog_open) {
+        state.focus_state.focus(actions_menu_id);
+        emit(.{ .demo_menu_expanded = false });
+    }
 
     const compact = model.viewport_width < 900;
     const narrow = model.viewport_width < 600;
@@ -290,6 +315,8 @@ pub fn build(model: *const Model) Frame {
         .down_pressed = model.focused_control_down_requested,
         .left_pressed = model.focused_control_left_requested,
         .right_pressed = model.focused_control_right_requested,
+        .home_pressed = model.focused_control_home_requested,
+        .end_pressed = model.focused_control_end_requested,
     };
     const counter_text = std.fmt.bufPrint(
         &state.counter_text,
@@ -301,6 +328,18 @@ pub fn build(model: *const Model) Frame {
         "对话框确认次数：{d}",
         .{model.demo_dialog_confirmations},
     ) catch "对话框确认次数过多";
+    const menu_status_text = std.fmt.bufPrint(
+        &state.menu_status_text,
+        "上次操作：{s} · {d} 次",
+        .{
+            switch (model.demo_menu_action_index) {
+                1 => "复制链接",
+                2 => "删除",
+                else => "打开详情",
+            },
+            model.demo_menu_activation_count,
+        },
+    ) catch "菜单操作次数过多";
     const permission_status_text = if (model.permission_request_pending)
         "权限状态：等待系统响应…"
     else if (model.last_permission) |permission|
@@ -728,6 +767,36 @@ pub fn build(model: *const Model) Frame {
                             emit(.{ .demo_sort_expanded = expanded });
                         }
                     }
+                    label.draw("操作菜单", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("ActionsMenuLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const menu_result = menu.draw(&state.interaction_state, input, .{
+                        .id = "ActionsMenu",
+                        .text = "更多操作",
+                        .items = &demo_menu_items,
+                        .expanded = model.demo_menu_expanded,
+                        .width = control_width,
+                        .disabled = modal_open,
+                        .focused_id = state.focus_state.focused_id,
+                        .semantic_label = "更多操作",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (menu_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                    if (menu_result.activated_index) |index| {
+                        emit(.{ .demo_menu_item_activated = @intCast(index) });
+                    }
+                    if (menu_result.expanded) |expanded| {
+                        if (expanded != model.demo_menu_expanded) {
+                            emit(.{ .demo_menu_expanded = expanded });
+                        }
+                    }
+                    label.draw(menu_status_text, .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("ActionsMenuStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     label.draw("任务进度（点击 + 增加）", .{
                         .color = .{ 166, 187, 218, 255 },
                         .semantic_id = .ID("ProgressLabel"),
@@ -972,6 +1041,7 @@ pub fn handleSemanticAction(
     const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
     const sort_select_id = select.triggerId("SortSelect").id;
+    const actions_menu_id = menu.triggerId("ActionsMenu").id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -995,6 +1065,9 @@ pub fn handleSemanticAction(
             }
         },
         .activate => {
+            if (menuItemIndex(element_id)) |index| {
+                if (demo_menu_items[index].disabled) return state.actions[0..0];
+            }
             state.focus_state.focus(element_id);
             if (model.text_field_focused and element_id != text_field_id) {
                 emit(.{ .text_field_focus_changed = false });
@@ -1015,10 +1088,19 @@ pub fn handleSemanticAction(
                 if (model.last_native_crash != null and !model.crash_report_export_pending) {
                     emit(.platform_crash_report_export_requested);
                 }
-            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (element_id == sort_select_id) emit(.{ .demo_sort_expanded = !model.demo_sort_expanded }) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (tabIndex(element_id)) |index| emit(.{ .demo_tab_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
+            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (element_id == sort_select_id) {
+                emit(.{ .demo_sort_expanded = !model.demo_sort_expanded });
+            } else if (element_id == actions_menu_id) {
+                emit(.{ .demo_menu_expanded = !model.demo_menu_expanded });
+            } else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (tabIndex(element_id)) |index| emit(.{ .demo_tab_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
                 state.focus_state.focus(sort_select_id);
                 emit(.{ .demo_sort_selected = index });
                 if (model.demo_sort_expanded) emit(.{ .demo_sort_expanded = false });
+            } else if (menuItemIndex(element_id)) |index| {
+                if (!demo_menu_items[index].disabled) {
+                    state.focus_state.focus(actions_menu_id);
+                    emit(.{ .demo_menu_item_activated = index });
+                }
             }
         },
         .increment, .decrement => if (element_id == slider_id) {
@@ -1037,6 +1119,11 @@ pub fn handleSemanticAction(
                 if (model.demo_sort_expanded != should_expand) {
                     state.focus_state.focus(element_id);
                     emit(.{ .demo_sort_expanded = should_expand });
+                }
+            } else if (element_id == actions_menu_id) {
+                if (model.demo_menu_expanded != should_expand) {
+                    state.focus_state.focus(element_id);
+                    emit(.{ .demo_menu_expanded = should_expand });
                 }
             } else if (treeIndex(element_id)) |index| {
                 const expanded = model.demo_tree_expanded_mask & (@as(u64, 1) << @intCast(index)) != 0;
@@ -1096,11 +1183,20 @@ fn selectOptionIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn menuItemIndex(element_id: u32) ?u8 {
+    for (demo_menu_items, 0..) |_, index| {
+        if (element_id == menu.itemId("ActionsMenu", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn isInteractiveSemanticId(element_id: u32) bool {
     if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
         treeIndex(element_id) != null or
         radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
-    if (element_id == select.triggerId("SortSelect").id) return true;
+    if (menuItemIndex(element_id)) |index| return !demo_menu_items[index].disabled;
+    if (element_id == select.triggerId("SortSelect").id or
+        element_id == menu.triggerId("ActionsMenu").id) return true;
     inline for ([_][]const u8{
         "PrimaryAction",
         "IncrementProgress",
@@ -1358,6 +1454,7 @@ test "responsive shell emits controls and text" {
     var has_combo_box_semantics = false;
     var has_tab_list_semantics = false;
     var selected_tab_count: usize = 0;
+    var has_collapsed_menu_button = false;
     var has_performance_label_semantics = false;
     var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
@@ -1380,6 +1477,9 @@ test "responsive shell emits controls and text" {
         }
         if (node.role == .tab_list) has_tab_list_semantics = true;
         if (node.role == .tab and node.selected) selected_tab_count += 1;
+        if (node.element_id == menu.triggerId("ActionsMenu").id and node.expanded == false) {
+            has_collapsed_menu_button = true;
+        }
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
         if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
             has_crash_diagnostics_semantics = true;
@@ -1398,6 +1498,7 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_combo_box_semantics);
     try std.testing.expect(has_tab_list_semantics);
     try std.testing.expectEqual(@as(usize, 1), selected_tab_count);
+    try std.testing.expect(has_collapsed_menu_button);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
 
@@ -1431,6 +1532,34 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(requested_select_close);
     model.pointer_pressed = false;
     model.demo_sort_expanded = false;
+
+    model.demo_menu_expanded = true;
+    const expanded_menu_frame = build(&model);
+    var has_menu_semantics = false;
+    var menu_item_count: usize = 0;
+    var disabled_menu_item_count: usize = 0;
+    for (expanded_menu_frame.semantic_nodes) |node| {
+        if (node.role == .menu) has_menu_semantics = true;
+        if (node.role == .menu_item) {
+            menu_item_count += 1;
+            if (node.disabled) disabled_menu_item_count += 1;
+        }
+    }
+    try std.testing.expect(has_menu_semantics);
+    try std.testing.expectEqual(demo_menu_items.len, menu_item_count);
+    try std.testing.expectEqual(@as(usize, 1), disabled_menu_item_count);
+    model.pointer_pressed = true;
+    const outside_menu_press_frame = build(&model);
+    var requested_menu_close = false;
+    for (outside_menu_press_frame.actions) |action| {
+        switch (action) {
+            .demo_menu_expanded => |expanded| requested_menu_close = !expanded,
+            else => {},
+        }
+    }
+    try std.testing.expect(requested_menu_close);
+    model.pointer_pressed = false;
+    model.demo_menu_expanded = false;
 
     model.last_native_crash = .{
         .signal_number = 11,
@@ -1634,6 +1763,34 @@ test "semantic actions reuse reducer-facing UI actions" {
     );
     try std.testing.expectEqual(@as(usize, 1), actions.len);
     try std.testing.expectEqual(@as(u8, 2), actions[0].demo_tab_selected);
+
+    model.demo_sort_expanded = false;
+    actions = handleSemanticAction(
+        &model,
+        menu.triggerId("ActionsMenu").id,
+        .expand,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expect(actions[0].demo_menu_expanded);
+
+    model.demo_menu_expanded = true;
+    actions = handleSemanticAction(
+        &model,
+        menu.itemId("ActionsMenu", 1).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u8, 1), actions[0].demo_menu_item_activated);
+
+    actions = handleSemanticAction(
+        &model,
+        menu.itemId("ActionsMenu", 2).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 0), actions.len);
 
     actions = handleSemanticAction(
         &model,

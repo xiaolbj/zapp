@@ -38,6 +38,8 @@ pub const Model = struct {
     focused_control_down_requested: bool = false,
     focused_control_left_requested: bool = false,
     focused_control_right_requested: bool = false,
+    focused_control_home_requested: bool = false,
+    focused_control_end_requested: bool = false,
     text_field_focused: bool = false,
     text_buffer: [256]u8 = @splat(0),
     text_length: usize = 0,
@@ -83,6 +85,9 @@ pub const Model = struct {
     demo_sort_index: u8 = 0,
     demo_sort_expanded: bool = false,
     demo_tab_index: u8 = 0,
+    demo_menu_expanded: bool = false,
+    demo_menu_action_index: u8 = 0,
+    demo_menu_activation_count: u32 = 0,
     suspended: bool = false,
 
     pub fn text(self: *const Model) []const u8 {

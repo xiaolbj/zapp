@@ -614,6 +614,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `RadioGroup`：受控互斥选择，支持横/纵布局、鼠标/触摸、四向键循环选择，以及 radio_group/radio_button 语义。
 - `Select`：受控单选下拉框，支持动态展开选项、键盘导航、外部点击/返回键收起，以及 combo_box/option 语义。
 - `Tabs`：受控标签页导航，支持横/纵布局、方向键自动激活、单一 Tab 停靠点，以及 tab_list/tab 语义。
+- `MenuButton`：受控操作菜单，支持禁用项、上下键循环、Home/End 首尾导航、外部点击/返回键关闭，以及 menu/menu_item 语义。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
@@ -628,6 +629,8 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 补充控件 Select 已实现：选中索引与展开状态均由 AppModel/reducer 控制；触发器支持鼠标/触摸、Enter/Space 和上下键，展开后选项动态加入布局、焦点顺序和语义树，选择、外部点击或返回键会收起并把焦点恢复到触发器。Android 无障碍桥将触发器和选项分别映射为原生 `Spinner` 与 `CheckedTextView`，并复用 expand/collapse/click 动作回传。
 
 补充控件 Tabs 已实现：活动索引由 AppModel/reducer 控制；每个标签使用稳定派生 ID，横向布局响应左右键、纵向布局响应上下键，并采用自动激活模式。全局 Tab 顺序只保留当前活动标签，切换时同步修复焦点。Android 无障碍桥将容器和标签分别映射为原生 `TabWidget` 与可点击按钮，并暴露 selected/focused 状态。
+
+补充控件 MenuButton 已实现：展开状态和最近执行操作由 AppModel/reducer 控制；打开时焦点进入首个可用项，上下键循环且跳过禁用项，Home/End 定位首尾，激活、外部点击或返回键关闭并恢复触发器焦点。Menu 与 Select 互斥展开，Android 无障碍桥暴露 menu/menu_item 角色和禁用状态。
 
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar 和 TreeView，并由 Border RenderCommand 渲染。
 

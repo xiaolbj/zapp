@@ -63,6 +63,8 @@ pub fn update(model: *Model, action: Action) void {
             model.focused_control_down_requested = false;
             model.focused_control_left_requested = false;
             model.focused_control_right_requested = false;
+            model.focused_control_home_requested = false;
+            model.focused_control_end_requested = false;
         },
         .primary_button_pressed => model.primary_button_presses += 1,
         .demo_checkbox_toggled => model.demo_checkbox_checked = !model.demo_checkbox_checked,
@@ -86,6 +88,8 @@ pub fn update(model: *Model, action: Action) void {
         .focused_control_down_requested => model.focused_control_down_requested = true,
         .focused_control_left_requested => model.focused_control_left_requested = true,
         .focused_control_right_requested => model.focused_control_right_requested = true,
+        .focused_control_home_requested => model.focused_control_home_requested = true,
+        .focused_control_end_requested => model.focused_control_end_requested = true,
         .text_field_focus_changed => |focused| {
             model.text_field_focused = focused;
             if (focused) {
@@ -224,8 +228,20 @@ pub fn update(model: *Model, action: Action) void {
         .demo_tree_selected => |index| model.demo_tree_selected_index = index,
         .demo_density_selected => |index| model.demo_density_index = @min(index, 2),
         .demo_sort_selected => |index| model.demo_sort_index = @min(index, 2),
-        .demo_sort_expanded => |expanded| model.demo_sort_expanded = expanded,
+        .demo_sort_expanded => |expanded| {
+            model.demo_sort_expanded = expanded;
+            if (expanded) model.demo_menu_expanded = false;
+        },
         .demo_tab_selected => |index| model.demo_tab_index = @min(index, 2),
+        .demo_menu_expanded => |expanded| {
+            model.demo_menu_expanded = expanded;
+            if (expanded) model.demo_sort_expanded = false;
+        },
+        .demo_menu_item_activated => |index| {
+            model.demo_menu_action_index = @min(index, 2);
+            model.demo_menu_activation_count += 1;
+            model.demo_menu_expanded = false;
+        },
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -461,14 +477,43 @@ test "keyboard navigation requests are frame-latched" {
     update(&model, .focus_previous_requested);
     update(&model, .focused_control_activate_requested);
     update(&model, .focused_control_right_requested);
+    update(&model, .focused_control_home_requested);
+    update(&model, .focused_control_end_requested);
 
     try std.testing.expect(model.focus_previous_requested);
     try std.testing.expect(model.focused_control_activate_requested);
     try std.testing.expect(model.focused_control_right_requested);
+    try std.testing.expect(model.focused_control_home_requested);
+    try std.testing.expect(model.focused_control_end_requested);
     update(&model, .input_consumed);
     try std.testing.expect(!model.focus_previous_requested);
     try std.testing.expect(!model.focused_control_activate_requested);
     try std.testing.expect(!model.focused_control_right_requested);
+    try std.testing.expect(!model.focused_control_home_requested);
+    try std.testing.expect(!model.focused_control_end_requested);
+}
+
+test "menu activation is bounded and closes the controlled menu" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_menu_expanded = true });
+    update(&model, .{ .demo_menu_item_activated = 99 });
+    try std.testing.expectEqual(@as(u8, 2), model.demo_menu_action_index);
+    try std.testing.expectEqual(@as(u32, 1), model.demo_menu_activation_count);
+    try std.testing.expect(!model.demo_menu_expanded);
+}
+
+test "select and menu popups remain mutually exclusive" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_sort_expanded = true });
+    try std.testing.expect(model.demo_sort_expanded);
+    update(&model, .{ .demo_menu_expanded = true });
+    try std.testing.expect(model.demo_menu_expanded);
+    try std.testing.expect(!model.demo_sort_expanded);
+    update(&model, .{ .demo_sort_expanded = true });
+    try std.testing.expect(model.demo_sort_expanded);
+    try std.testing.expect(!model.demo_menu_expanded);
 }
 
 test "platform results update permission and file picker state" {

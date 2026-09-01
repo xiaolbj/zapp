@@ -23,6 +23,8 @@ pub const Role = enum {
     option,
     tab_list,
     tab,
+    menu,
+    menu_item,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.

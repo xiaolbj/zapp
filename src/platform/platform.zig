@@ -233,6 +233,8 @@ pub const NavigationCommand = enum(c_int) {
     down = 7,
     left = 8,
     right = 9,
+    first = 10,
+    last = 11,
 };
 
 pub const PlatformEvent = union(enum) {

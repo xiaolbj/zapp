@@ -61,6 +61,8 @@ public final class ZappActivity extends NativeActivity {
     private static final int NAVIGATION_DOWN = 7;
     private static final int NAVIGATION_LEFT = 8;
     private static final int NAVIGATION_RIGHT = 9;
+    private static final int NAVIGATION_FIRST = 10;
+    private static final int NAVIGATION_LAST = 11;
     private static final int FILE_READ_ERROR_INVALID_URI = 1;
     private static final int FILE_READ_ERROR_NOT_FOUND = 2;
     private static final int FILE_READ_ERROR_PERMISSION_DENIED = 3;
@@ -135,6 +137,8 @@ public final class ZappActivity extends NativeActivity {
             case KeyEvent.KEYCODE_DPAD_DOWN: return NAVIGATION_DOWN;
             case KeyEvent.KEYCODE_DPAD_LEFT: return NAVIGATION_LEFT;
             case KeyEvent.KEYCODE_DPAD_RIGHT: return NAVIGATION_RIGHT;
+            case KeyEvent.KEYCODE_MOVE_HOME: return NAVIGATION_FIRST;
+            case KeyEvent.KEYCODE_MOVE_END: return NAVIGATION_LAST;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
             case KeyEvent.KEYCODE_NUMPAD_ENTER:
@@ -632,6 +636,8 @@ public final class ZappActivity extends NativeActivity {
         private static final int ROLE_OPTION = 18;
         private static final int ROLE_TAB_LIST = 19;
         private static final int ROLE_TAB = 20;
+        private static final int ROLE_MENU = 21;
+        private static final int ROLE_MENU_ITEM = 22;
 
         private final AccessibilityManager accessibilityManager;
         private final SemanticNodeProvider provider = new SemanticNodeProvider();
@@ -831,7 +837,7 @@ public final class ZappActivity extends NativeActivity {
                 if (node.role == ROLE_BUTTON || node.role == ROLE_CHECKBOX || node.role == ROLE_SWITCH ||
                     node.role == ROLE_NAVIGATION_ITEM || node.role == ROLE_TREE_ITEM ||
                     node.role == ROLE_RADIO_BUTTON || node.role == ROLE_COMBO_BOX ||
-                    node.role == ROLE_OPTION || node.role == ROLE_TAB) {
+                    node.role == ROLE_OPTION || node.role == ROLE_TAB || node.role == ROLE_MENU_ITEM) {
                     info.setClickable(true);
                     info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
                 }
@@ -987,6 +993,8 @@ public final class ZappActivity extends NativeActivity {
                     case ROLE_OPTION: return "android.widget.CheckedTextView";
                     case ROLE_TAB_LIST: return "android.widget.TabWidget";
                     case ROLE_TAB: return "android.widget.Button";
+                    case ROLE_MENU: return "android.widget.ListView";
+                    case ROLE_MENU_ITEM: return "android.widget.Button";
                     case ROLE_NAVIGATION_ITEM:
                     case ROLE_TREE_ITEM: return "android.widget.Button";
                     case ROLE_DIALOG: return "android.app.Dialog";
@@ -999,7 +1007,7 @@ public final class ZappActivity extends NativeActivity {
                 return role == ROLE_BUTTON || role == ROLE_CHECKBOX || role == ROLE_SWITCH ||
                     role == ROLE_SLIDER || role == ROLE_TEXT_FIELD || role == ROLE_NAVIGATION_ITEM ||
                     role == ROLE_TREE_ITEM || role == ROLE_RADIO_BUTTON || role == ROLE_COMBO_BOX ||
-                    role == ROLE_OPTION || role == ROLE_TAB;
+                    role == ROLE_OPTION || role == ROLE_TAB || role == ROLE_MENU_ITEM;
             }
         }
     }

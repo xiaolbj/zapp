@@ -58,6 +58,8 @@ pub const Action = union(enum) {
     focused_control_down_requested,
     focused_control_left_requested,
     focused_control_right_requested,
+    focused_control_home_requested,
+    focused_control_end_requested,
     text_field_focus_changed: bool,
     text_inserted: []const u8,
     text_backspace,
@@ -92,6 +94,8 @@ pub const Action = union(enum) {
     demo_sort_selected: u8,
     demo_sort_expanded: bool,
     demo_tab_selected: u8,
+    demo_menu_expanded: bool,
+    demo_menu_item_activated: u8,
     suspended,
     resumed,
 };

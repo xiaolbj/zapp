@@ -1,5 +1,5 @@
 pub const State = struct {
-    const max_ordered_items = 32;
+    const max_ordered_items = 48;
 
     focused_id: ?u32 = null,
     previous_focus_id: ?u32 = null,
