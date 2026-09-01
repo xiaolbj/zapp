@@ -96,6 +96,7 @@ pub const Action = union(enum) {
     demo_tab_selected: u8,
     demo_menu_expanded: bool,
     demo_menu_item_activated: u8,
+    demo_virtual_list_selected: u16,
     suspended,
     resumed,
 };

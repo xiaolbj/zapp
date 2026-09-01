@@ -88,6 +88,7 @@ pub const Model = struct {
     demo_menu_expanded: bool = false,
     demo_menu_action_index: u8 = 0,
     demo_menu_activation_count: u32 = 0,
+    demo_virtual_list_selected_index: u16 = 0,
     suspended: bool = false,
 
     pub fn text(self: *const Model) []const u8 {

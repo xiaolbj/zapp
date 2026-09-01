@@ -638,6 +638,7 @@ public final class ZappActivity extends NativeActivity {
         private static final int ROLE_TAB = 20;
         private static final int ROLE_MENU = 21;
         private static final int ROLE_MENU_ITEM = 22;
+        private static final int ROLE_LIST_ITEM = 23;
 
         private final AccessibilityManager accessibilityManager;
         private final SemanticNodeProvider provider = new SemanticNodeProvider();
@@ -837,7 +838,8 @@ public final class ZappActivity extends NativeActivity {
                 if (node.role == ROLE_BUTTON || node.role == ROLE_CHECKBOX || node.role == ROLE_SWITCH ||
                     node.role == ROLE_NAVIGATION_ITEM || node.role == ROLE_TREE_ITEM ||
                     node.role == ROLE_RADIO_BUTTON || node.role == ROLE_COMBO_BOX ||
-                    node.role == ROLE_OPTION || node.role == ROLE_TAB || node.role == ROLE_MENU_ITEM) {
+                    node.role == ROLE_OPTION || node.role == ROLE_TAB || node.role == ROLE_MENU_ITEM ||
+                    node.role == ROLE_LIST_ITEM) {
                     info.setClickable(true);
                     info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
                 }
@@ -995,6 +997,7 @@ public final class ZappActivity extends NativeActivity {
                     case ROLE_TAB: return "android.widget.Button";
                     case ROLE_MENU: return "android.widget.ListView";
                     case ROLE_MENU_ITEM: return "android.widget.Button";
+                    case ROLE_LIST_ITEM: return "android.widget.Button";
                     case ROLE_NAVIGATION_ITEM:
                     case ROLE_TREE_ITEM: return "android.widget.Button";
                     case ROLE_DIALOG: return "android.app.Dialog";
@@ -1007,7 +1010,8 @@ public final class ZappActivity extends NativeActivity {
                 return role == ROLE_BUTTON || role == ROLE_CHECKBOX || role == ROLE_SWITCH ||
                     role == ROLE_SLIDER || role == ROLE_TEXT_FIELD || role == ROLE_NAVIGATION_ITEM ||
                     role == ROLE_TREE_ITEM || role == ROLE_RADIO_BUTTON || role == ROLE_COMBO_BOX ||
-                    role == ROLE_OPTION || role == ROLE_TAB || role == ROLE_MENU_ITEM;
+                    role == ROLE_OPTION || role == ROLE_TAB || role == ROLE_MENU_ITEM ||
+                    role == ROLE_LIST_ITEM;
             }
         }
     }

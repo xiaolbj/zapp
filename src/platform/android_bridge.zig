@@ -341,6 +341,10 @@ test "native navigation event kind remains ABI-stable" {
     try std.testing.expectEqual(@as(c_int, 11), @intFromEnum(@import("platform.zig").NavigationCommand.last));
 }
 
+test "extended accessibility roles remain ABI-stable" {
+    try std.testing.expectEqual(@as(c_int, 23), @intFromEnum(semantics.Role.list_item));
+}
+
 test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {
     const node = serializeAccessibilityNode(.{
         .element_id = 7,

@@ -26,8 +26,10 @@ const text_field = @import("widgets/text_field.zig");
 const toast = @import("widgets/toast.zig");
 const tree_view = @import("widgets/tree_view.zig");
 const toggle_switch = @import("widgets/switch.zig");
+const virtual_list = @import("widgets/virtual_list.zig");
 
 const max_actions = 8;
+const demo_virtual_list_item_count = 1000;
 
 const demo_tree_items = [_]tree_view.Item{
     .{ .text = "zapp" },
@@ -69,12 +71,14 @@ const state = struct {
     var focus_state: focus_manager.State = .{};
     var semantic_registry: semantics.Registry = .{};
     var toast_state: toast.State = .{};
+    var virtual_list_state: virtual_list.State = .{};
     var last_text_submission_count: u32 = 0;
     var actions: [max_actions]Action = undefined;
     var action_count: usize = 0;
     var counter_text: [96]u8 = undefined;
     var confirmation_text: [96]u8 = undefined;
     var menu_status_text: [128]u8 = undefined;
+    var virtual_list_status_text: [128]u8 = undefined;
     var permission_status_text: [160]u8 = undefined;
     var file_status_text: [256]u8 = undefined;
     var file_metadata_text: [512]u8 = undefined;
@@ -117,6 +121,7 @@ pub fn setup(model: *const Model) bool {
     state.focus_state = .{};
     state.semantic_registry.reset();
     state.toast_state = .{};
+    state.virtual_list_state = .{};
     state.last_text_submission_count = model.text_submission_count;
     state.action_count = 0;
 
@@ -136,6 +141,7 @@ pub fn shutdown() void {
     state.focus_state = .{};
     state.semantic_registry.reset();
     state.toast_state = .{};
+    state.virtual_list_state = .{};
     state.last_text_submission_count = 0;
     state.action_count = 0;
 }
@@ -175,6 +181,11 @@ pub fn build(model: *const Model) Frame {
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
     const sort_select_id = select.triggerId("SortSelect").id;
     const actions_menu_id = menu.triggerId("ActionsMenu").id;
+    const virtual_list_index = virtual_list.boundedIndex(
+        model.demo_virtual_list_selected_index,
+        demo_virtual_list_item_count,
+    ) orelse 0;
+    const virtual_list_active_id = virtual_list.itemId("RecordsVirtualList", virtual_list_index).id;
     const active_tab_index = tabs.boundedIndex(model.demo_tab_index, demo_tab_items.len) orelse 0;
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
@@ -244,6 +255,8 @@ pub fn build(model: *const Model) Frame {
         } else if (state.focus_state.focused_id) |focused_id| {
             if (menuItemIndex(focused_id) != null) state.focus_state.focus(actions_menu_id);
         }
+        focus_order[focus_order_count] = virtual_list_active_id;
+        focus_order_count += 1;
         const trailing_order = [_]u32{
             slider_id,
             text_field_id,
@@ -273,6 +286,15 @@ pub fn build(model: *const Model) Frame {
         _ = state.focus_state.move(1);
     } else if (model.focus_previous_requested) {
         _ = state.focus_state.move(-1);
+    }
+    if (!model.demo_dialog_open) {
+        if (state.focus_state.focused_id) |focused_id| {
+            const reveal_id = if (virtualListIndex(focused_id) != null)
+                clay.ElementId.ID("RecordsVirtualList").id
+            else
+                focused_id;
+            ensureElementVisibleInScrollContainer(reveal_id, clay.ElementId.ID("PrimaryCard").id);
+        }
     }
     const focused_text_field = state.focus_state.isFocused(text_field_id) and !model.demo_dialog_open;
     if ((model.focus_next_requested or model.focus_previous_requested) and
@@ -340,6 +362,11 @@ pub fn build(model: *const Model) Frame {
             model.demo_menu_activation_count,
         },
     ) catch "菜单操作次数过多";
+    const virtual_list_status_text = std.fmt.bufPrint(
+        &state.virtual_list_status_text,
+        "已选择第 {d} / {d} 条",
+        .{ @as(usize, model.demo_virtual_list_selected_index) + 1, demo_virtual_list_item_count },
+    ) catch "列表选择状态不可用";
     const permission_status_text = if (model.permission_request_pending)
         "权限状态：等待系统响应…"
     else if (model.last_permission) |permission|
@@ -512,6 +539,7 @@ pub fn build(model: *const Model) Frame {
                     .semantic_label = "控件示例",
                     .semantic_registry = &state.semantic_registry,
                 }))({
+                    _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("PrimaryCard").id);
                     label.draw("Clay 应用框架", .{
                         .font_size = 22,
                         .semantic_id = .ID("PrimaryCardTitle"),
@@ -797,6 +825,39 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("ActionsMenuStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
+                    label.draw("虚拟列表（1000 条）", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("RecordsVirtualListLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const virtual_list_result = virtual_list.draw(
+                        &state.virtual_list_state,
+                        &state.interaction_state,
+                        input,
+                        .{
+                            .id = "RecordsVirtualList",
+                            .item_count = demo_virtual_list_item_count,
+                            .selected_index = model.demo_virtual_list_selected_index,
+                            .format_item = formatVirtualListItem,
+                            .width = control_width,
+                            .height = 240,
+                            .disabled = modal_open,
+                            .focused_id = state.focus_state.focused_id,
+                            .semantic_label = "数据记录",
+                            .semantic_registry = &state.semantic_registry,
+                        },
+                    );
+                    if (virtual_list_result.focus_index) |index| {
+                        state.focus_state.focus(virtual_list.itemId("RecordsVirtualList", index).id);
+                    }
+                    if (virtual_list_result.selected_index) |index| {
+                        emit(.{ .demo_virtual_list_selected = @intCast(index) });
+                    }
+                    label.draw(virtual_list_status_text, .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("RecordsVirtualListStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     label.draw("任务进度（点击 + 增加）", .{
                         .color = .{ 166, 187, 218, 255 },
                         .semantic_id = .ID("ProgressLabel"),
@@ -943,6 +1004,7 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("DialogConfirmationCount"),
                         .semantic_registry = &state.semantic_registry,
                     });
+                    state.semantic_registry.popScrollAncestor();
                 });
 
                 clay.UI()(scroll_view.declaration(.{
@@ -952,6 +1014,7 @@ pub fn build(model: *const Model) Frame {
                     .semantic_label = "最近活动",
                     .semantic_registry = &state.semantic_registry,
                 }))({
+                    _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("ActivityScrollView").id);
                     label.draw("最近活动", .{
                         .font_size = 18,
                         .color = .{ 155, 211, 207, 255 },
@@ -984,6 +1047,7 @@ pub fn build(model: *const Model) Frame {
                             });
                         });
                     }
+                    state.semantic_registry.popScrollAncestor();
                 });
             });
         });
@@ -1101,6 +1165,9 @@ pub fn handleSemanticAction(
                     state.focus_state.focus(actions_menu_id);
                     emit(.{ .demo_menu_item_activated = index });
                 }
+            } else if (virtualListIndex(element_id)) |index| {
+                state.focus_state.focus(element_id);
+                emit(.{ .demo_virtual_list_selected = index });
             }
         },
         .increment, .decrement => if (element_id == slider_id) {
@@ -1190,11 +1257,19 @@ fn menuItemIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn virtualListIndex(element_id: u32) ?u16 {
+    for (0..demo_virtual_list_item_count) |index| {
+        if (element_id == virtual_list.itemId("RecordsVirtualList", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn isInteractiveSemanticId(element_id: u32) bool {
     if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
         treeIndex(element_id) != null or
         radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
     if (menuItemIndex(element_id)) |index| return !demo_menu_items[index].disabled;
+    if (virtualListIndex(element_id) != null) return true;
     if (element_id == select.triggerId("SortSelect").id or
         element_id == menu.triggerId("ActionsMenu").id) return true;
     inline for ([_][]const u8{
@@ -1217,7 +1292,12 @@ fn isInteractiveSemanticId(element_id: u32) bool {
 
 fn isScrollableSemanticId(element_id: u32) bool {
     return element_id == clay.ElementId.ID("PrimaryCard").id or
-        element_id == clay.ElementId.ID("ActivityScrollView").id;
+        element_id == clay.ElementId.ID("ActivityScrollView").id or
+        element_id == clay.ElementId.ID("RecordsVirtualList").id;
+}
+
+fn formatVirtualListItem(index: usize, buffer: []u8) []const u8 {
+    return std.fmt.bufPrint(buffer, "数据记录 #{d}", .{index + 1}) catch "数据记录";
 }
 
 fn applySemanticScroll(model: *const Model) void {
@@ -1231,6 +1311,34 @@ fn applySemanticScroll(model: *const Model) void {
     const page = @max(scroll.scroll_container_dimensions.h * 0.8, 48);
     const delta = if (model.semantic_scroll_direction > 0) -page else page;
     scroll.scroll_position.y = @min(@max(scroll.scroll_position.y + delta, -max_scroll), 0);
+}
+
+fn ensureElementVisibleInScrollContainer(element_value: u32, container_value: u32) void {
+    var element_id = clay.ElementId.ID("");
+    element_id.id = element_value;
+    var container_id = clay.ElementId.ID("");
+    container_id.id = container_value;
+    const element = clay.getElementData(element_id);
+    const container = clay.getElementData(container_id);
+    const scroll = clay.getScrollContainerData(container_id);
+    if (!element.found or !container.found or !scroll.found or !scroll.config.vertical) return;
+
+    const horizontal_overlap = element.bounding_box.x + element.bounding_box.width > container.bounding_box.x and
+        element.bounding_box.x < container.bounding_box.x + container.bounding_box.width;
+    if (!horizontal_overlap) return;
+    const current_y = scroll.scroll_position.y;
+    const visible_top = container.bounding_box.y;
+    const visible_bottom = visible_top + container.bounding_box.height;
+    const element_top = element.bounding_box.y + current_y;
+    const element_bottom = element_top + element.bounding_box.height;
+    var target_y = current_y;
+    if (element_top < visible_top) {
+        target_y += visible_top - element_top;
+    } else if (element_bottom > visible_bottom) {
+        target_y -= element_bottom - visible_bottom;
+    }
+    const max_scroll = @max(scroll.content_dimensions.h - scroll.scroll_container_dimensions.h, 0);
+    scroll.scroll_position.y = @min(@max(target_y, -max_scroll), 0);
 }
 
 fn emit(action: Action) void {
@@ -1455,6 +1563,9 @@ test "responsive shell emits controls and text" {
     var has_tab_list_semantics = false;
     var selected_tab_count: usize = 0;
     var has_collapsed_menu_button = false;
+    var has_virtual_list_semantics = false;
+    var visible_virtual_item_count: usize = 0;
+    var selected_virtual_item_count: usize = 0;
     var has_performance_label_semantics = false;
     var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
@@ -1480,6 +1591,13 @@ test "responsive shell emits controls and text" {
         if (node.element_id == menu.triggerId("ActionsMenu").id and node.expanded == false) {
             has_collapsed_menu_button = true;
         }
+        if (node.element_id == clay.ElementId.ID("RecordsVirtualList").id and node.scrollable) {
+            has_virtual_list_semantics = true;
+        }
+        if (node.role == .list_item) {
+            visible_virtual_item_count += 1;
+            if (node.selected) selected_virtual_item_count += 1;
+        }
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
         if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
             has_crash_diagnostics_semantics = true;
@@ -1499,6 +1617,10 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_tab_list_semantics);
     try std.testing.expectEqual(@as(usize, 1), selected_tab_count);
     try std.testing.expect(has_collapsed_menu_button);
+    try std.testing.expect(has_virtual_list_semantics);
+    try std.testing.expect(visible_virtual_item_count > 0);
+    try std.testing.expect(visible_virtual_item_count < virtual_list.max_visible_rows);
+    try std.testing.expectEqual(@as(usize, 1), selected_virtual_item_count);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
 
@@ -1593,6 +1715,62 @@ test "responsive shell emits controls and text" {
     }
     try std.testing.expect(crash_text_visible);
     try std.testing.expect(crash_build_id_visible);
+
+    const records_scroll = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
+    try std.testing.expect(records_scroll.found);
+    try std.testing.expect(records_scroll.content_dimensions.h > 40_000);
+    model.semantic_scroll_element_id = clay.ElementId.ID("RecordsVirtualList").id;
+    model.semantic_scroll_direction = 1;
+    const virtual_scrolled_frame = build(&model);
+    try std.testing.expect(records_scroll.scroll_position.y < 0);
+    var first_virtual_item_still_emitted = false;
+    var scrolled_virtual_item_count: usize = 0;
+    for (virtual_scrolled_frame.semantic_nodes) |node| {
+        if (node.role == .list_item) scrolled_virtual_item_count += 1;
+        if (node.element_id == virtual_list.itemId("RecordsVirtualList", 0).id) {
+            first_virtual_item_still_emitted = true;
+        }
+    }
+    try std.testing.expect(!first_virtual_item_still_emitted);
+    try std.testing.expect(scrolled_virtual_item_count > 0);
+    try std.testing.expect(scrolled_virtual_item_count < virtual_list.max_visible_rows);
+    model.semantic_scroll_element_id = null;
+    model.semantic_scroll_direction = 0;
+
+    model.viewport_height = 1600;
+    records_scroll.scroll_position.y = 0;
+    state.focus_state.focus(virtual_list.itemId("RecordsVirtualList", 0).id);
+    model.demo_virtual_list_selected_index = 0;
+    model.focused_control_end_requested = true;
+    const virtual_end_request_frame = build(&model);
+    var requested_last_virtual_item = false;
+    for (virtual_end_request_frame.actions) |action| {
+        switch (action) {
+            .demo_virtual_list_selected => |index| requested_last_virtual_item = index == 999,
+            else => {},
+        }
+    }
+    try std.testing.expect(requested_last_virtual_item);
+    model.demo_virtual_list_selected_index = 999;
+    model.focused_control_end_requested = false;
+    const virtual_end_frame = build(&model);
+    var has_last_virtual_item = false;
+    var end_virtual_item_count: usize = 0;
+    var end_list_bounds: ?semantics.Bounds = null;
+    var last_item_bounds: ?semantics.Bounds = null;
+    for (virtual_end_frame.semantic_nodes) |node| {
+        if (node.role == .list_item) end_virtual_item_count += 1;
+        if (node.element_id == clay.ElementId.ID("RecordsVirtualList").id) end_list_bounds = node.bounds;
+        if (node.element_id == virtual_list.itemId("RecordsVirtualList", 999).id and node.selected) {
+            has_last_virtual_item = true;
+            last_item_bounds = node.bounds;
+        }
+    }
+    try std.testing.expect(end_virtual_item_count > 0);
+    try std.testing.expect(has_last_virtual_item);
+    try std.testing.expect(end_list_bounds != null and last_item_bounds != null);
+    try std.testing.expect(last_item_bounds.?.y < end_list_bounds.?.y + end_list_bounds.?.height);
+    try std.testing.expect(last_item_bounds.?.y + last_item_bounds.?.height > end_list_bounds.?.y);
 
     model.semantic_scroll_element_id = clay.ElementId.ID("ActivityScrollView").id;
     model.semantic_scroll_direction = 1;
@@ -1791,6 +1969,28 @@ test "semantic actions reuse reducer-facing UI actions" {
         "",
     );
     try std.testing.expectEqual(@as(usize, 0), actions.len);
+
+    model.demo_menu_expanded = false;
+    actions = handleSemanticAction(
+        &model,
+        virtual_list.itemId("RecordsVirtualList", 5).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u16, 5), actions[0].demo_virtual_list_selected);
+
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("RecordsVirtualList").id,
+        .scroll_forward,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(
+        clay.ElementId.ID("RecordsVirtualList").id,
+        actions[0].semantic_scroll_requested.element_id,
+    );
 
     actions = handleSemanticAction(
         &model,

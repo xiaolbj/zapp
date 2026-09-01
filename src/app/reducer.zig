@@ -242,6 +242,7 @@ pub fn update(model: *Model, action: Action) void {
             model.demo_menu_activation_count += 1;
             model.demo_menu_expanded = false;
         },
+        .demo_virtual_list_selected => |index| model.demo_virtual_list_selected_index = @min(index, 999),
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -514,6 +515,15 @@ test "select and menu popups remain mutually exclusive" {
     update(&model, .{ .demo_sort_expanded = true });
     try std.testing.expect(model.demo_sort_expanded);
     try std.testing.expect(!model.demo_menu_expanded);
+}
+
+test "virtual list selection remains bounded to the demo data set" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_virtual_list_selected = 487 });
+    try std.testing.expectEqual(@as(u16, 487), model.demo_virtual_list_selected_index);
+    update(&model, .{ .demo_virtual_list_selected = 65_535 });
+    try std.testing.expectEqual(@as(u16, 999), model.demo_virtual_list_selected_index);
 }
 
 test "platform results update permission and file picker state" {

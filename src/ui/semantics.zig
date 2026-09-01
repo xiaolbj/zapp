@@ -25,11 +25,14 @@ pub const Role = enum {
     tab,
     menu,
     menu_item,
+    list_item,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.
 /// Platform bridges use `element_id` to associate a semantic node with Clay layout data.
 pub const Node = struct {
+    pub const max_scroll_ancestors = 4;
+
     element_id: u32,
     role: Role,
     label: []const u8,
@@ -46,6 +49,8 @@ pub const Node = struct {
     can_scroll_forward: bool = false,
     can_scroll_backward: bool = false,
     bounds: Bounds = .{},
+    scroll_ancestor_ids: [max_scroll_ancestors]u32 = @splat(0),
+    scroll_ancestor_count: usize = 0,
 };
 
 pub const Bounds = struct {
@@ -60,16 +65,36 @@ pub const max_nodes = 96;
 pub const Registry = struct {
     nodes: [max_nodes]Node = undefined,
     count: usize = 0,
+    scroll_ancestor_ids: [Node.max_scroll_ancestors]u32 = @splat(0),
+    scroll_ancestor_count: usize = 0,
 
     pub fn reset(self: *Registry) void {
         self.count = 0;
+        self.scroll_ancestor_count = 0;
     }
 
     pub fn add(self: *Registry, node: Node) bool {
         if (self.count == self.nodes.len) return false;
-        self.nodes[self.count] = node;
+        var resolved = node;
+        resolved.scroll_ancestor_count = self.scroll_ancestor_count;
+        @memcpy(
+            resolved.scroll_ancestor_ids[0..self.scroll_ancestor_count],
+            self.scroll_ancestor_ids[0..self.scroll_ancestor_count],
+        );
+        self.nodes[self.count] = resolved;
         self.count += 1;
         return true;
+    }
+
+    pub fn pushScrollAncestor(self: *Registry, element_id: u32) bool {
+        if (self.scroll_ancestor_count == self.scroll_ancestor_ids.len) return false;
+        self.scroll_ancestor_ids[self.scroll_ancestor_count] = element_id;
+        self.scroll_ancestor_count += 1;
+        return true;
+    }
+
+    pub fn popScrollAncestor(self: *Registry) void {
+        if (self.scroll_ancestor_count > 0) self.scroll_ancestor_count -= 1;
     }
 
     pub fn items(self: *const Registry) []const Node {
@@ -90,6 +115,33 @@ pub const Registry = struct {
                 .width = data.bounding_box.width,
                 .height = data.bounding_box.height,
             } else .{};
+            var scroll_offset: clay.Vector2 = .{ .x = 0, .y = 0 };
+            var clip_bounds: [Node.max_scroll_ancestors]Bounds = undefined;
+            var clip_count: usize = 0;
+            for (node.scroll_ancestor_ids[0..node.scroll_ancestor_count]) |ancestor_value| {
+                var ancestor_id = clay.ElementId.ID("");
+                ancestor_id.id = ancestor_value;
+                const ancestor_data = clay.getElementData(ancestor_id);
+                if (ancestor_data.found) {
+                    clip_bounds[clip_count] = .{
+                        .x = ancestor_data.bounding_box.x + scroll_offset.x,
+                        .y = ancestor_data.bounding_box.y + scroll_offset.y,
+                        .width = ancestor_data.bounding_box.width,
+                        .height = ancestor_data.bounding_box.height,
+                    };
+                    clip_count += 1;
+                }
+                const ancestor_scroll = clay.getScrollContainerData(ancestor_id);
+                if (ancestor_scroll.found) {
+                    scroll_offset.x += ancestor_scroll.scroll_position.x;
+                    scroll_offset.y += ancestor_scroll.scroll_position.y;
+                }
+            }
+            node.bounds.x += scroll_offset.x;
+            node.bounds.y += scroll_offset.y;
+            for (clip_bounds[0..clip_count]) |clip| {
+                node.bounds = intersectBounds(node.bounds, clip) orelse .{};
+            }
             if (node.scrollable) {
                 const scroll = clay.getScrollContainerData(element_id);
                 if (scroll.found and scroll.config.vertical) {
@@ -107,6 +159,15 @@ pub const Registry = struct {
         }
     }
 };
+
+fn intersectBounds(a: Bounds, b: Bounds) ?Bounds {
+    const left = @max(a.x, b.x);
+    const top = @max(a.y, b.y);
+    const right = @min(a.x + a.width, b.x + b.width);
+    const bottom = @min(a.y + a.height, b.y + b.height);
+    if (right <= left or bottom <= top) return null;
+    return .{ .x = left, .y = top, .width = right - left, .height = bottom - top };
+}
 
 test "semantic registry resets without retaining frame nodes" {
     var registry: Registry = .{};
@@ -137,4 +198,29 @@ test "semantic registry retains the full fixed-capacity snapshot" {
         .role = .text,
         .label = "Overflow",
     }));
+}
+
+test "semantic registry snapshots nested scroll ancestors" {
+    var registry: Registry = .{};
+    try std.testing.expect(registry.pushScrollAncestor(10));
+    try std.testing.expect(registry.pushScrollAncestor(20));
+    try std.testing.expect(registry.add(.{ .element_id = 1, .role = .text, .label = "Row" }));
+    try std.testing.expectEqual(@as(usize, 2), registry.items()[0].scroll_ancestor_count);
+    try std.testing.expectEqual(@as(u32, 10), registry.items()[0].scroll_ancestor_ids[0]);
+    try std.testing.expectEqual(@as(u32, 20), registry.items()[0].scroll_ancestor_ids[1]);
+    registry.popScrollAncestor();
+    registry.reset();
+    try std.testing.expectEqual(@as(usize, 0), registry.scroll_ancestor_count);
+}
+
+test "bounds intersection clips partially visible rows" {
+    const clipped = intersectBounds(
+        .{ .x = 10, .y = 90, .width = 50, .height = 30 },
+        .{ .x = 0, .y = 0, .width = 100, .height = 100 },
+    ).?;
+    try std.testing.expectEqual(@as(f32, 10), clipped.height);
+    try std.testing.expect(intersectBounds(
+        .{ .x = 10, .y = 120, .width = 50, .height = 30 },
+        .{ .x = 0, .y = 0, .width = 100, .height = 100 },
+    ) == null);
 }
