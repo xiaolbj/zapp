@@ -7,6 +7,7 @@ pub fn update(model: *Model, action: Action) void {
             if (!model.suspended) {
                 model.frame_count += 1;
                 model.elapsed_seconds += seconds;
+                model.frame_delta_seconds = @floatCast(seconds);
             }
         },
         .resized => |viewport| {
@@ -21,13 +22,23 @@ pub fn update(model: *Model, action: Action) void {
             if (!pointer.down and model.pointer_down) model.pointer_released = true;
             model.pointer_down = pointer.down;
         },
+        .scroll_changed => |delta| {
+            model.scroll_delta_x += delta.x;
+            model.scroll_delta_y += delta.y;
+        },
         .input_consumed => {
             model.pointer_pressed = false;
             model.pointer_released = false;
+            model.scroll_delta_x = 0;
+            model.scroll_delta_y = 0;
         },
         .primary_button_pressed => model.primary_button_presses += 1,
         .demo_checkbox_toggled => model.demo_checkbox_checked = !model.demo_checkbox_checked,
         .demo_switch_toggled => model.demo_switch_checked = !model.demo_switch_checked,
+        .demo_progress_incremented => {
+            model.demo_progress += 0.1;
+            if (model.demo_progress > 1.001) model.demo_progress = 0;
+        },
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -79,6 +90,28 @@ test "selection controls toggle application state" {
 
     try std.testing.expect(model.demo_checkbox_checked);
     try std.testing.expect(!model.demo_switch_checked);
+}
+
+test "scroll input accumulates until consumed" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .{ .scroll_changed = .{ .x = 1, .y = -2 } });
+    update(&model, .{ .scroll_changed = .{ .x = 0, .y = -3 } });
+    try std.testing.expectEqual(@as(f32, 1), model.scroll_delta_x);
+    try std.testing.expectEqual(@as(f32, -5), model.scroll_delta_y);
+
+    update(&model, .input_consumed);
+    try std.testing.expectEqual(@as(f32, 0), model.scroll_delta_x);
+    try std.testing.expectEqual(@as(f32, 0), model.scroll_delta_y);
+}
+
+test "progress action advances and wraps" {
+    const std = @import("std");
+    var model: Model = .{ .demo_progress = 0.95 };
+
+    update(&model, .demo_progress_incremented);
+    try std.testing.expectEqual(@as(f32, 0), model.demo_progress);
 }
 
 test "tick advances only while active" {

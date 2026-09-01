@@ -6,8 +6,11 @@ const font = @import("../text/font.zig");
 const theme = @import("theme.zig");
 const button = @import("widgets/button.zig");
 const checkbox = @import("widgets/checkbox.zig");
+const icon_button = @import("widgets/icon_button.zig");
 const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
+const progress_bar = @import("widgets/progress_bar.zig");
+const scroll_view = @import("widgets/scroll_view.zig");
 const toggle_switch = @import("widgets/switch.zig");
 
 const max_actions = 8;
@@ -64,10 +67,20 @@ pub fn build(model: *const Model) Frame {
 
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
+    clay.updateScrollContainers(true, .{
+        .x = model.scroll_delta_x * 36,
+        .y = model.scroll_delta_y * 36,
+    }, @max(model.frame_delta_seconds, 1.0 / 240.0));
     clay.beginLayout();
 
     const compact = model.viewport_width < 900;
+    const narrow = model.viewport_width < 600;
     const content_direction: clay.LayoutDirection = if (compact) .top_to_bottom else .left_to_right;
+    const control_direction: clay.LayoutDirection = if (narrow) .top_to_bottom else .left_to_right;
+    const control_width: f32 = if (model.viewport_width < 420)
+        @floatFromInt(@max(model.viewport_width - 160, 120))
+    else
+        260;
     const sidebar_sizing: clay.Sizing = if (compact)
         .{ .w = .grow, .h = .fixed(112) }
     else
@@ -142,7 +155,7 @@ pub fn build(model: *const Model) Frame {
                     .layout = .{
                         .sizing = .grow,
                         .padding = .all(24),
-                        .child_gap = 16,
+                        .child_gap = 12,
                         .direction = .top_to_bottom,
                     },
                     .background_color = .{ 31, 45, 70, 255 },
@@ -150,33 +163,71 @@ pub fn build(model: *const Model) Frame {
                 })({
                     label.draw("Clay 应用框架", .{ .font_size = 22 });
                     label.draw(counter_text, .{ .color = .{ 166, 187, 218, 255 } });
-                    if (button.draw(&state.interaction_state, input, .{
-                        .id = "PrimaryAction",
-                        .text = "点击测试",
-                    })) emit(.primary_button_pressed);
-                    if (checkbox.draw(&state.interaction_state, input, .{
-                        .id = "DemoCheckbox",
-                        .text = "启用离线缓存",
-                        .checked = model.demo_checkbox_checked,
-                    })) emit(.demo_checkbox_toggled);
-                    if (toggle_switch.draw(&state.interaction_state, input, .{
-                        .id = "DemoSwitch",
-                        .text = "接收应用通知",
-                        .checked = model.demo_switch_checked,
-                    })) emit(.demo_switch_toggled);
+                    clay.UI()(.{ .layout = .{
+                        .sizing = .{ .w = .grow, .h = .fit },
+                        .child_gap = 12,
+                        .direction = control_direction,
+                    } })({
+                        if (button.draw(&state.interaction_state, input, .{
+                            .id = "PrimaryAction",
+                            .text = "点击测试",
+                            .width = control_width,
+                        })) emit(.primary_button_pressed);
+                        if (icon_button.draw(&state.interaction_state, input, .{
+                            .id = "IncrementProgress",
+                            .icon = "+",
+                        })) emit(.demo_progress_incremented);
+                    });
+                    clay.UI()(.{ .layout = .{
+                        .sizing = .{ .w = .grow, .h = .fit },
+                        .child_gap = 24,
+                        .direction = control_direction,
+                    } })({
+                        if (checkbox.draw(&state.interaction_state, input, .{
+                            .id = "DemoCheckbox",
+                            .text = "启用离线缓存",
+                            .checked = model.demo_checkbox_checked,
+                            .width = control_width,
+                        })) emit(.demo_checkbox_toggled);
+                        if (toggle_switch.draw(&state.interaction_state, input, .{
+                            .id = "DemoSwitch",
+                            .text = "接收应用通知",
+                            .checked = model.demo_switch_checked,
+                            .width = control_width,
+                        })) emit(.demo_switch_toggled);
+                    });
+                    label.draw("任务进度（点击 + 增加）", .{ .color = .{ 166, 187, 218, 255 } });
+                    progress_bar.draw(.{ .value = model.demo_progress, .width = control_width });
                 });
 
-                clay.UI()(.{
-                    .id = .ID("SecondaryCard"),
-                    .layout = .{
-                        .sizing = .{ .w = .grow, .h = .fixed(104) },
-                        .padding = .all(16),
-                        .child_alignment = .{ .y = .center },
-                    },
+                clay.UI()(scroll_view.declaration(.{
+                    .id = "ActivityScrollView",
+                    .height = if (compact) 112 else 144,
                     .background_color = .{ 24, 56, 70, 255 },
-                    .corner_radius = .all(12),
-                })({
-                    label.draw("中文字体已通过 Fontstash 接入 Sokol", .{ .color = .{ 155, 211, 207, 255 } });
+                }))({
+                    label.draw("最近活动", .{ .font_size = 18, .color = .{ 155, 211, 207, 255 } });
+                    inline for ([_][]const u8{
+                        "中文字体已通过 Fontstash 接入 Sokol",
+                        "Button 点击状态已接入 reducer",
+                        "Checkbox 设置已保存到 AppModel",
+                        "Switch 通知状态已更新",
+                        "ProgressBar 使用受控数值",
+                        "ScrollView 已启用垂直裁剪",
+                        "鼠标滚轮事件由 Sokol 转发",
+                        "触摸拖动由 Clay 管理",
+                    }) |activity| {
+                        clay.UI()(.{
+                            .layout = .{
+                                .sizing = .{ .w = .grow, .h = .fixed(36) },
+                                .padding = .axes(10, 8),
+                                .child_alignment = .{ .y = .center },
+                            },
+                            .background_color = .{ 28, 65, 79, 255 },
+                            .corner_radius = .all(7),
+                        })({
+                            label.draw(activity, .{ .color = .{ 177, 220, 216, 255 } });
+                        });
+                    }
                 });
             });
         });
@@ -222,13 +273,16 @@ test "responsive shell emits controls and text" {
     const result = build(&model);
     var rectangle_count: usize = 0;
     var text_count: usize = 0;
+    var scissor_count: usize = 0;
     for (result.commands) |command| {
         if (command.command_type == .rectangle) rectangle_count += 1;
         if (command.command_type == .text) text_count += 1;
+        if (command.command_type == .scissor_start) scissor_count += 1;
     }
 
-    try std.testing.expect(rectangle_count >= 6);
-    try std.testing.expect(text_count >= 6);
+    try std.testing.expect(rectangle_count >= 14);
+    try std.testing.expect(text_count >= 14);
+    try std.testing.expect(scissor_count >= 2);
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
 }

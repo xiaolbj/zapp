@@ -11,7 +11,10 @@ test {
     _ = ui;
     _ = @import("src/ui/widgets/button.zig");
     _ = @import("src/ui/widgets/checkbox.zig");
+    _ = @import("src/ui/widgets/icon_button.zig");
     _ = @import("src/ui/widgets/interaction.zig");
     _ = @import("src/ui/widgets/label.zig");
+    _ = @import("src/ui/widgets/progress_bar.zig");
+    _ = @import("src/ui/widgets/scroll_view.zig");
     _ = @import("src/ui/widgets/switch.zig");
 }

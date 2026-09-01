@@ -594,6 +594,20 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 
 任何改变“Clay 作为正式 UI、ImGui 仅作调试、平台能力走薄桥接层”这三个核心决策的变更，都应先更新本文档并记录理由。
 
+## 21. UI 控件实施状态
+
+截至 2026-09-01，正式 UI 已具备以下可复用控件：
+
+- `Label`：统一文本样式入口。
+- `Button` 与 `IconButton`：支持 normal、hover、pressed、disabled 状态。
+- `Checkbox` 与 `Switch`：受控选择控件，值由 AppModel 持有。
+- `ProgressBar`：受控进度显示，输入值约束到 `0...1`。
+- `ScrollView`：使用 Clay clip/scroll container，支持鼠标滚轮与触摸拖动。
+
+所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
+
+下一批控件优先级为 `Divider`、`Card`、`Slider`、`Dialog`；其中 Dialog 开始引入浮层、焦点与返回键处理，实施前需要先定义 FocusManager 的最小接口。
+
 ## 20. 当前实施状态
 
 截至 2026-09-01，P0 主体骨架和首个可渲染页面已经建立：

@@ -51,6 +51,10 @@ export fn event(ev: [*c]const sapp.Event) void {
                 else => state.app.model.pointer_down,
             },
         } }),
+        .MOUSE_SCROLL => state.app.dispatch(.{ .scroll_changed = .{
+            .x = current.scroll_x,
+            .y = current.scroll_y,
+        } }),
         .TOUCHES_BEGAN, .TOUCHES_MOVED, .TOUCHES_ENDED, .TOUCHES_CANCELLED => {
             if (current.num_touches > 0) {
                 const touch = current.touches[0];

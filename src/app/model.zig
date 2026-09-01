@@ -9,8 +9,12 @@ pub const Model = struct {
     pointer_down: bool = false,
     pointer_pressed: bool = false,
     pointer_released: bool = false,
+    scroll_delta_x: f32 = 0,
+    scroll_delta_y: f32 = 0,
+    frame_delta_seconds: f32 = 0,
     primary_button_presses: u32 = 0,
     demo_checkbox_checked: bool = false,
     demo_switch_checked: bool = true,
+    demo_progress: f32 = 0.35,
     suspended: bool = false,
 };
