@@ -154,6 +154,20 @@ fn drainPlatformEvents() void {
                 .request_id = native_event.request_id,
                 .total_bytes = native_event.file_size,
             } }),
+            .native_crash_recovered => state.app.dispatchPlatformEvent(.{ .native_crash_recovered = .{
+                .signal_number = native_event.detail_value,
+                .signal_code = native_event.action_value,
+                .architecture = crashArchitectureFromValue(native_event.crash_architecture),
+                .pc_in_app = native_event.crash_flags & 1 != 0,
+                .relative_pc = native_event.request_id,
+                .absolute_pc = native_event.crash_absolute_pc,
+                .fault_address = native_event.file_size,
+                .process_id = native_event.crash_process_id,
+                .thread_id = native_event.crash_thread_id,
+                .timestamp_seconds = native_event.crash_timestamp_seconds,
+                .build_id_length = @min(native_event.crash_build_id_length, native_event.crash_build_id.len),
+                .build_id = native_event.crash_build_id,
+            } }),
         }
     }
 }
@@ -244,6 +258,14 @@ fn fileReadErrorFromValue(value: c_int) ?zapp.platform.FileReadError {
         @intFromEnum(zapp.platform.FileReadError.io) => .io,
         @intFromEnum(zapp.platform.FileReadError.unsupported) => .unsupported,
         else => null,
+    };
+}
+
+fn crashArchitectureFromValue(value: u32) zapp.platform.CrashArchitecture {
+    return switch (value) {
+        @intFromEnum(zapp.platform.CrashArchitecture.arm64) => .arm64,
+        @intFromEnum(zapp.platform.CrashArchitecture.x86_64) => .x86_64,
+        else => .unknown,
     };
 }
 

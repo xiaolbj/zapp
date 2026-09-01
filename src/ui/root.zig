@@ -53,6 +53,8 @@ const state = struct {
     var file_stream_status_text: [320]u8 = undefined;
     var performance_frame_text: [192]u8 = undefined;
     var performance_cpu_text: [192]u8 = undefined;
+    var crash_diagnostic_text: [320]u8 = undefined;
+    var crash_build_id_text: [64]u8 = undefined;
 };
 
 pub const Frame = struct {
@@ -279,6 +281,39 @@ pub fn build(model: *const Model) Frame {
                 model.performance.average_semantic_node_count,
             },
         ) catch "CPU 性能数据不可用";
+    const crash_diagnostic_text = if (model.last_native_crash) |crash|
+        if (crash.pc_in_app)
+            std.fmt.bufPrint(
+                &state.crash_diagnostic_text,
+                "上次运行发生 native 崩溃：{s} ({d}) · {s} · libzapp+0x{x} · fault 0x{x} · tid {d}",
+                .{
+                    signalName(crash.signal_number),
+                    crash.signal_number,
+                    crashArchitectureName(crash.architecture),
+                    crash.relative_pc,
+                    crash.fault_address,
+                    crash.thread_id,
+                },
+            ) catch "上次 native 崩溃记录过长"
+        else
+            std.fmt.bufPrint(
+                &state.crash_diagnostic_text,
+                "上次运行发生 native 崩溃：{s} ({d}) · {s} · PC 0x{x}（非 libzapp）· fault 0x{x} · tid {d}",
+                .{
+                    signalName(crash.signal_number),
+                    crash.signal_number,
+                    crashArchitectureName(crash.architecture),
+                    crash.absolute_pc,
+                    crash.fault_address,
+                    crash.thread_id,
+                },
+            ) catch "上次 native 崩溃记录过长"
+    else
+        "崩溃诊断：本次启动未发现上次 native 致命信号记录";
+    const crash_build_id_text = if (model.last_native_crash) |*crash|
+        formatCrashBuildId(&state.crash_build_id_text, crash)
+    else
+        "";
     const modal_open = state.focus_state.modalOpen();
 
     clay.UI()(.{
@@ -382,6 +417,20 @@ pub fn build(model: *const Model) Frame {
                     label.draw(performance_cpu_text, .{
                         .color = theme.controls.text_muted,
                         .wrap_mode = .words,
+                    });
+                    label.draw(crash_diagnostic_text, .{
+                        .color = if (model.last_native_crash != null)
+                            .{ 255, 190, 120, 255 }
+                        else
+                            theme.controls.text_muted,
+                        .wrap_mode = .words,
+                        .semantic_id = .ID("CrashDiagnosticsStatus"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (crash_build_id_text.len > 0) label.draw(crash_build_id_text, .{
+                        .color = .{ 255, 190, 120, 255 },
+                        .semantic_id = .ID("CrashBuildIdStatus"),
+                        .semantic_registry = &state.semantic_registry,
                     });
                     label.draw(counter_text, .{
                         .color = .{ 166, 187, 218, 255 },
@@ -887,6 +936,44 @@ fn permissionName(permission: @import("../platform/platform.zig").Permission) []
     };
 }
 
+fn signalName(signal_number: i32) []const u8 {
+    return switch (signal_number) {
+        4 => "SIGILL",
+        5 => "SIGTRAP",
+        6 => "SIGABRT",
+        7 => "SIGBUS",
+        8 => "SIGFPE",
+        11 => "SIGSEGV",
+        31 => "SIGSYS",
+        else => "SIGNAL",
+    };
+}
+
+fn crashArchitectureName(architecture: @import("../platform/platform.zig").CrashArchitecture) []const u8 {
+    return switch (architecture) {
+        .arm64 => "arm64-v8a",
+        .x86_64 => "x86_64",
+        .unknown => "unknown ABI",
+    };
+}
+
+fn formatCrashBuildId(
+    buffer: []u8,
+    report: *const @import("../platform/platform.zig").NativeCrashReport,
+) []const u8 {
+    const bytes = report.buildId();
+    if (bytes.len == 0) return "";
+    const prefix = "Build ID：";
+    if (prefix.len + bytes.len * 2 > buffer.len) return "Build ID 不可用";
+    @memcpy(buffer[0..prefix.len], prefix);
+    const digits = "0123456789abcdef";
+    for (bytes, 0..) |byte, index| {
+        buffer[prefix.len + index * 2] = digits[byte >> 4];
+        buffer[prefix.len + index * 2 + 1] = digits[byte & 0x0f];
+    }
+    return buffer[0 .. prefix.len + bytes.len * 2];
+}
+
 fn utf8Prefix(text: []const u8, max_bytes: usize) []const u8 {
     var length = @min(text.len, max_bytes);
     while (length > 0 and length < text.len and text[length] & 0xC0 == 0x80) length -= 1;
@@ -1032,6 +1119,7 @@ test "responsive shell emits controls and text" {
     var has_tree_semantics = false;
     var has_expanded_tree_item = false;
     var has_performance_label_semantics = false;
+    var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
         if (node.role == .slider and node.value != null) has_slider_semantics = true;
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
@@ -1046,6 +1134,9 @@ test "responsive shell emits controls and text" {
         if (node.role == .tree) has_tree_semantics = true;
         if (node.role == .tree_item and node.expanded != null) has_expanded_tree_item = true;
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
+        if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
+            has_crash_diagnostics_semantics = true;
+        }
     }
     try std.testing.expect(has_slider_semantics);
     try std.testing.expect(has_text_field_semantics);
@@ -1056,6 +1147,40 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_tree_semantics);
     try std.testing.expect(has_expanded_tree_item);
     try std.testing.expect(has_performance_label_semantics);
+    try std.testing.expect(has_crash_diagnostics_semantics);
+
+    model.last_native_crash = .{
+        .signal_number = 11,
+        .signal_code = 1,
+        .architecture = .x86_64,
+        .pc_in_app = true,
+        .relative_pc = 0x1234,
+        .absolute_pc = 0x70001234,
+        .fault_address = 0,
+        .process_id = 100,
+        .thread_id = 101,
+        .timestamp_seconds = 1_700_000_000,
+    };
+    model.last_native_crash.?.build_id_length = 4;
+    model.last_native_crash.?.build_id[0..4].* = .{ 0x30, 0x12, 0x2a, 0x3d };
+    const crash_frame = build(&model);
+    var crash_text_visible = false;
+    var crash_build_id_visible = false;
+    for (crash_frame.semantic_nodes) |node| {
+        if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id and
+            std.mem.indexOf(u8, node.label, "SIGSEGV") != null and
+            std.mem.indexOf(u8, node.label, "libzapp+0x1234") != null)
+        {
+            crash_text_visible = true;
+        }
+        if (node.element_id == clay.ElementId.ID("CrashBuildIdStatus").id and
+            std.mem.indexOf(u8, node.label, "30122a3d") != null)
+        {
+            crash_build_id_visible = true;
+        }
+    }
+    try std.testing.expect(crash_text_visible);
+    try std.testing.expect(crash_build_id_visible);
 
     model.semantic_scroll_element_id = clay.ElementId.ID("ActivityScrollView").id;
     model.semantic_scroll_direction = 1;

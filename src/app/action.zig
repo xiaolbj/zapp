@@ -33,6 +33,7 @@ pub const TextCursorSet = struct {
 pub const Action = union(enum) {
     tick: f64,
     performance_updated: frame_metrics.Snapshot,
+    platform_native_crash_recovered: platform.NativeCrashReport,
     resized: Viewport,
     pointer_changed: Pointer,
     scroll_changed: ScrollDelta,

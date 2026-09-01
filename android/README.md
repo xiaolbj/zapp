@@ -84,6 +84,24 @@ D:\Android\android-ndk-r25c\toolchains\llvm\prebuilt\windows-x86_64\bin\llvm-add
 
 这里应传入 tombstone 中 `libzapp.so` 的相对 PC，而不是进程加载后的绝对虚拟地址。符号 ZIP 属于发布诊断资产，不应放进 APK、公开下载目录或应用资源中。
 
+### 运行时 native 崩溃记录
+
+`src/platform/android_crash_report.c` 在 NativeActivity 初始化时为当前进程安装最小致命信号处理器，覆盖 `SIGABRT`、`SIGBUS`、`SIGFPE`、`SIGILL`、`SIGSEGV`、`SIGTRAP` 和 `SIGSYS`。记录文件预先创建在 `ANativeActivity.internalDataPath`，权限为 `0600`；信号处理阶段不分配内存、不调用 JNI，也不进行日志或字符串格式化，只写入固定 88 字节二进制结构、同步文件并把信号转交给原处理器，Android 仍可生成标准 tombstone。
+
+记录包含信号、`si_code`、ABI、绝对 PC、故障地址、PID/TID、Unix 时间戳，以及从已加载 ELF 的 PT_NOTE 读取的 GNU Build ID。若指令地址落在当前 `libzapp.so` 的 PT_LOAD 范围内，还会保存可直接交给对应符号文件的相对 PC。下次启动会校验 magic、版本和结构尺寸，一次性消费有效记录并通过 PlatformEvent → Action → reducer 写入 AppModel；UI 和原生无障碍树会显示“上次运行发生 native 崩溃”及 Build ID。无效、截断或旧版本记录会被忽略。
+
+Debug APK 可用下面的命令验证真实信号恢复流程：
+
+```powershell
+$pid = (adb shell pidof com.xiaolbj.zapp).Trim()
+adb shell run-as com.xiaolbj.zapp kill -11 $pid
+# 确认旧进程终止后再次启动 App
+```
+
+如果恢复信息包含 `libzapp+0x...`，使用同一 APK 版本、ABI 和 Build ID 对应的 `.debug` 文件执行 `llvm-addr2line`。外部 `kill` 发出的异步信号通常会中断在系统库中，因此可能只有绝对 PC；真实的 `libzapp` 非法访问才会产生可直接符号化的 App 相对 PC。
+
+该机制是 tombstone/线上崩溃服务的补充，不捕获 `SIGKILL`、低内存终止、断电或处理器安装前发生的崩溃，也不会尝试在损坏进程中上传网络数据。报告上传应在下一次正常启动后由受控平台接口完成。
+
 正式发布签名只从外部注入，仓库不保存密钥或密码：
 
 ```powershell

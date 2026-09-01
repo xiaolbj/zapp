@@ -175,6 +175,10 @@ fn configureAndroidBuild(
         .file = b.path("src/platform/android_bridge.c"),
         .flags = &.{ "-std=c11", "-fvisibility=default" },
     });
+    mod_main.addCSourceFile(.{
+        .file = b.path("src/platform/android_crash_report.c"),
+        .flags = &.{ "-std=c11", "-fvisibility=hidden", "-Wall", "-Wextra", "-Werror" },
+    });
     const library = b.addLibrary(.{
         .name = "zapp",
         .linkage = .static,

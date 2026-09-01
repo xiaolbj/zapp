@@ -113,6 +113,31 @@ pub const FileStreamTerminal = struct {
     total_bytes: u64,
 };
 
+pub const CrashArchitecture = enum(u32) {
+    unknown = 0,
+    arm64 = 1,
+    x86_64 = 2,
+};
+
+pub const NativeCrashReport = struct {
+    signal_number: i32,
+    signal_code: i32,
+    architecture: CrashArchitecture,
+    pc_in_app: bool,
+    relative_pc: u64,
+    absolute_pc: u64,
+    fault_address: u64,
+    process_id: i32,
+    thread_id: i32,
+    timestamp_seconds: i64,
+    build_id_length: u8 = 0,
+    build_id: [20]u8 = @splat(0),
+
+    pub fn buildId(self: *const NativeCrashReport) []const u8 {
+        return self.build_id[0..@min(@as(usize, self.build_id_length), self.build_id.len)];
+    }
+};
+
 pub const PlatformRequest = union(enum) {
     request_permission: struct {
         request_id: RequestId,
@@ -154,6 +179,7 @@ pub const PlatformEvent = union(enum) {
     ime_backspace_requested: u32,
     ime_submit_requested,
     navigation_requested: NavigationCommand,
+    native_crash_recovered: NativeCrashReport,
 };
 
 /// Platform implementations enqueue results and the app consumes them on its

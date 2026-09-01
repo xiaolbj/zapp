@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "android_crash_report.h"
+
 #define ZAPP_ANDROID_EVENT_CAPACITY 64
 #define ZAPP_ANDROID_STREAM_QUEUE_LIMIT 56
 #define ZAPP_ANDROID_PAYLOAD_CAPACITY 4096
@@ -32,6 +34,7 @@ enum zapp_android_event_kind {
     ZAPP_ANDROID_FILE_STREAM_COMPLETED = 13,
     ZAPP_ANDROID_FILE_STREAM_FAILED = 14,
     ZAPP_ANDROID_FILE_STREAM_CANCELLED = 15,
+    ZAPP_ANDROID_NATIVE_CRASH_RECOVERED = 16,
 };
 
 typedef struct zapp_android_event {
@@ -53,6 +56,15 @@ typedef struct zapp_android_event {
     uint8_t metadata_reserved[3];
     uint8_t display_name_buffer[ZAPP_FILE_DISPLAY_NAME_CAPACITY];
     uint8_t mime_type_buffer[ZAPP_FILE_MIME_TYPE_CAPACITY];
+    uint64_t crash_absolute_pc;
+    int64_t crash_timestamp_seconds;
+    int32_t crash_process_id;
+    int32_t crash_thread_id;
+    uint32_t crash_architecture;
+    uint32_t crash_flags;
+    uint8_t crash_build_id_length;
+    uint8_t crash_build_id[ZAPP_ANDROID_BUILD_ID_CAPACITY];
+    uint8_t crash_reserved[3];
 } zapp_android_event;
 
 typedef struct zapp_accessibility_node {
@@ -72,7 +84,7 @@ typedef struct zapp_accessibility_node {
     uint8_t value_text[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
 } zapp_accessibility_node;
 
-_Static_assert(sizeof(zapp_android_event) == 4536, "Zig/C Android event ABI mismatch");
+_Static_assert(sizeof(zapp_android_event) == 4592, "Zig/C Android event ABI mismatch");
 _Static_assert(sizeof(zapp_accessibility_node) == 296, "Zig/C accessibility node ABI mismatch");
 
 typedef struct zapp_jni_scope {
@@ -597,6 +609,33 @@ void zapp_android_bridge_attach(const void *activity) {
     zapp_bridge_active = true;
     pthread_mutex_unlock(&zapp_event_mutex);
     zapp_activity = (ANativeActivity *)activity;
+
+    zapp_android_crash_record crash_record;
+    if (zapp_android_crash_report_setup(zapp_activity, &crash_record)) {
+        zapp_android_event event;
+        memset(&event, 0, sizeof(event));
+        event.kind_value = ZAPP_ANDROID_NATIVE_CRASH_RECOVERED;
+        event.detail_value = crash_record.signal_number;
+        event.action_value = crash_record.signal_code;
+        event.request_id = crash_record.relative_pc;
+        event.file_size = crash_record.fault_address;
+        event.crash_absolute_pc = crash_record.absolute_pc;
+        event.crash_timestamp_seconds = crash_record.timestamp_seconds;
+        event.crash_process_id = crash_record.process_id;
+        event.crash_thread_id = crash_record.thread_id;
+        event.crash_architecture = crash_record.architecture;
+        event.crash_flags = crash_record.flags;
+        event.crash_build_id_length = crash_record.build_id_length;
+        memcpy(event.crash_build_id, crash_record.build_id, crash_record.build_id_length);
+        zapp_enqueue_event(&event);
+        __android_log_print(
+            ANDROID_LOG_WARN,
+            ZAPP_LOG_TAG,
+            "recovered native crash signal=%d relative_pc=0x%llx",
+            crash_record.signal_number,
+            (unsigned long long)crash_record.relative_pc
+        );
+    }
 }
 
 void zapp_android_bridge_set_ime_visible(bool visible) {
@@ -782,6 +821,7 @@ bool zapp_android_bridge_poll(zapp_android_event *event) {
 }
 
 void zapp_android_bridge_reset(void) {
+    zapp_android_crash_report_shutdown();
     pthread_mutex_lock(&zapp_event_mutex);
     zapp_bridge_active = false;
     zapp_event_head = 0;

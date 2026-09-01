@@ -7,6 +7,7 @@ pub const max_file_display_name_bytes = 256;
 pub const max_file_mime_type_bytes = 128;
 pub const max_accessibility_nodes = semantics.max_nodes;
 pub const max_accessibility_text_bytes = 128;
+pub const max_crash_build_id_bytes = 20;
 
 pub const AccessibilityAction = enum(c_int) {
     focus = 1,
@@ -52,7 +53,7 @@ const accessibility_flag_can_scroll_backward: u32 = 1 << 10;
 var last_accessibility_hash: ?u64 = null;
 
 comptime {
-    std.debug.assert(@sizeOf(Event) == 4536);
+    std.debug.assert(@sizeOf(Event) == 4592);
     std.debug.assert(@sizeOf(AccessibilityNode) == 296);
 }
 
@@ -72,6 +73,7 @@ pub const EventKind = enum(c_int) {
     file_stream_completed = 13,
     file_stream_failed = 14,
     file_stream_cancelled = 15,
+    native_crash_recovered = 16,
 };
 
 pub const Event = extern struct {
@@ -93,6 +95,15 @@ pub const Event = extern struct {
     metadata_reserved: [3]u8,
     display_name_buffer: [max_file_display_name_bytes]u8,
     mime_type_buffer: [max_file_mime_type_bytes]u8,
+    crash_absolute_pc: u64,
+    crash_timestamp_seconds: i64,
+    crash_process_id: i32,
+    crash_thread_id: i32,
+    crash_architecture: u32,
+    crash_flags: u32,
+    crash_build_id_length: u8,
+    crash_build_id: [max_crash_build_id_bytes]u8,
+    crash_reserved: [3]u8,
 
     pub fn kind(self: *const Event) ?EventKind {
         return switch (self.kind_value) {
@@ -111,6 +122,7 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.file_stream_completed) => .file_stream_completed,
             @intFromEnum(EventKind.file_stream_failed) => .file_stream_failed,
             @intFromEnum(EventKind.file_stream_cancelled) => .file_stream_cancelled,
+            @intFromEnum(EventKind.native_crash_recovered) => .native_crash_recovered,
             else => null,
         };
     }
@@ -278,6 +290,15 @@ test "native event exposes request metadata and bounded payload" {
         .metadata_reserved = @splat(0),
         .display_name_buffer = @splat(0),
         .mime_type_buffer = @splat(0),
+        .crash_absolute_pc = 0,
+        .crash_timestamp_seconds = 0,
+        .crash_process_id = 0,
+        .crash_thread_id = 0,
+        .crash_architecture = 0,
+        .crash_flags = 0,
+        .crash_build_id_length = 0,
+        .crash_build_id = @splat(0),
+        .crash_reserved = @splat(0),
     };
     @memcpy(event.text_buffer[0..3], "abc");
     @memcpy(event.display_name_buffer[0..10], "中文.txt");

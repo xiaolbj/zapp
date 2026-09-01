@@ -11,6 +11,7 @@ pub fn update(model: *Model, action: Action) void {
             }
         },
         .performance_updated => |snapshot| model.performance = snapshot,
+        .platform_native_crash_recovered => |report| model.last_native_crash = report,
         .resized => |viewport| {
             model.viewport_width = viewport.width;
             model.viewport_height = viewport.height;

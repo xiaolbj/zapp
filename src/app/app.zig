@@ -117,6 +117,7 @@ pub const App = struct {
                 .increment => self.dispatch(.focused_control_right_requested),
                 .back => self.dispatch(.back_requested),
             },
+            .native_crash_recovered => |report| self.dispatch(.{ .platform_native_crash_recovered = report }),
         }
     }
 
@@ -243,6 +244,32 @@ test "file stream requests and cancellation use stable identifiers" {
     const cancel_request = app.takePlatformRequest().?.cancel_file_stream;
     try std.testing.expectEqual(stream_request.request_id, cancel_request);
     try std.testing.expect(app.model.file_stream_cancel_pending);
+}
+
+test "recovered native crash enters app model" {
+    const std = @import("std");
+    var app: App = .{};
+    var report: platform.NativeCrashReport = .{
+        .signal_number = 11,
+        .signal_code = 1,
+        .architecture = .arm64,
+        .pc_in_app = true,
+        .relative_pc = 0x1234,
+        .absolute_pc = 0x70001234,
+        .fault_address = 0,
+        .process_id = 100,
+        .thread_id = 101,
+        .timestamp_seconds = 1_700_000_000,
+    };
+    report.build_id_length = 2;
+    report.build_id[0..2].* = .{ 0xab, 0xcd };
+    app.dispatchPlatformEvent(.{ .native_crash_recovered = report });
+
+    try std.testing.expect(app.model.last_native_crash != null);
+    try std.testing.expectEqual(report.signal_number, app.model.last_native_crash.?.signal_number);
+    try std.testing.expectEqual(report.relative_pc, app.model.last_native_crash.?.relative_pc);
+    try std.testing.expectEqual(report.architecture, app.model.last_native_crash.?.architecture);
+    try std.testing.expectEqualSlices(u8, &.{ 0xab, 0xcd }, app.model.last_native_crash.?.buildId());
 }
 
 test {

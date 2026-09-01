@@ -18,6 +18,7 @@ pub const Model = struct {
     semantic_scroll_direction: i8 = 0,
     frame_delta_seconds: f32 = 0,
     performance: frame_metrics.Snapshot = .{},
+    last_native_crash: ?platform.NativeCrashReport = null,
     primary_button_presses: u32 = 0,
     demo_checkbox_checked: bool = false,
     demo_switch_checked: bool = true,
