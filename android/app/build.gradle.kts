@@ -146,6 +146,7 @@ val expectedNativeExports = setOf(
     "Java_com_xiaolbj_zapp_ZappActivity_nativeFileStreamFailed",
     "Java_com_xiaolbj_zapp_ZappActivity_nativePermissionResult",
     "Java_com_xiaolbj_zapp_ZappActivity_nativeSubmit",
+    "Java_com_xiaolbj_zapp_ZappActivity_nativeNavigationRequested",
 )
 
 fun registerZigBuild(

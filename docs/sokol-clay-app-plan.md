@@ -613,6 +613,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `TextField`：受控单行 UTF-8 文本，支持字符输入、完整码点退格、Enter 提交、系统粘贴和移动软键盘显示。
 - `RadioGroup`：受控互斥选择，支持横/纵布局、鼠标/触摸、四向键循环选择，以及 radio_group/radio_button 语义。
 - `Select`：受控单选下拉框，支持动态展开选项、键盘导航、外部点击/返回键收起，以及 combo_box/option 语义。
+- `Tabs`：受控标签页导航，支持横/纵布局、方向键自动激活、单一 Tab 停靠点，以及 tab_list/tab 语义。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
@@ -626,9 +627,11 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 Select 已实现：选中索引与展开状态均由 AppModel/reducer 控制；触发器支持鼠标/触摸、Enter/Space 和上下键，展开后选项动态加入布局、焦点顺序和语义树，选择、外部点击或返回键会收起并把焦点恢复到触发器。Android 无障碍桥将触发器和选项分别映射为原生 `Spinner` 与 `CheckedTextView`，并复用 expand/collapse/click 动作回传。
 
+补充控件 Tabs 已实现：活动索引由 AppModel/reducer 控制；每个标签使用稳定派生 ID，横向布局响应左右键、纵向布局响应上下键，并采用自动激活模式。全局 Tab 顺序只保留当前活动标签，切换时同步修复焦点。Android 无障碍桥将容器和标签分别映射为原生 `TabWidget` 与可点击按钮，并暴露 selected/focused 状态。
+
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar 和 TreeView，并由 Border RenderCommand 渲染。
 
-平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/back，并复用键盘的 FocusManager 和一帧请求状态。Sokol 本身不提供统一 gamepad 事件，Windows XInput、Android KeyEvent/InputDevice 与 Apple GameController 的原生采集属于各平台壳实现。
+平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/up/down/left/right/back，并复用键盘的 FocusManager 和一帧请求状态。Android Activity 已显式捕获普通 UI 焦点下的 DPAD、Tab、Enter/Space 与手柄 A 键，经 JNI 事件队列进入同一 reducer；IME 编辑视图持有焦点时不截获方向键。Sokol 本身不提供统一 gamepad 事件，Windows XInput 与 Apple GameController 的原生采集仍属于各平台壳实现。
 
 控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、最终布局边界以及 disabled、focused、selected、modal 状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
 

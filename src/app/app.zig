@@ -130,6 +130,10 @@ pub const App = struct {
                 .decrement => self.dispatch(.focused_control_left_requested),
                 .increment => self.dispatch(.focused_control_right_requested),
                 .back => self.dispatch(.back_requested),
+                .up => self.dispatch(.focused_control_up_requested),
+                .down => self.dispatch(.focused_control_down_requested),
+                .left => self.dispatch(.focused_control_left_requested),
+                .right => self.dispatch(.focused_control_right_requested),
             },
             .native_crash_recovered => |report| self.dispatch(.{ .platform_native_crash_recovered = report }),
             .crash_report_export_result => |result| self.dispatch(.{
@@ -168,11 +172,15 @@ test "platform navigation commands share frame-latched focus actions" {
     app.dispatchPlatformEvent(.{ .navigation_requested = .next });
     app.dispatchPlatformEvent(.{ .navigation_requested = .activate });
     app.dispatchPlatformEvent(.{ .navigation_requested = .increment });
+    app.dispatchPlatformEvent(.{ .navigation_requested = .up });
+    app.dispatchPlatformEvent(.{ .navigation_requested = .left });
     app.dispatchPlatformEvent(.{ .navigation_requested = .back });
 
     try std.testing.expect(app.model.focus_next_requested);
     try std.testing.expect(app.model.focused_control_activate_requested);
     try std.testing.expect(app.model.focused_control_right_requested);
+    try std.testing.expect(app.model.focused_control_up_requested);
+    try std.testing.expect(app.model.focused_control_left_requested);
     try std.testing.expect(app.model.back_requested);
 
     app.dispatch(.input_consumed);

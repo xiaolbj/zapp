@@ -225,6 +225,7 @@ pub fn update(model: *Model, action: Action) void {
         .demo_density_selected => |index| model.demo_density_index = @min(index, 2),
         .demo_sort_selected => |index| model.demo_sort_index = @min(index, 2),
         .demo_sort_expanded => |expanded| model.demo_sort_expanded = expanded,
+        .demo_tab_selected => |index| model.demo_tab_index = @min(index, 2),
         .suspended => model.suspended = true,
         .resumed => model.suspended = false,
     }
@@ -405,6 +406,15 @@ test "select selection and expansion remain controlled" {
     try std.testing.expectEqual(@as(u8, 2), model.demo_sort_index);
     update(&model, .{ .demo_sort_expanded = false });
     try std.testing.expect(!model.demo_sort_expanded);
+}
+
+test "tab selection remains controlled and bounded" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_tab_selected = 2 });
+    try std.testing.expectEqual(@as(u8, 2), model.demo_tab_index);
+    update(&model, .{ .demo_tab_selected = 99 });
+    try std.testing.expectEqual(@as(u8, 2), model.demo_tab_index);
 }
 
 test "UTF-8 cursor selection replaces complete codepoints" {

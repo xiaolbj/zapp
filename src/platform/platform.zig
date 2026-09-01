@@ -222,13 +222,17 @@ pub const PlatformRequest = union(enum) {
 /// Logical navigation produced by a gamepad, TV remote, keyboard adapter, or
 /// assistive input device. Native adapters translate platform-specific codes
 /// before they enter the application state.
-pub const NavigationCommand = enum {
-    next,
-    previous,
-    activate,
-    decrement,
-    increment,
-    back,
+pub const NavigationCommand = enum(c_int) {
+    next = 0,
+    previous = 1,
+    activate = 2,
+    decrement = 3,
+    increment = 4,
+    back = 5,
+    up = 6,
+    down = 7,
+    left = 8,
+    right = 9,
 };
 
 pub const PlatformEvent = union(enum) {

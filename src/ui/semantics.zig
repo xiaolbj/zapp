@@ -21,6 +21,8 @@ pub const Role = enum {
     radio_button,
     combo_box,
     option,
+    tab_list,
+    tab,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.
@@ -51,7 +53,7 @@ pub const Bounds = struct {
     height: f32 = 0,
 };
 
-pub const max_nodes = 64;
+pub const max_nodes = 96;
 
 pub const Registry = struct {
     nodes: [max_nodes]Node = undefined,
@@ -116,4 +118,21 @@ test "semantic registry resets without retaining frame nodes" {
     try std.testing.expect(registry.items()[0].focused);
     registry.reset();
     try std.testing.expectEqual(@as(usize, 0), registry.items().len);
+}
+
+test "semantic registry retains the full fixed-capacity snapshot" {
+    var registry: Registry = .{};
+    for (0..max_nodes) |index| {
+        try std.testing.expect(registry.add(.{
+            .element_id = @intCast(index + 1),
+            .role = .text,
+            .label = "Node",
+        }));
+    }
+    try std.testing.expectEqual(max_nodes, registry.items().len);
+    try std.testing.expect(!registry.add(.{
+        .element_id = max_nodes + 1,
+        .role = .text,
+        .label = "Overflow",
+    }));
 }

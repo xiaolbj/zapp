@@ -174,6 +174,22 @@ fn drainPlatformEvents() void {
                     .chooser_opened = native_event.granted,
                 },
             }),
+            .navigation_requested => {
+                const command: zapp.platform.NavigationCommand = switch (native_event.detail_value) {
+                    @intFromEnum(zapp.platform.NavigationCommand.next) => .next,
+                    @intFromEnum(zapp.platform.NavigationCommand.previous) => .previous,
+                    @intFromEnum(zapp.platform.NavigationCommand.activate) => .activate,
+                    @intFromEnum(zapp.platform.NavigationCommand.decrement) => .decrement,
+                    @intFromEnum(zapp.platform.NavigationCommand.increment) => .increment,
+                    @intFromEnum(zapp.platform.NavigationCommand.back) => .back,
+                    @intFromEnum(zapp.platform.NavigationCommand.up) => .up,
+                    @intFromEnum(zapp.platform.NavigationCommand.down) => .down,
+                    @intFromEnum(zapp.platform.NavigationCommand.left) => .left,
+                    @intFromEnum(zapp.platform.NavigationCommand.right) => .right,
+                    else => continue,
+                };
+                state.app.dispatchPlatformEvent(.{ .navigation_requested = command });
+            },
         }
     }
 }

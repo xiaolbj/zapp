@@ -75,6 +75,7 @@ pub const EventKind = enum(c_int) {
     file_stream_cancelled = 15,
     native_crash_recovered = 16,
     crash_report_export_result = 17,
+    navigation_requested = 18,
 };
 
 pub const Event = extern struct {
@@ -125,6 +126,7 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.file_stream_cancelled) => .file_stream_cancelled,
             @intFromEnum(EventKind.native_crash_recovered) => .native_crash_recovered,
             @intFromEnum(EventKind.crash_report_export_result) => .crash_report_export_result,
+            @intFromEnum(EventKind.navigation_requested) => .navigation_requested,
             else => null,
         };
     }
@@ -328,6 +330,14 @@ test "native event exposes request metadata and bounded payload" {
     try std.testing.expectEqual(max_payload_bytes, event.payload().len);
     event.display_name_length = max_file_display_name_bytes + 1;
     try std.testing.expectEqual(max_file_display_name_bytes, event.displayName().len);
+}
+
+test "native navigation event kind remains ABI-stable" {
+    var event: Event = std.mem.zeroes(Event);
+    event.kind_value = @intFromEnum(EventKind.navigation_requested);
+    event.detail_value = @intFromEnum(@import("platform.zig").NavigationCommand.left);
+    try std.testing.expectEqual(EventKind.navigation_requested, event.kind().?);
+    try std.testing.expectEqual(@as(c_int, 8), event.detail_value);
 }
 
 test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {

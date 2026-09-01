@@ -91,6 +91,7 @@ pub const Action = union(enum) {
     demo_density_selected: u8,
     demo_sort_selected: u8,
     demo_sort_expanded: bool,
+    demo_tab_selected: u8,
     suspended,
     resumed,
 };

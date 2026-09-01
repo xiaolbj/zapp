@@ -82,6 +82,7 @@ pub const Model = struct {
     demo_density_index: u8 = 1,
     demo_sort_index: u8 = 0,
     demo_sort_expanded: bool = false,
+    demo_tab_index: u8 = 0,
     suspended: bool = false,
 
     pub fn text(self: *const Model) []const u8 {

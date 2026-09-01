@@ -20,6 +20,7 @@ const radio_group = @import("widgets/radio_group.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
 const select = @import("widgets/select.zig");
 const slider = @import("widgets/slider.zig");
+const tabs = @import("widgets/tabs.zig");
 const text_field = @import("widgets/text_field.zig");
 const toast = @import("widgets/toast.zig");
 const tree_view = @import("widgets/tree_view.zig");
@@ -47,6 +48,12 @@ const demo_sort_items = [_]select.Item{
     .{ .text = "最近更新" },
     .{ .text = "名称" },
     .{ .text = "大小" },
+};
+
+const demo_tab_items = [_]tabs.Item{
+    .{ .text = "概览" },
+    .{ .text = "明细" },
+    .{ .text = "日志" },
 };
 
 const state = struct {
@@ -159,6 +166,8 @@ pub fn build(model: *const Model) Frame {
     const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
     const sort_select_id = select.triggerId("SortSelect").id;
+    const active_tab_index = tabs.boundedIndex(model.demo_tab_index, demo_tab_items.len) orelse 0;
+    const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -189,6 +198,8 @@ pub fn build(model: *const Model) Frame {
         };
         @memcpy(focus_order[focus_order_count..][0..primary_order.len], &primary_order);
         focus_order_count += primary_order.len;
+        focus_order[focus_order_count] = active_tab_id;
+        focus_order_count += 1;
         for (demo_tree_items, 0..) |_, tree_index| {
             if (tree_view.isVisible(&demo_tree_items, tree_index, model.demo_tree_expanded_mask)) {
                 focus_order[focus_order_count] = tree_view.itemId("ProjectTree", tree_index).id;
@@ -222,6 +233,9 @@ pub fn build(model: *const Model) Frame {
         @memcpy(focus_order[focus_order_count..][0..trailing_order.len], &trailing_order);
         focus_order_count += trailing_order.len;
         if (state.focus_state.focused_id) |focused_id| {
+            if (tabIndex(focused_id)) |focused_tab_index| {
+                if (focused_tab_index != active_tab_index) state.focus_state.focus(active_tab_id);
+            }
             if (treeIndex(focused_id)) |focused_tree_index| {
                 if (tree_view.nearestVisibleAncestor(
                     &demo_tree_items,
@@ -573,6 +587,39 @@ pub fn build(model: *const Model) Frame {
                             state.focus_state.focus(open_dialog_id);
                             emit(.demo_dialog_opened);
                         }
+                    });
+                    label.draw("数据视图", .{
+                        .font_size = 18,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("DataTabsLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const tabs_result = tabs.draw(&state.interaction_state, input, .{
+                        .id = "DataTabs",
+                        .items = &demo_tab_items,
+                        .selected_index = model.demo_tab_index,
+                        .item_width = if (narrow) control_width else 150,
+                        .direction = control_direction,
+                        .disabled = modal_open,
+                        .focused_id = state.focus_state.focused_id,
+                        .semantic_label = "数据视图",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (tabs_result.focus_index) |index| {
+                        state.focus_state.focus(tabs.itemId("DataTabs", index).id);
+                    }
+                    if (tabs_result.selected_index) |index| {
+                        state.focus_state.focus(tabs.itemId("DataTabs", index).id);
+                        emit(.{ .demo_tab_selected = @intCast(index) });
+                    }
+                    label.draw(switch (model.demo_tab_index) {
+                        1 => "当前页：明细",
+                        2 => "当前页：日志",
+                        else => "当前页：概览",
+                    }, .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("DataTabsStatus"),
+                        .semantic_registry = &state.semantic_registry,
                     });
                     label.draw("项目结构", .{
                         .font_size = 18,
@@ -968,7 +1015,7 @@ pub fn handleSemanticAction(
                 if (model.last_native_crash != null and !model.crash_report_export_pending) {
                     emit(.platform_crash_report_export_requested);
                 }
-            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (element_id == sort_select_id) emit(.{ .demo_sort_expanded = !model.demo_sort_expanded }) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
+            } else if (element_id == dialog_cancel_id) emit(.demo_dialog_closed) else if (element_id == dialog_confirm_id) emit(.demo_dialog_confirmed) else if (element_id == sort_select_id) emit(.{ .demo_sort_expanded = !model.demo_sort_expanded }) else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (tabIndex(element_id)) |index| emit(.{ .demo_tab_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
                 state.focus_state.focus(sort_select_id);
                 emit(.{ .demo_sort_selected = index });
                 if (model.demo_sort_expanded) emit(.{ .demo_sort_expanded = false });
@@ -1016,6 +1063,13 @@ fn navigationIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn tabIndex(element_id: u32) ?u8 {
+    for (demo_tab_items, 0..) |_, index| {
+        if (element_id == tabs.itemId("DataTabs", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn treeIndex(element_id: u32) ?u8 {
     for (demo_tree_items, 0..) |_, index| {
         if (element_id == tree_view.itemId("ProjectTree", index).id) return @intCast(index);
@@ -1043,7 +1097,8 @@ fn selectOptionIndex(element_id: u32) ?u8 {
 }
 
 fn isInteractiveSemanticId(element_id: u32) bool {
-    if (navigationIndex(element_id) != null or treeIndex(element_id) != null or
+    if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
+        treeIndex(element_id) != null or
         radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
     if (element_id == select.triggerId("SortSelect").id) return true;
     inline for ([_][]const u8{
@@ -1301,6 +1356,8 @@ test "responsive shell emits controls and text" {
     var has_radio_group_semantics = false;
     var has_checked_radio_semantics = false;
     var has_combo_box_semantics = false;
+    var has_tab_list_semantics = false;
+    var selected_tab_count: usize = 0;
     var has_performance_label_semantics = false;
     var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
@@ -1321,6 +1378,8 @@ test "responsive shell emits controls and text" {
         if (node.role == .combo_box and node.expanded == false and node.value_text.len > 0) {
             has_combo_box_semantics = true;
         }
+        if (node.role == .tab_list) has_tab_list_semantics = true;
+        if (node.role == .tab and node.selected) selected_tab_count += 1;
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
         if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
             has_crash_diagnostics_semantics = true;
@@ -1337,6 +1396,8 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_radio_group_semantics);
     try std.testing.expect(has_checked_radio_semantics);
     try std.testing.expect(has_combo_box_semantics);
+    try std.testing.expect(has_tab_list_semantics);
+    try std.testing.expectEqual(@as(usize, 1), selected_tab_count);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
 
@@ -1564,6 +1625,15 @@ test "semantic actions reuse reducer-facing UI actions" {
     try std.testing.expectEqual(@as(usize, 2), actions.len);
     try std.testing.expectEqual(@as(u8, 2), actions[0].demo_sort_selected);
     try std.testing.expect(!actions[1].demo_sort_expanded);
+
+    actions = handleSemanticAction(
+        &model,
+        tabs.itemId("DataTabs", 2).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u8, 2), actions[0].demo_tab_selected);
 
     actions = handleSemanticAction(
         &model,

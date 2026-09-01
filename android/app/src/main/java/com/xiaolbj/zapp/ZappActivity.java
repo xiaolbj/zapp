@@ -54,6 +54,13 @@ public final class ZappActivity extends NativeActivity {
     private static final int ACCESSIBILITY_ACTION_COLLAPSE = 7;
     private static final int ACCESSIBILITY_ACTION_SCROLL_FORWARD = 8;
     private static final int ACCESSIBILITY_ACTION_SCROLL_BACKWARD = 9;
+    private static final int NAVIGATION_NEXT = 0;
+    private static final int NAVIGATION_PREVIOUS = 1;
+    private static final int NAVIGATION_ACTIVATE = 2;
+    private static final int NAVIGATION_UP = 6;
+    private static final int NAVIGATION_DOWN = 7;
+    private static final int NAVIGATION_LEFT = 8;
+    private static final int NAVIGATION_RIGHT = 9;
     private static final int FILE_READ_ERROR_INVALID_URI = 1;
     private static final int FILE_READ_ERROR_NOT_FOUND = 2;
     private static final int FILE_READ_ERROR_PERMISSION_DENIED = 3;
@@ -106,6 +113,38 @@ public final class ZappActivity extends NativeActivity {
         String[] strings
     );
     private static native void nativeAccessibilityAction(int elementId, int action, String text);
+    private static native void nativeNavigationRequested(int command);
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (imeBridgeView != null && imeBridgeView.hasFocus()) return super.dispatchKeyEvent(event);
+        int command = navigationCommand(event);
+        if (command < 0) return super.dispatchKeyEvent(event);
+        if (event.getAction() == KeyEvent.ACTION_DOWN &&
+            (command != NAVIGATION_ACTIVATE || event.getRepeatCount() == 0)) {
+            nativeNavigationRequested(command);
+        }
+        return true;
+    }
+
+    private static int navigationCommand(KeyEvent event) {
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_TAB:
+                return event.isShiftPressed() ? NAVIGATION_PREVIOUS : NAVIGATION_NEXT;
+            case KeyEvent.KEYCODE_DPAD_UP: return NAVIGATION_UP;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return NAVIGATION_DOWN;
+            case KeyEvent.KEYCODE_DPAD_LEFT: return NAVIGATION_LEFT;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return NAVIGATION_RIGHT;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+            case KeyEvent.KEYCODE_SPACE:
+            case KeyEvent.KEYCODE_BUTTON_A:
+                return NAVIGATION_ACTIVATE;
+            default:
+                return -1;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -115,6 +154,7 @@ public final class ZappActivity extends NativeActivity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
+        accessibilityBridgeView.requestFocus();
         imeBridgeView = new ImeBridgeView();
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(1, 1);
         params.gravity = Gravity.TOP | Gravity.START;
@@ -151,6 +191,7 @@ public final class ZappActivity extends NativeActivity {
             } else {
                 manager.hideSoftInputFromWindow(imeBridgeView.getWindowToken(), 0);
                 imeBridgeView.clearFocus();
+                if (accessibilityBridgeView != null) accessibilityBridgeView.requestFocus();
             }
         });
     }
@@ -589,6 +630,8 @@ public final class ZappActivity extends NativeActivity {
         private static final int ROLE_RADIO_BUTTON = 16;
         private static final int ROLE_COMBO_BOX = 17;
         private static final int ROLE_OPTION = 18;
+        private static final int ROLE_TAB_LIST = 19;
+        private static final int ROLE_TAB = 20;
 
         private final AccessibilityManager accessibilityManager;
         private final SemanticNodeProvider provider = new SemanticNodeProvider();
@@ -600,14 +643,15 @@ public final class ZappActivity extends NativeActivity {
             super(ZappActivity.this);
             accessibilityManager = (AccessibilityManager)getSystemService(ACCESSIBILITY_SERVICE);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
-            setFocusable(false);
+            setFocusable(true);
+            setFocusableInTouchMode(true);
             setClickable(false);
             setWillNotDraw(true);
             if (Build.VERSION.SDK_INT >= 28) setScreenReaderFocusable(true);
         }
 
         void refreshSnapshot() {
-            int count = Math.min(Math.max(nativeAccessibilityNodeCount(), 0), 64);
+            int count = Math.min(Math.max(nativeAccessibilityNodeCount(), 0), 96);
             ArrayList<SemanticNode> updated = new ArrayList<>(count);
             for (int index = 0; index < count; index += 1) {
                 int[] metadata = new int[4];
@@ -627,6 +671,21 @@ public final class ZappActivity extends NativeActivity {
         @Override
         public AccessibilityNodeProvider getAccessibilityNodeProvider() {
             return provider;
+        }
+
+        @Override
+        public boolean onKeyDown(int keyCode, KeyEvent event) {
+            int command = navigationCommand(event);
+            if (command < 0) return super.onKeyDown(keyCode, event);
+            if (command != NAVIGATION_ACTIVATE || event.getRepeatCount() == 0) {
+                nativeNavigationRequested(command);
+            }
+            return true;
+        }
+
+        @Override
+        public boolean onKeyUp(int keyCode, KeyEvent event) {
+            return navigationCommand(event) >= 0 || super.onKeyUp(keyCode, event);
         }
 
         @Override
@@ -772,7 +831,7 @@ public final class ZappActivity extends NativeActivity {
                 if (node.role == ROLE_BUTTON || node.role == ROLE_CHECKBOX || node.role == ROLE_SWITCH ||
                     node.role == ROLE_NAVIGATION_ITEM || node.role == ROLE_TREE_ITEM ||
                     node.role == ROLE_RADIO_BUTTON || node.role == ROLE_COMBO_BOX ||
-                    node.role == ROLE_OPTION) {
+                    node.role == ROLE_OPTION || node.role == ROLE_TAB) {
                     info.setClickable(true);
                     info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
                 }
@@ -926,6 +985,8 @@ public final class ZappActivity extends NativeActivity {
                     case ROLE_RADIO_BUTTON: return "android.widget.RadioButton";
                     case ROLE_COMBO_BOX: return "android.widget.Spinner";
                     case ROLE_OPTION: return "android.widget.CheckedTextView";
+                    case ROLE_TAB_LIST: return "android.widget.TabWidget";
+                    case ROLE_TAB: return "android.widget.Button";
                     case ROLE_NAVIGATION_ITEM:
                     case ROLE_TREE_ITEM: return "android.widget.Button";
                     case ROLE_DIALOG: return "android.app.Dialog";
@@ -938,7 +999,7 @@ public final class ZappActivity extends NativeActivity {
                 return role == ROLE_BUTTON || role == ROLE_CHECKBOX || role == ROLE_SWITCH ||
                     role == ROLE_SLIDER || role == ROLE_TEXT_FIELD || role == ROLE_NAVIGATION_ITEM ||
                     role == ROLE_TREE_ITEM || role == ROLE_RADIO_BUTTON || role == ROLE_COMBO_BOX ||
-                    role == ROLE_OPTION;
+                    role == ROLE_OPTION || role == ROLE_TAB;
             }
         }
     }

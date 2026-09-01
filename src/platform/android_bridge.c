@@ -14,7 +14,7 @@
 #define ZAPP_ANDROID_PAYLOAD_CAPACITY 4096
 #define ZAPP_FILE_DISPLAY_NAME_CAPACITY 256
 #define ZAPP_FILE_MIME_TYPE_CAPACITY 128
-#define ZAPP_ACCESSIBILITY_NODE_CAPACITY 64
+#define ZAPP_ACCESSIBILITY_NODE_CAPACITY 96
 #define ZAPP_ACCESSIBILITY_TEXT_CAPACITY 128
 #define ZAPP_LOG_TAG "zapp-platform"
 
@@ -36,6 +36,7 @@ enum zapp_android_event_kind {
     ZAPP_ANDROID_FILE_STREAM_CANCELLED = 15,
     ZAPP_ANDROID_NATIVE_CRASH_RECOVERED = 16,
     ZAPP_ANDROID_CRASH_REPORT_EXPORT_RESULT = 17,
+    ZAPP_ANDROID_NAVIGATION_REQUESTED = 18,
 };
 
 typedef struct zapp_android_event {
@@ -325,6 +326,13 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeSubmit(JNIEnv *env, jclass clazz) {
     (void)env;
     (void)clazz;
     zapp_push_event(ZAPP_ANDROID_SUBMIT, 0, 0, 0, 0, 0, false, NULL, NULL);
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeNavigationRequested(JNIEnv *env, jclass clazz, jint command) {
+    (void)env;
+    (void)clazz;
+    zapp_push_event(ZAPP_ANDROID_NAVIGATION_REQUESTED, (int32_t)command, 0, 0, 0, 0, false, NULL, NULL);
 }
 
 JNIEXPORT void JNICALL

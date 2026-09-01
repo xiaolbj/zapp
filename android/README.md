@@ -167,7 +167,7 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 
 ## 原生无障碍语义
 
-Clay 完成每帧布局后，Zig 会为最多 64 个语义节点补齐最终边界，并序列化为固定容量 native 快照。快照内容不变时不会触发 JNI 更新。`AccessibilityBridgeView` 使用 `AccessibilityNodeProvider` 将快照暴露为 Android 虚拟子节点：
+Clay 完成每帧布局后，Zig 会为最多 96 个语义节点补齐最终边界，并序列化为固定容量 native 快照。快照内容不变时不会触发 JNI 更新。`AccessibilityBridgeView` 使用 `AccessibilityNodeProvider` 将快照暴露为 Android 虚拟子节点：
 
 - 角色映射到 Button、CheckBox、Switch、SeekBar、EditText、ProgressBar、Dialog 等系统类名。
 - 中文标签、值、勾选/选中/禁用、焦点、范围、树层级和展开状态均随快照更新。
