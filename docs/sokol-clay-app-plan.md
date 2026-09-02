@@ -676,7 +676,7 @@ Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举�
 
 控件主题一致性已完成：widgets 的状态颜色、文字颜色、常用圆角和间距统一引用 Theme 令牌，不再在各控件内维护独立调色板。
 
-滚动裁切必须保持命令栈平衡。当前 Clay 版本的内部可见性剔除会在部分屏幕外 clip 元素上省略 `SCISSOR_START`，但仍发出 `SCISSOR_END`，使滚动卡片的外层裁切被提前关闭。项目因此关闭 Clay 的命令级 culling，保留完整成对命令；Sokol 渲染器维护 64 层 scissor 栈，子区域与父区域求交，结束后恢复父区域，并在 CPU 侧跳过与有效裁切区完全不相交的 draw command。VirtualList 继续负责大集合的行级虚拟化，因此不会因关闭 Clay culling 而生成千级列表项。Android 同位置截图已验证顶部 Slider/Stepper 和底部运行时图片不再越过 `PrimaryCard`。由于 Clay 的嵌套滚动容器会优先把触摸交给内层节点，项目还为所有实际溢出的 Card、ScrollView、页面和 VirtualList 添加浮动纵向滚动条：轨道点击与滑块拖动直接写回同一 `scroll_position`，并把轨道两端严格映射到 `0` 与 `-maxScroll`。自动测试覆盖连续触摸拖动到首尾以及滚动条端点换算；Android 实机路径已验证滑块从顶部拖到底部后最后一项完整可见，再拖回顶部后标题与首项恢复可见。
+滚动裁切必须保持命令栈平衡。当前 Clay 版本的内部可见性剔除会在部分屏幕外 clip 元素上省略 `SCISSOR_START`，但仍发出 `SCISSOR_END`，使滚动卡片的外层裁切被提前关闭。项目因此关闭 Clay 的命令级 culling，保留完整成对命令；Sokol 渲染器维护 64 层 scissor 栈，子区域与父区域求交，结束后恢复父区域，并在 CPU 侧跳过与有效裁切区完全不相交的 draw command。VirtualList 继续负责大集合的行级虚拟化，因此不会因关闭 Clay culling 而生成千级列表项。Android 同位置截图已验证顶部 Slider/Stepper 和底部运行时图片不再越过 `PrimaryCard`。由于 Clay 的嵌套滚动容器会优先把触摸交给内层节点，项目还为所有实际溢出的 Card、ScrollView、页面和 VirtualList 添加浮动纵向滚动条：轨道点击与滑块拖动直接写回同一 `scroll_position`，并把轨道两端严格映射到 `0` 与 `-maxScroll`。首页在 `PrimaryCard` 内容区开始的触摸拖动会关闭该手势的 Clay 内层拖动，并把逐帧纵向位移钳制写入外层卡片；因此手势进入或经过 VirtualList 时不会改变所有权。VirtualList 仍保留独立滚动条、滚轮、键盘和无障碍滚动入口。自动测试覆盖连续触摸拖动到首尾、嵌套手势所有权以及滚动条端点换算；Android 实机路径已验证滑块从顶部拖到底部后最后一项完整可见，再拖回顶部后标题与首项恢复可见。
 
 ## 21. 当前实施状态
 

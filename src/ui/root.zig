@@ -168,6 +168,8 @@ const state = struct {
     var number_stepper_state: number_stepper.State = .{};
     var virtual_list_state: virtual_list.State = .{};
     var scroll_bar_state: scroll_bar.State = .{};
+    var redirect_primary_card_drag = false;
+    var redirected_pointer_y: f32 = 0;
     var last_text_submission_count: u32 = 0;
     var last_navigation_index: u8 = 0;
     var actions: [max_actions]Action = undefined;
@@ -231,6 +233,8 @@ pub fn setup(model: *const Model) bool {
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.scroll_bar_state = .{};
+    state.redirect_primary_card_drag = false;
+    state.redirected_pointer_y = 0;
     state.last_text_submission_count = model.application_name_input.submission_count;
     state.last_navigation_index = @min(model.demo_navigation_index, 2);
     state.action_count = 0;
@@ -260,6 +264,8 @@ pub fn shutdown() void {
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.scroll_bar_state = .{};
+    state.redirect_primary_card_drag = false;
+    state.redirected_pointer_y = 0;
     state.last_text_submission_count = 0;
     state.last_navigation_index = 0;
     state.action_count = 0;
@@ -278,11 +284,13 @@ pub fn build(model: *const Model) Frame {
 
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
+    const redirect_primary_drag = beginPrimaryScrollRedirect(model);
     applySemanticScroll(model);
-    clay.updateScrollContainers(true, .{
+    clay.updateScrollContainers(!redirect_primary_drag, .{
         .x = model.scroll_delta_x * 36,
         .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
+    if (redirect_primary_drag) applyPrimaryScrollRedirect(model);
     if (model.application_name_input.submission_count != state.last_text_submission_count) {
         state.last_text_submission_count = model.application_name_input.submission_count;
         state.toast_state.show(
@@ -2473,6 +2481,39 @@ fn applySemanticScroll(model: *const Model) void {
     scroll.scroll_position.y = @min(@max(scroll.scroll_position.y + delta, -max_scroll), 0);
 }
 
+/// Clay gives the innermost scroll container exclusive drag ownership, which
+/// makes ownership depend on whether a gesture happens to cross VirtualList.
+/// The primary demo card therefore owns content drags consistently. Nested
+/// lists retain wheel, keyboard, semantic, and explicit scrollbar input.
+fn beginPrimaryScrollRedirect(model: *const Model) bool {
+    if (model.pointer_pressed and model.demo_navigation_index == 0 and
+        clay.pointerOver(clay.ElementId.ID("PrimaryCard")) and
+        !clay.pointerOver(clay.ElementId.ID("PrimaryCardScrollBar")) and
+        !clay.pointerOver(clay.ElementId.ID("VirtualListScrollBar")))
+    {
+        state.redirect_primary_card_drag = true;
+        state.redirected_pointer_y = model.pointer_y;
+    }
+    return state.redirect_primary_card_drag and (model.pointer_down or model.pointer_released);
+}
+
+fn applyPrimaryScrollRedirect(model: *const Model) void {
+    if (model.pointer_down) {
+        const scroll = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
+        if (scroll.found and scroll.config.vertical) {
+            const max_scroll = @max(
+                scroll.content_dimensions.h - scroll.scroll_container_dimensions.h,
+                0,
+            );
+            const delta = model.pointer_y - state.redirected_pointer_y;
+            scroll.scroll_position.y = @min(@max(scroll.scroll_position.y + delta, -max_scroll), 0);
+        }
+        state.redirected_pointer_y = model.pointer_y;
+    } else {
+        state.redirect_primary_card_drag = false;
+    }
+}
+
 fn ensureElementVisibleInScrollContainer(element_value: u32, container_value: u32) void {
     var element_id = clay.ElementId.ID("");
     element_id.id = element_value;
@@ -2977,11 +3018,15 @@ test "responsive shell emits controls and text" {
         model.pointer_down = false;
         _ = build(&model);
         model.pointer_down = true;
+        model.pointer_pressed = true;
         _ = build(&model);
+        model.pointer_pressed = false;
         model.pointer_y = primary_data.bounding_box.y + 40;
         _ = build(&model);
         model.pointer_down = false;
+        model.pointer_released = true;
         _ = build(&model);
+        model.pointer_released = false;
     }
     try std.testing.expectApproxEqAbs(-primary_max_scroll, primary_scroll.scroll_position.y, 1);
     for (0..6) |_| {
@@ -2989,13 +3034,51 @@ test "responsive shell emits controls and text" {
         model.pointer_down = false;
         _ = build(&model);
         model.pointer_down = true;
+        model.pointer_pressed = true;
         _ = build(&model);
+        model.pointer_pressed = false;
         model.pointer_y = primary_data.bounding_box.y + primary_data.bounding_box.height - 40;
         _ = build(&model);
         model.pointer_down = false;
+        model.pointer_released = true;
         _ = build(&model);
+        model.pointer_released = false;
     }
     try std.testing.expectApproxEqAbs(@as(f32, 0), primary_scroll.scroll_position.y, 1);
+    ensureElementVisibleInScrollContainer(
+        clay.ElementId.ID("RecordsVirtualList").id,
+        clay.ElementId.ID("PrimaryCard").id,
+    );
+    _ = build(&model);
+    const virtual_list_data = clay.getElementData(clay.ElementId.ID("RecordsVirtualList"));
+    const virtual_list_scroll = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
+    try std.testing.expect(virtual_list_data.found and virtual_list_scroll.found);
+    const outer_before_nested_drag = primary_scroll.scroll_position.y;
+    const inner_before_nested_drag = virtual_list_scroll.scroll_position.y;
+    model.pointer_x = virtual_list_data.bounding_box.x + virtual_list_data.bounding_box.width * 0.5;
+    model.pointer_y = virtual_list_data.bounding_box.y + virtual_list_data.bounding_box.height * 0.5;
+    model.pointer_down = false;
+    _ = build(&model);
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    model.pointer_y -= 80;
+    _ = build(&model);
+    try std.testing.expectApproxEqAbs(
+        outer_before_nested_drag - 80,
+        primary_scroll.scroll_position.y,
+        1,
+    );
+    try std.testing.expectApproxEqAbs(
+        inner_before_nested_drag,
+        virtual_list_scroll.scroll_position.y,
+        0.01,
+    );
+    model.pointer_down = false;
+    model.pointer_released = true;
+    _ = build(&model);
+    model.pointer_released = false;
     model.pointer_x = 0;
     model.pointer_y = 0;
     primary_scroll.scroll_position.y = -500;
