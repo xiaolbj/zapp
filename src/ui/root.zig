@@ -3442,6 +3442,7 @@ test "responsive shell emits controls and text" {
     var end_scissor_end_count: usize = 0;
     var end_scissor_depth: isize = 0;
     var end_scissor_min_depth: isize = 0;
+    var has_embedded_virtual_scroll_bar = false;
     var end_list_bounds: ?semantics.Bounds = null;
     var last_item_bounds: ?semantics.Bounds = null;
     for (virtual_end_frame.semantic_nodes) |node| {
@@ -3453,6 +3454,11 @@ test "responsive shell emits controls and text" {
         }
     }
     for (virtual_end_frame.commands) |command| {
+        if (command.id == clay.ElementId.ID("VirtualListScrollBar").id and
+            command.command_type == .rectangle and command.z_index == 0)
+        {
+            has_embedded_virtual_scroll_bar = true;
+        }
         if (command.command_type == .scissor_start) {
             end_scissor_count += 1;
             end_scissor_depth += 1;
@@ -3467,6 +3473,7 @@ test "responsive shell emits controls and text" {
     try std.testing.expectEqual(end_scissor_count, end_scissor_end_count);
     try std.testing.expectEqual(@as(isize, 0), end_scissor_depth);
     try std.testing.expectEqual(@as(isize, 0), end_scissor_min_depth);
+    try std.testing.expect(has_embedded_virtual_scroll_bar);
     try std.testing.expect(end_virtual_item_count > 0);
     try std.testing.expect(has_last_virtual_item);
     try std.testing.expect(end_list_bounds != null and last_item_bounds != null);

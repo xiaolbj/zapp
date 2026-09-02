@@ -15,6 +15,12 @@ pub const Config = struct {
     inset: f32 = 8,
     min_thumb_height: f32 = 36,
     z_index: i16 = 40,
+    presentation: Presentation = .floating,
+};
+
+pub const Presentation = enum {
+    floating,
+    embedded,
 };
 
 const Metrics = struct {
@@ -70,7 +76,7 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
         config.inset,
         config.min_thumb_height,
     );
-    clay.UI()(.{
+    const track_declaration: clay.ElementDeclaration = if (config.presentation == .floating) .{
         .id = track_id,
         .layout = .{
             .sizing = .{ .w = .fixed(config.width), .h = .fixed(current.track_height) },
@@ -86,26 +92,56 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
             .attach_to = .to_parent,
             .clip_to = .to_attached_parent,
         },
-    })(clay.UI()(.{
+    } else .{
+        .id = track_id,
         .layout = .{
-            .sizing = .{ .w = .grow, .h = .fixed(current.thumb_height) },
+            .sizing = .{ .w = .fixed(config.width), .h = .fixed(current.track_height) },
+            .direction = .top_to_bottom,
         },
-        .background_color = if (state.active_id == track_id.id)
-            theme.controls.focus
-        else if (hovered)
-            theme.controls.text_secondary
-        else
-            .{ 97, 121, 157, 220 },
+        .background_color = .{ 8, 15, 27, 150 },
         .corner_radius = .all(config.width * 0.5),
-        .floating = .{
-            .offset = .{ .x = 0, .y = current.thumb_top },
-            .z_index = config.z_index + 1,
-            .attach_points = .{ .element = .left_top, .parent = .left_top },
-            .pointer_capture_mode = .passthrough,
-            .attach_to = .to_parent,
-            .clip_to = .to_attached_parent,
-        },
-    })({}));
+    };
+    clay.UI()(track_declaration)({
+        if (config.presentation == .embedded and current.thumb_top > 0) {
+            clay.UI()(.{
+                .layout = .{
+                    .sizing = .{ .w = .grow, .h = .fixed(current.thumb_top) },
+                },
+            })({});
+        }
+        const thumb_declaration: clay.ElementDeclaration = if (config.presentation == .floating) .{
+            .layout = .{
+                .sizing = .{ .w = .grow, .h = .fixed(current.thumb_height) },
+            },
+            .background_color = if (state.active_id == track_id.id)
+                theme.controls.focus
+            else if (hovered)
+                theme.controls.text_secondary
+            else
+                .{ 97, 121, 157, 220 },
+            .corner_radius = .all(config.width * 0.5),
+            .floating = .{
+                .offset = .{ .x = 0, .y = current.thumb_top },
+                .z_index = config.z_index + 1,
+                .attach_points = .{ .element = .left_top, .parent = .left_top },
+                .pointer_capture_mode = .passthrough,
+                .attach_to = .to_parent,
+                .clip_to = .to_attached_parent,
+            },
+        } else .{
+            .layout = .{
+                .sizing = .{ .w = .grow, .h = .fixed(current.thumb_height) },
+            },
+            .background_color = if (state.active_id == track_id.id)
+                theme.controls.focus
+            else if (hovered)
+                theme.controls.text_secondary
+            else
+                .{ 97, 121, 157, 220 },
+            .corner_radius = .all(config.width * 0.5),
+        };
+        clay.UI()(thumb_declaration)({});
+    });
 }
 
 fn calculateMetrics(

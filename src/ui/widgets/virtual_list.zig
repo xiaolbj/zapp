@@ -26,6 +26,7 @@ pub const Config = struct {
     row_height: f32 = 42,
     padding: u16 = 8,
     overscan: usize = 2,
+    show_scroll_bar: bool = true,
     disabled: bool = false,
     focused_id: ?u32 = null,
     semantic_label: []const u8 = "Virtual list",
@@ -89,100 +90,121 @@ pub fn draw(
     else
         false;
 
+    const scroll_bar_width: f32 = 10;
+    const scroll_bar_gap: u16 = 6;
+    const scroll_bar_reserved_width = if (config.show_scroll_bar)
+        scroll_bar_width + @as(f32, @floatFromInt(scroll_bar_gap))
+    else
+        0;
+    const content_width = @max(config.width - scroll_bar_reserved_width, 0);
     clay.UI()(.{
-        .id = list_id,
         .layout = .{
             .sizing = .{ .w = .fixed(config.width), .h = .fixed(config.height) },
-            .padding = .all(config.padding),
-            .direction = .top_to_bottom,
+            .child_gap = if (config.show_scroll_bar) scroll_bar_gap else 0,
+            .direction = .left_to_right,
+            .child_alignment = .{ .y = .center },
         },
         .background_color = theme.controls.scroll_surface,
         .corner_radius = .all(theme.controls.radius_medium),
-        .clip = .{ .vertical = true, .child_offset = clay.getScrollOffset() },
     })({
-        const top_height = @as(f32, @floatFromInt(range.start)) * config.row_height;
-        if (top_height > 0) spacer(config.id, std.math.maxInt(u32) - 1, top_height);
+        clay.UI()(.{
+            .id = list_id,
+            .layout = .{
+                .sizing = .{ .w = .fixed(content_width), .h = .fixed(config.height) },
+                .padding = .all(config.padding),
+                .direction = .top_to_bottom,
+            },
+            .background_color = theme.controls.scroll_surface,
+            .corner_radius = .all(theme.controls.radius_medium),
+            .clip = .{ .vertical = true, .child_offset = clay.getScrollOffset() },
+        })({
+            const top_height = @as(f32, @floatFromInt(range.start)) * config.row_height;
+            if (top_height > 0) spacer(config.id, std.math.maxInt(u32) - 1, top_height);
 
-        for (range.start..range.end, 0..) |index, slot| {
-            const id = itemId(config.id, index);
-            const focused = config.focused_id == id.id;
-            const selected = selected_index == index;
-            const pointer = interaction.update(
-                interaction_state,
-                id.id,
-                clay.pointerOver(id),
-                input,
-                config.disabled,
-            );
-            const item_label = config.format_item(index, &widget_state.labels[slot]);
-            if (index >= semantic_range.start and index < semantic_range.end) {
-                if (config.semantic_registry) |registry| _ = registry.add(.{
-                    .element_id = id.id,
-                    .role = .list_item,
-                    .label = item_label,
-                    .disabled = config.disabled,
-                    .focused = focused,
-                    .selected = selected,
-                    .level = 1,
-                });
-            }
+            for (range.start..range.end, 0..) |index, slot| {
+                const id = itemId(config.id, index);
+                const focused = config.focused_id == id.id;
+                const selected = selected_index == index;
+                const pointer = interaction.update(
+                    interaction_state,
+                    id.id,
+                    clay.pointerOver(id),
+                    input,
+                    config.disabled,
+                );
+                const item_label = config.format_item(index, &widget_state.labels[slot]);
+                if (index >= semantic_range.start and index < semantic_range.end) {
+                    if (config.semantic_registry) |registry| _ = registry.add(.{
+                        .element_id = id.id,
+                        .role = .list_item,
+                        .label = item_label,
+                        .disabled = config.disabled,
+                        .focused = focused,
+                        .selected = selected,
+                        .level = 1,
+                    });
+                }
 
-            clay.UI()(.{
-                .id = id,
-                .layout = .{
-                    .sizing = .{ .w = .grow, .h = .fixed(config.row_height) },
-                    .padding = .axes(14, 9),
-                    .child_alignment = .{ .y = .center },
-                },
-                .background_color = if (config.disabled)
-                    theme.controls.input_disabled
-                else if (pointer.active)
-                    theme.controls.accent_pressed
-                else if (selected)
-                    theme.controls.navigation_active
-                else if (pointer.hovered or focused)
-                    theme.controls.surface_hover
-                else
-                    theme.controls.surface,
-                .border = .{
-                    .color = theme.controls.focus,
-                    .width = if (focused) .outside(theme.controls.focus_width) else .{},
-                },
-            })(label.draw(item_label, .{
-                .font_size = 15,
-                .color = if (config.disabled)
-                    theme.controls.text_disabled
-                else if (selected)
-                    theme.controls.on_accent
-                else
-                    theme.controls.text_secondary,
-            }));
+                clay.UI()(.{
+                    .id = id,
+                    .layout = .{
+                        .sizing = .{ .w = .grow, .h = .fixed(config.row_height) },
+                        .padding = .axes(14, 9),
+                        .child_alignment = .{ .y = .center },
+                    },
+                    .background_color = if (config.disabled)
+                        theme.controls.input_disabled
+                    else if (pointer.active)
+                        theme.controls.accent_pressed
+                    else if (selected)
+                        theme.controls.navigation_active
+                    else if (pointer.hovered or focused)
+                        theme.controls.surface_hover
+                    else
+                        theme.controls.surface,
+                    .border = .{
+                        .color = theme.controls.focus,
+                        .width = if (focused) .outside(theme.controls.focus_width) else .{},
+                    },
+                })(label.draw(item_label, .{
+                    .font_size = 15,
+                    .color = if (config.disabled)
+                        theme.controls.text_disabled
+                    else if (selected)
+                        theme.controls.on_accent
+                    else
+                        theme.controls.text_secondary,
+                }));
 
-            if (pointer.clicked) {
-                output.selected_index = index;
-                output.focus_index = index;
-            } else if (!config.disabled and focused) {
-                const target = navigationTarget(index, config.item_count, input);
-                if (target) |target_index| {
-                    output.selected_index = target_index;
-                    output.focus_index = target_index;
-                    ensureVisible(scroll, target_index, config);
-                } else if (input.activate_pressed) {
+                if (pointer.clicked) {
                     output.selected_index = index;
+                    output.focus_index = index;
+                } else if (!config.disabled and focused) {
+                    const target = navigationTarget(index, config.item_count, input);
+                    if (target) |target_index| {
+                        output.selected_index = target_index;
+                        output.focus_index = target_index;
+                        ensureVisible(scroll, target_index, config);
+                    } else if (input.activate_pressed) {
+                        output.selected_index = index;
+                    }
                 }
             }
-        }
 
-        const remaining = config.item_count - range.end;
-        const bottom_height = @as(f32, @floatFromInt(remaining)) * config.row_height;
-        if (bottom_height > 0) spacer(config.id, std.math.maxInt(u32) - 2, bottom_height);
-        scroll_bar.draw(&widget_state.scroll_bar_state, input, .{
-            .id = "VirtualListScrollBar",
-            .scroll_id = config.id,
-            .width = 10,
-            .inset = 6,
-            .min_thumb_height = 24,
+            const remaining = config.item_count - range.end;
+            const bottom_height = @as(f32, @floatFromInt(remaining)) * config.row_height;
+            if (bottom_height > 0) spacer(config.id, std.math.maxInt(u32) - 2, bottom_height);
         });
+        if (config.show_scroll_bar) {
+            scroll_bar.draw(&widget_state.scroll_bar_state, input, .{
+                .id = "VirtualListScrollBar",
+                .scroll_id = config.id,
+                .width = scroll_bar_width,
+                .inset = 6,
+                .min_thumb_height = 24,
+                .presentation = .embedded,
+            });
+        }
     });
     if (pushed_scroll_ancestor) config.semantic_registry.?.popScrollAncestor();
     return output;
