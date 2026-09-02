@@ -286,10 +286,11 @@ pub fn build(model: *const Model) Frame {
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
     const nested_scroll_before = beginNestedBoundaryScroll(model);
+    const nested_wheel_handled = applyNestedWheelScroll(model);
     applySemanticScroll(model);
     clay.updateScrollContainers(true, .{
         .x = model.scroll_delta_x * 36,
-        .y = model.scroll_delta_y * 36,
+        .y = if (nested_wheel_handled) 0 else model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
     if (nested_scroll_before) |before| applyNestedBoundaryScroll(model, before);
     if (model.pointer_released and !model.pointer_down) state.nested_scroll_active = false;
@@ -2488,6 +2489,39 @@ const NestedScrollSnapshot = struct {
     outer_y: f32,
 };
 
+/// Clay only associates wheel input with the clipped content element. The
+/// embedded scrollbar is its sibling, so route wheel input from the complete
+/// VirtualList wrapper explicitly: inner list first, then the outer card only
+/// when the inner endpoint rejects part of the delta.
+fn applyNestedWheelScroll(model: *const Model) bool {
+    if (model.demo_navigation_index != 0 or @abs(model.scroll_delta_y) < 0.0001 or
+        !clay.pointerOver(virtual_list.containerId("RecordsVirtualList")))
+    {
+        return false;
+    }
+    const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
+    const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
+    if (!inner.found or !outer.found) return false;
+
+    // root passes wheel input to Clay at *36 and Clay applies its own *10.
+    const requested_delta = model.scroll_delta_y * 360;
+    const inner_before = inner.scroll_position.y;
+    const inner_max = @max(inner.content_dimensions.h - demo_virtual_list_height, 0);
+    inner.scroll_position.y = @min(@max(inner_before + requested_delta, -inner_max), 0);
+    const remaining = remainingScrollDelta(
+        requested_delta,
+        inner.scroll_position.y - inner_before,
+    );
+    if (@abs(remaining) >= 0.01) {
+        const outer_max = @max(
+            outer.content_dimensions.h - outer.scroll_container_dimensions.h,
+            0,
+        );
+        outer.scroll_position.y = @min(@max(outer.scroll_position.y + remaining, -outer_max), 0);
+    }
+    return true;
+}
+
 /// Clay routes a drag to the innermost scroll container. Once that container
 /// is actually at the requested endpoint, forward only the rejected part of
 /// the current pointer movement to its parent. Checking the endpoint avoids
@@ -3133,6 +3167,74 @@ test "responsive shell emits controls and text" {
     model.pointer_x = 0;
     model.pointer_y = 0;
     for (0..120) |_| _ = build(&model);
+
+    // Mouse-wheel input uses Clay's scroll-delta path rather than pointer
+    // dragging. It must keep the card stationary and preserve the complete
+    // nested scissor stack while the virtual window changes.
+    virtual_list_scroll.scroll_position.y = 0;
+    ensureElementVisibleInScrollContainer(
+        clay.ElementId.ID("RecordsVirtualList").id,
+        clay.ElementId.ID("PrimaryCard").id,
+    );
+    _ = build(&model);
+    const wheel_list_data = clay.getElementData(clay.ElementId.ID("RecordsVirtualList"));
+    try std.testing.expect(wheel_list_data.found);
+    const outer_before_wheel = primary_scroll.scroll_position.y;
+    const primary_height_before_wheel = primary_scroll.content_dimensions.h;
+    model.pointer_x = wheel_list_data.bounding_box.x + wheel_list_data.bounding_box.width * 0.5;
+    model.pointer_y = wheel_list_data.bounding_box.y + wheel_list_data.bounding_box.height * 0.5;
+    model.scroll_delta_y = -1;
+    const wheel_frame = build(&model);
+    model.scroll_delta_y = 0;
+    try std.testing.expect(virtual_list_scroll.scroll_position.y < -100);
+    try std.testing.expectApproxEqAbs(outer_before_wheel, primary_scroll.scroll_position.y, 0.01);
+    try std.testing.expectApproxEqAbs(
+        primary_height_before_wheel,
+        primary_scroll.content_dimensions.h,
+        0.01,
+    );
+    var wheel_scissor_depth: isize = 0;
+    var wheel_min_scissor_depth: isize = 0;
+    var wheel_bar_inside_clip = false;
+    for (wheel_frame.commands) |command| {
+        if (command.command_type == .scissor_start) wheel_scissor_depth += 1;
+        if (command.id == clay.ElementId.ID("VirtualListScrollBar").id and
+            command.command_type == .rectangle)
+        {
+            wheel_bar_inside_clip = wheel_scissor_depth > 0;
+        }
+        if (command.command_type == .scissor_end) {
+            wheel_scissor_depth -= 1;
+            wheel_min_scissor_depth = @min(wheel_min_scissor_depth, wheel_scissor_depth);
+        }
+    }
+    try std.testing.expectEqual(@as(isize, 0), wheel_scissor_depth);
+    try std.testing.expectEqual(@as(isize, 0), wheel_min_scissor_depth);
+    try std.testing.expect(wheel_bar_inside_clip);
+
+    // The embedded track is outside the clipped content element but inside
+    // the VirtualList wrapper. Wheel input there must still target the list,
+    // never the PrimaryCard.
+    virtual_list_scroll.scroll_position.y = 0;
+    _ = build(&model);
+    const wheel_wrapper_data = clay.getElementData(virtual_list.containerId("RecordsVirtualList"));
+    const wheel_content_data = clay.getElementData(clay.ElementId.ID("RecordsVirtualList"));
+    try std.testing.expect(wheel_wrapper_data.found and wheel_content_data.found);
+    const outer_before_track_wheel = primary_scroll.scroll_position.y;
+    model.pointer_x = (wheel_content_data.bounding_box.x + wheel_content_data.bounding_box.width +
+        wheel_wrapper_data.bounding_box.x + wheel_wrapper_data.bounding_box.width) * 0.5;
+    model.pointer_y = wheel_wrapper_data.bounding_box.y + wheel_wrapper_data.bounding_box.height * 0.5;
+    model.scroll_delta_y = -1;
+    _ = build(&model);
+    model.scroll_delta_y = 0;
+    try std.testing.expect(virtual_list_scroll.scroll_position.y < -100);
+    try std.testing.expectApproxEqAbs(
+        outer_before_track_wheel,
+        primary_scroll.scroll_position.y,
+        0.01,
+    );
+    model.pointer_x = 0;
+    model.pointer_y = 0;
 
     // Slow movement must remain owned by the virtual list until it truly
     // reaches an endpoint. This is the case the former delta-only heuristic

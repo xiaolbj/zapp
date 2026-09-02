@@ -98,6 +98,7 @@ pub fn draw(
         0;
     const content_width = @max(config.width - scroll_bar_reserved_width, 0);
     clay.UI()(.{
+        .id = containerId(config.id),
         .layout = .{
             .sizing = .{ .w = .fixed(config.width), .h = .fixed(config.height) },
             .child_gap = if (config.show_scroll_bar) scroll_bar_gap else 0,
@@ -212,6 +213,10 @@ pub fn draw(
 
 pub fn itemId(list_id: []const u8, index: usize) clay.ElementId {
     return clay.ElementId.IDI(list_id, @intCast(index + 1));
+}
+
+pub fn containerId(list_id: []const u8) clay.ElementId {
+    return clay.ElementId.IDI(list_id, std.math.maxInt(u32) - 3);
 }
 
 pub fn boundedIndex(index: usize, count: usize) ?usize {
