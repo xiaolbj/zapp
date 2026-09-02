@@ -666,6 +666,7 @@ public final class ZappActivity extends NativeActivity {
         private static final int ROLE_TABLE = 24;
         private static final int ROLE_ROW = 25;
         private static final int ROLE_COLUMN_HEADER = 26;
+        private static final int ROLE_CHIP = 27;
 
         private final AccessibilityManager accessibilityManager;
         private final SemanticNodeProvider provider = new SemanticNodeProvider();
@@ -887,7 +888,7 @@ public final class ZappActivity extends NativeActivity {
                     node.role == ROLE_RADIO_BUTTON || node.role == ROLE_COMBO_BOX ||
                     node.role == ROLE_OPTION || node.role == ROLE_TAB || node.role == ROLE_MENU_ITEM ||
                     node.role == ROLE_LIST_ITEM || node.role == ROLE_ROW ||
-                    node.role == ROLE_COLUMN_HEADER) {
+                    node.role == ROLE_COLUMN_HEADER || node.role == ROLE_CHIP) {
                     info.setClickable(true);
                     info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
                 }
@@ -1049,6 +1050,7 @@ public final class ZappActivity extends NativeActivity {
                     case ROLE_TABLE: return "android.widget.GridView";
                     case ROLE_ROW: return "android.widget.Button";
                     case ROLE_COLUMN_HEADER: return "android.widget.Button";
+                    case ROLE_CHIP: return "android.widget.ToggleButton";
                     case ROLE_NAVIGATION_ITEM:
                     case ROLE_TREE_ITEM: return "android.widget.Button";
                     case ROLE_DIALOG: return "android.app.Dialog";
@@ -1062,7 +1064,8 @@ public final class ZappActivity extends NativeActivity {
                     role == ROLE_SLIDER || role == ROLE_TEXT_FIELD || role == ROLE_NAVIGATION_ITEM ||
                     role == ROLE_TREE_ITEM || role == ROLE_RADIO_BUTTON || role == ROLE_COMBO_BOX ||
                     role == ROLE_OPTION || role == ROLE_TAB || role == ROLE_MENU_ITEM ||
-                    role == ROLE_LIST_ITEM || role == ROLE_ROW || role == ROLE_COLUMN_HEADER;
+                    role == ROLE_LIST_ITEM || role == ROLE_ROW || role == ROLE_COLUMN_HEADER ||
+                    role == ROLE_CHIP;
             }
         }
     }

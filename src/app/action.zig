@@ -92,6 +92,7 @@ pub const Action = union(enum) {
     demo_tree_selected: u8,
     demo_accordion_expanded: u64,
     demo_density_selected: u8,
+    demo_filter_toggled: u8,
     demo_sort_selected: u8,
     demo_sort_expanded: bool,
     demo_tab_selected: u8,

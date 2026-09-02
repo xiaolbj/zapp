@@ -228,6 +228,9 @@ pub fn update(model: *Model, action: Action) void {
         .demo_tree_selected => |index| model.demo_tree_selected_index = index,
         .demo_accordion_expanded => |mask| model.demo_accordion_expanded_mask = mask & 0b111,
         .demo_density_selected => |index| model.demo_density_index = @min(index, 2),
+        .demo_filter_toggled => |index| {
+            if (index < 4) model.demo_filter_mask ^= @as(u64, 1) << @intCast(index);
+        },
         .demo_sort_selected => |index| model.demo_sort_index = @min(index, 2),
         .demo_sort_expanded => |expanded| {
             model.demo_sort_expanded = expanded;
@@ -428,6 +431,17 @@ test "radio selection remains controlled and bounded" {
     try std.testing.expectEqual(@as(u8, 2), model.demo_density_index);
     update(&model, .{ .demo_density_selected = 99 });
     try std.testing.expectEqual(@as(u8, 2), model.demo_density_index);
+}
+
+test "filter chip selection mask is reducer controlled and bounded" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_filter_toggled = 1 });
+    try std.testing.expectEqual(@as(u64, 0b0111), model.demo_filter_mask);
+    update(&model, .{ .demo_filter_toggled = 0 });
+    try std.testing.expectEqual(@as(u64, 0b0110), model.demo_filter_mask);
+    update(&model, .{ .demo_filter_toggled = 99 });
+    try std.testing.expectEqual(@as(u64, 0b0110), model.demo_filter_mask);
 }
 
 test "select selection and expansion remain controlled" {

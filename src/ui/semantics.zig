@@ -29,6 +29,7 @@ pub const Role = enum {
     table,
     row,
     column_header,
+    chip,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.

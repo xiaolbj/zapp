@@ -10,6 +10,7 @@ const theme = @import("theme.zig");
 const accordion = @import("widgets/accordion.zig");
 const button = @import("widgets/button.zig");
 const card = @import("widgets/card.zig");
+const chip_group = @import("widgets/chip_group.zig");
 const checkbox = @import("widgets/checkbox.zig");
 const data_table = @import("widgets/data_table.zig");
 const divider = @import("widgets/divider.zig");
@@ -49,6 +50,13 @@ const demo_density_items = [_]radio_group.Item{
     .{ .text = "紧凑" },
     .{ .text = "舒适" },
     .{ .text = "宽松" },
+};
+
+const demo_filter_items = [_]chip_group.Item{
+    .{ .text = "开发中" },
+    .{ .text = "待复核" },
+    .{ .text = "已完成" },
+    .{ .text = "已归档", .disabled = true },
 };
 
 const demo_accordion_items = [_]accordion.Item{
@@ -290,6 +298,12 @@ pub fn build(model: *const Model) Frame {
         for (demo_density_items, 0..) |_, density_index| {
             focus_order[focus_order_count] = radio_group.itemId("DensityRadio", density_index).id;
             focus_order_count += 1;
+        }
+        for (demo_filter_items, 0..) |item, filter_index| {
+            if (!item.disabled) {
+                focus_order[focus_order_count] = chip_group.itemId("StatusFilters", filter_index).id;
+                focus_order_count += 1;
+            }
         }
         focus_order[focus_order_count] = sort_select_id;
         focus_order_count += 1;
@@ -872,6 +886,28 @@ pub fn build(model: *const Model) Frame {
                         state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
                         emit(.{ .demo_density_selected = @intCast(index) });
                     }
+                    label.draw("状态筛选", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("StatusFiltersLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const filter_result = chip_group.draw(&state.interaction_state, input, .{
+                        .id = "StatusFilters",
+                        .items = &demo_filter_items,
+                        .selected_mask = model.demo_filter_mask,
+                        .direction = control_direction,
+                        .focused_id = state.focus_state.focused_id,
+                        .disabled = modal_open,
+                        .semantic_label = "状态筛选",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (filter_result.focus_index) |index| {
+                        state.focus_state.focus(chip_group.itemId("StatusFilters", index).id);
+                    }
+                    if (filter_result.toggled_index) |index| {
+                        state.focus_state.focus(chip_group.itemId("StatusFilters", index).id);
+                        emit(.{ .demo_filter_toggled = @intCast(index) });
+                    }
                     label.draw("内容排序", .{
                         .color = theme.controls.text_muted,
                         .semantic_id = .ID("SortSelectLabel"),
@@ -1358,7 +1394,9 @@ pub fn handleSemanticAction(
                     !accordion.isExpanded(model.demo_accordion_expanded_mask, index),
                     .single,
                 ) });
-            } else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
+            } else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (chipIndex(element_id)) |index| {
+                if (!demo_filter_items[index].disabled) emit(.{ .demo_filter_toggled = index });
+            } else if (selectOptionIndex(element_id)) |index| {
                 state.focus_state.focus(sort_select_id);
                 emit(.{ .demo_sort_selected = index });
                 if (model.demo_sort_expanded) emit(.{ .demo_sort_expanded = false });
@@ -1484,6 +1522,13 @@ fn radioIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn chipIndex(element_id: u32) ?u8 {
+    for (demo_filter_items, 0..) |_, index| {
+        if (element_id == chip_group.itemId("StatusFilters", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn selectOptionIndex(element_id: u32) ?u8 {
     for (demo_sort_items, 0..) |_, index| {
         if (element_id == select.optionId("SortSelect", index).id) return @intCast(index);
@@ -1541,6 +1586,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         treeIndex(element_id) != null or
         accordionIndex(element_id) != null or
         radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
+    if (chipIndex(element_id)) |index| return !demo_filter_items[index].disabled;
     if (menuItemIndex(element_id)) |index| return !demo_menu_items[index].disabled;
     if (virtualListIndex(element_id) != null) return true;
     if (dataTableHeaderIndex(element_id) != null or dataTableRowIndex(element_id) != null) return true;
@@ -1903,7 +1949,7 @@ test "responsive shell emits controls and text" {
 
     try std.testing.expect(rectangle_count >= 14);
     try std.testing.expect(text_count >= 14);
-    try std.testing.expect(scissor_count >= 2);
+    try std.testing.expect(scissor_count >= 1);
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
     try std.testing.expect(result.semantic_nodes.len >= 10);
@@ -1923,6 +1969,9 @@ test "responsive shell emits controls and text" {
     var has_first_accordion_panel = false;
     var has_radio_group_semantics = false;
     var has_checked_radio_semantics = false;
+    var chip_semantic_count: usize = 0;
+    var checked_chip_count: usize = 0;
+    var has_disabled_chip = false;
     var has_combo_box_semantics = false;
     var has_tab_list_semantics = false;
     var selected_tab_count: usize = 0;
@@ -1974,6 +2023,11 @@ test "responsive shell emits controls and text" {
         }
         if (node.role == .radio_group) has_radio_group_semantics = true;
         if (node.role == .radio_button and node.checked == true) has_checked_radio_semantics = true;
+        if (node.role == .chip) {
+            chip_semantic_count += 1;
+            if (node.checked == true) checked_chip_count += 1;
+            if (node.disabled) has_disabled_chip = true;
+        }
         if (node.role == .combo_box and node.expanded == false and node.value_text.len > 0) {
             has_combo_box_semantics = true;
         }
@@ -2031,6 +2085,9 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_first_accordion_panel);
     try std.testing.expect(has_radio_group_semantics);
     try std.testing.expect(has_checked_radio_semantics);
+    try std.testing.expectEqual(demo_filter_items.len, chip_semantic_count);
+    try std.testing.expectEqual(@as(usize, 2), checked_chip_count);
+    try std.testing.expect(has_disabled_chip);
     try std.testing.expect(has_combo_box_semantics);
     try std.testing.expect(has_tab_list_semantics);
     try std.testing.expectEqual(@as(usize, 1), selected_tab_count);
@@ -2279,6 +2336,7 @@ test "responsive shell emits controls and text" {
     const virtual_end_frame = build(&model);
     var has_last_virtual_item = false;
     var end_virtual_item_count: usize = 0;
+    var end_scissor_count: usize = 0;
     var end_list_bounds: ?semantics.Bounds = null;
     var last_item_bounds: ?semantics.Bounds = null;
     for (virtual_end_frame.semantic_nodes) |node| {
@@ -2289,6 +2347,10 @@ test "responsive shell emits controls and text" {
             last_item_bounds = node.bounds;
         }
     }
+    for (virtual_end_frame.commands) |command| {
+        if (command.command_type == .scissor_start) end_scissor_count += 1;
+    }
+    try std.testing.expect(end_scissor_count >= 2);
     try std.testing.expect(end_virtual_item_count > 0);
     try std.testing.expect(has_last_virtual_item);
     try std.testing.expect(end_list_bounds != null and last_item_bounds != null);
@@ -2392,6 +2454,22 @@ test "semantic actions reuse reducer-facing UI actions" {
     );
     try std.testing.expectEqual(@as(usize, 1), actions.len);
     try std.testing.expect(actions[0] == .primary_button_pressed);
+
+    actions = handleSemanticAction(
+        &model,
+        chip_group.itemId("StatusFilters", 1).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u8, 1), actions[0].demo_filter_toggled);
+    actions = handleSemanticAction(
+        &model,
+        chip_group.itemId("StatusFilters", 3).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 0), actions.len);
 
     const expected_volume = model.demo_volume + 0.05;
     actions = handleSemanticAction(
