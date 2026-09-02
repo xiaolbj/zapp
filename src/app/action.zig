@@ -61,7 +61,8 @@ pub const Action = union(enum) {
     focused_control_right_requested,
     focused_control_home_requested,
     focused_control_end_requested,
-    text_field_focus_changed: bool,
+    text_input_focus_changed: ?text_edit.Target,
+    text_cleared: text_edit.Target,
     text_inserted: []const u8,
     text_backspace,
     text_delete_selection,
@@ -111,3 +112,4 @@ pub const Action = union(enum) {
 };
 const frame_metrics = @import("../performance/frame_metrics.zig");
 const platform = @import("../platform/platform.zig");
+const text_edit = @import("text_edit.zig");

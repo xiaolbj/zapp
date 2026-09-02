@@ -206,7 +206,7 @@ test "IME editing commands use the same reducer actions as desktop input" {
     try std.testing.expectEqualStrings("a", app.model.text());
 
     app.dispatchPlatformEvent(.ime_submit_requested);
-    try std.testing.expectEqual(@as(u32, 1), app.model.text_submission_count);
+    try std.testing.expectEqual(@as(u32, 1), app.model.application_name_input.submission_count);
 }
 
 test "platform actions enqueue stable request identifiers and consume results" {

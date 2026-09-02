@@ -1,5 +1,6 @@
 const frame_metrics = @import("../performance/frame_metrics.zig");
 const platform = @import("../platform/platform.zig");
+const text_edit = @import("text_edit.zig");
 
 pub const Model = struct {
     frame_count: u64 = 0,
@@ -41,14 +42,9 @@ pub const Model = struct {
     focused_control_right_requested: bool = false,
     focused_control_home_requested: bool = false,
     focused_control_end_requested: bool = false,
-    text_field_focused: bool = false,
-    text_buffer: [256]u8 = @splat(0),
-    text_length: usize = 0,
-    text_cursor: usize = 0,
-    text_selection_anchor: usize = 0,
-    text_composition_buffer: [256]u8 = @splat(0),
-    text_composition_length: usize = 0,
-    text_submission_count: u32 = 0,
+    active_text_input: ?text_edit.Target = null,
+    application_name_input: text_edit.State = .{},
+    search_input: text_edit.State = .{},
     permission_request_pending: bool = false,
     last_permission_request_id: platform.RequestId = 0,
     last_permission: ?platform.Permission = null,
@@ -99,27 +95,58 @@ pub const Model = struct {
     suspended: bool = false,
 
     pub fn text(self: *const Model) []const u8 {
-        return self.text_buffer[0..self.text_length];
+        return self.application_name_input.text();
+    }
+
+    pub fn searchText(self: *const Model) []const u8 {
+        return self.search_input.text();
+    }
+
+    pub fn textInput(self: *Model, target: text_edit.Target) *text_edit.State {
+        return switch (target) {
+            .application_name => &self.application_name_input,
+            .search => &self.search_input,
+        };
+    }
+
+    pub fn textInputConst(self: *const Model, target: text_edit.Target) *const text_edit.State {
+        return switch (target) {
+            .application_name => &self.application_name_input,
+            .search => &self.search_input,
+        };
+    }
+
+    pub fn activeTextInput(self: *Model) ?*text_edit.State {
+        return self.textInput(self.active_text_input orelse return null);
+    }
+
+    pub fn activeTextInputConst(self: *const Model) ?*const text_edit.State {
+        return self.textInputConst(self.active_text_input orelse return null);
+    }
+
+    pub fn isTextInputActive(self: *const Model, target: text_edit.Target) bool {
+        return self.active_text_input == target;
     }
 
     pub fn hasTextSelection(self: *const Model) bool {
-        return self.text_cursor != self.text_selection_anchor;
+        return self.application_name_input.hasSelection();
     }
 
     pub fn selectionStart(self: *const Model) usize {
-        return @min(self.text_cursor, self.text_selection_anchor);
+        return self.application_name_input.selectionStart();
     }
 
     pub fn selectionEnd(self: *const Model) usize {
-        return @max(self.text_cursor, self.text_selection_anchor);
+        return self.application_name_input.selectionEnd();
     }
 
     pub fn selectedText(self: *const Model) []const u8 {
-        return self.text_buffer[self.selectionStart()..self.selectionEnd()];
+        const active = self.activeTextInputConst() orelse &self.application_name_input;
+        return active.selectedText();
     }
 
     pub fn textComposition(self: *const Model) []const u8 {
-        return self.text_composition_buffer[0..self.text_composition_length];
+        return self.application_name_input.composition();
     }
 
     pub fn selectedFileUri(self: *const Model) []const u8 {

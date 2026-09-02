@@ -2,6 +2,7 @@ const std = @import("std");
 const clay = @import("zclay");
 const Action = @import("../app/action.zig").Action;
 const Model = @import("../app/model.zig").Model;
+const text_edit = @import("../app/text_edit.zig");
 const font = @import("../text/font.zig");
 const focus_manager = @import("focus_manager.zig");
 const form_field = @import("widgets/form_field.zig");
@@ -25,6 +26,7 @@ const pagination = @import("widgets/pagination.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const radio_group = @import("widgets/radio_group.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
+const search_field = @import("widgets/search_field.zig");
 const select = @import("widgets/select.zig");
 const slider = @import("widgets/slider.zig");
 const tabs = @import("widgets/tabs.zig");
@@ -175,7 +177,7 @@ pub fn setup(model: *const Model) bool {
     state.pagination_state = .{};
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
-    state.last_text_submission_count = model.text_submission_count;
+    state.last_text_submission_count = model.application_name_input.submission_count;
     state.action_count = 0;
 
     _ = clay.initialize(.init(memory), dimensions(model), .{
@@ -220,8 +222,8 @@ pub fn build(model: *const Model) Frame {
         .x = model.scroll_delta_x * 36,
         .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
-    if (model.text_submission_count != state.last_text_submission_count) {
-        state.last_text_submission_count = model.text_submission_count;
+    if (model.application_name_input.submission_count != state.last_text_submission_count) {
+        state.last_text_submission_count = model.application_name_input.submission_count;
         state.toast_state.show(
             if (demoTextInvalid(model)) "请修正表单错误" else "表单已提交",
             2.5,
@@ -253,6 +255,8 @@ pub fn build(model: *const Model) Frame {
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const retry_stepper_id = clay.ElementId.ID("RetryStepper").id;
+    const search_field_id = clay.ElementId.ID("ProjectSearch").id;
+    const search_clear_id = search_field.clearId("ProjectSearch").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const form_submit_id = clay.ElementId.ID("SubmitDemoForm").id;
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -264,7 +268,7 @@ pub fn build(model: *const Model) Frame {
         state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
     } else {
         state.focus_state.closeModal(dialog_id);
-        var focus_order: [48]u32 = undefined;
+        var focus_order: [64]u32 = undefined;
         const navigation_order = [_]u32{
             clay.ElementId.IDI("MainNavigation", 0).id,
             clay.ElementId.IDI("MainNavigation", 1).id,
@@ -332,6 +336,14 @@ pub fn build(model: *const Model) Frame {
         } else if (state.focus_state.focused_id) |focused_id| {
             if (menuItemIndex(focused_id) != null) state.focus_state.focus(actions_menu_id);
         }
+        focus_order[focus_order_count] = search_field_id;
+        focus_order_count += 1;
+        if (model.searchText().len > 0) {
+            focus_order[focus_order_count] = search_clear_id;
+            focus_order_count += 1;
+        } else if (state.focus_state.isFocused(search_clear_id)) {
+            state.focus_state.focus(search_field_id);
+        }
         for (0..4) |column_index| {
             focus_order[focus_order_count] = data_table.headerId("RecordsDataTable", column_index).id;
             focus_order_count += 1;
@@ -393,14 +405,17 @@ pub fn build(model: *const Model) Frame {
             ensureElementVisibleInScrollContainer(reveal_id, clay.ElementId.ID("PrimaryCard").id);
         }
     }
-    const focused_text_field = state.focus_state.isFocused(text_field_id) and !model.demo_dialog_open;
-    if ((model.focus_next_requested or model.focus_previous_requested) and
-        focused_text_field != model.text_field_focused)
-    {
-        emit(.{ .text_field_focus_changed = focused_text_field });
+    if (model.focus_next_requested or model.focus_previous_requested) {
+        const focused_target = if (state.focus_state.focused_id) |focused_id|
+            textTargetForElement(focused_id)
+        else
+            null;
+        if (focused_target != model.active_text_input) {
+            emit(.{ .text_input_focus_changed = focused_target });
+        }
     }
-    if (model.back_requested and model.text_field_focused and !model.demo_dialog_open) {
-        emit(.{ .text_field_focus_changed = false });
+    if (model.back_requested and model.active_text_input != null and !model.demo_dialog_open) {
+        emit(.{ .text_input_focus_changed = null });
     }
     if (model.back_requested and model.demo_sort_expanded and !model.demo_dialog_open) {
         state.focus_state.focus(sort_select_id);
@@ -437,6 +452,8 @@ pub fn build(model: *const Model) Frame {
         .home_pressed = model.focused_control_home_requested,
         .end_pressed = model.focused_control_end_requested,
     };
+    var text_focus_requested = false;
+    var text_blur_requested = false;
     const counter_text = std.fmt.bufPrint(
         &state.counter_text,
         "按钮点击次数：{d}",
@@ -969,6 +986,47 @@ pub fn build(model: *const Model) Frame {
                         .semantic_id = .ID("ActionsMenuStatus"),
                         .semantic_registry = &state.semantic_registry,
                     });
+                    label.draw("项目搜索", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("ProjectSearchLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const search_result = search_field.draw(&state.interaction_state, input, .{
+                        .id = "ProjectSearch",
+                        .text = model.searchText(),
+                        .placeholder = "搜索项目、状态或日志",
+                        .cursor = model.search_input.cursor,
+                        .selection_anchor = model.search_input.selection_anchor,
+                        .composition = model.search_input.composition(),
+                        .width = control_width,
+                        .focused = model.isTextInputActive(.search),
+                        .clear_focused = state.focus_state.isFocused(search_clear_id),
+                        .disabled = modal_open,
+                        .semantic_label = "项目搜索",
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (search_result.text.focus_requested) {
+                        state.focus_state.focus(search_field_id);
+                        text_focus_requested = true;
+                        if (!model.isTextInputActive(.search)) {
+                            emit(.{ .text_input_focus_changed = .search });
+                        }
+                    }
+                    if (search_result.text.blur_requested) text_blur_requested = true;
+                    if (search_result.text.cursor_position) |position| {
+                        emit(.{ .text_cursor_set = .{
+                            .position = position,
+                            .selecting = search_result.text.selecting,
+                        } });
+                    }
+                    if (search_result.clear_requested) {
+                        state.focus_state.focus(search_field_id);
+                        text_focus_requested = true;
+                        if (!model.isTextInputActive(.search)) {
+                            emit(.{ .text_input_focus_changed = .search });
+                        }
+                        emit(.{ .text_cleared = .search });
+                    }
                     label.draw("数据表格", .{
                         .color = theme.controls.text_muted,
                         .semantic_id = .ID("RecordsDataTableLabel"),
@@ -1142,24 +1200,26 @@ pub fn build(model: *const Model) Frame {
                         .label_text = "应用名称",
                         .text = model.text(),
                         .placeholder = "例如：我的 ZAPP",
-                        .cursor = model.text_cursor,
-                        .selection_anchor = model.text_selection_anchor,
+                        .cursor = model.application_name_input.cursor,
+                        .selection_anchor = model.application_name_input.selection_anchor,
                         .composition = model.textComposition(),
                         .helper_text = "至少输入 2 个字符，按 Enter 提交",
                         .error_message = "应用名称至少需要 2 个字符",
                         .width = control_width,
-                        .focused = model.text_field_focused,
+                        .focused = model.isTextInputActive(.application_name),
                         .disabled = modal_open,
                         .required = true,
                         .invalid = demoTextInvalid(model),
                         .semantic_registry = &state.semantic_registry,
                     });
-                    if (text_result.focus_requested and !model.text_field_focused) {
+                    if (text_result.focus_requested) {
                         state.focus_state.focus(text_field_id);
-                        emit(.{ .text_field_focus_changed = true });
-                    } else if (text_result.blur_requested) {
-                        emit(.{ .text_field_focus_changed = false });
+                        text_focus_requested = true;
+                        if (!model.isTextInputActive(.application_name)) {
+                            emit(.{ .text_input_focus_changed = .application_name });
+                        }
                     }
+                    if (text_result.blur_requested) text_blur_requested = true;
                     if (text_result.cursor_position) |position| {
                         emit(.{ .text_cursor_set = .{
                             .position = position,
@@ -1175,7 +1235,6 @@ pub fn build(model: *const Model) Frame {
                         .semantic_registry = &state.semantic_registry,
                     })) {
                         state.focus_state.focus(form_submit_id);
-                        if (model.text_field_focused) emit(.{ .text_field_focus_changed = false });
                         emit(.text_submitted);
                     }
                     divider.draw(.{});
@@ -1340,6 +1399,10 @@ pub fn build(model: *const Model) Frame {
         .semantic_registry = &state.semantic_registry,
     });
 
+    if (text_blur_requested and !text_focus_requested and model.active_text_input != null) {
+        emit(.{ .text_input_focus_changed = null });
+    }
+
     const commands = clay.endLayout();
     state.semantic_registry.resolveBounds();
     return .{
@@ -1369,6 +1432,8 @@ pub fn handleSemanticAction(
     const actions_menu_id = menu.triggerId("ActionsMenu").id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const retry_stepper_id = clay.ElementId.ID("RetryStepper").id;
+    const search_field_id = clay.ElementId.ID("ProjectSearch").id;
+    const search_clear_id = search_field.clearId("ProjectSearch").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const form_submit_id = clay.ElementId.ID("SubmitDemoForm").id;
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -1386,8 +1451,9 @@ pub fn handleSemanticAction(
         .focus => {
             if (isInteractiveSemanticId(element_id)) {
                 state.focus_state.focus(element_id);
-                if (model.text_field_focused != (element_id == text_field_id)) {
-                    emit(.{ .text_field_focus_changed = element_id == text_field_id });
+                const target = textTargetForElement(element_id);
+                if (model.active_text_input != target) {
+                    emit(.{ .text_input_focus_changed = target });
                 }
             }
         },
@@ -1396,11 +1462,19 @@ pub fn handleSemanticAction(
                 if (demo_menu_items[index].disabled) return state.actions[0..0];
             }
             state.focus_state.focus(element_id);
-            if (model.text_field_focused and element_id != text_field_id) {
-                emit(.{ .text_field_focus_changed = false });
+            if (model.active_text_input != null and textTargetForElement(element_id) == null and
+                element_id != search_clear_id)
+            {
+                emit(.{ .text_input_focus_changed = null });
             }
             if (element_id == primary_id) emit(.primary_button_pressed) else if (element_id == progress_id) emit(.demo_progress_incremented) else if (element_id == dialog_open_id) emit(.demo_dialog_opened) else if (element_id == checkbox_id) emit(.demo_checkbox_toggled) else if (element_id == switch_id) emit(.demo_switch_toggled) else if (element_id == text_field_id) {
-                if (!model.text_field_focused) emit(.{ .text_field_focus_changed = true });
+                if (!model.isTextInputActive(.application_name)) emit(.{ .text_input_focus_changed = .application_name });
+            } else if (element_id == search_field_id) {
+                if (!model.isTextInputActive(.search)) emit(.{ .text_input_focus_changed = .search });
+            } else if (element_id == search_clear_id) {
+                state.focus_state.focus(search_field_id);
+                emit(.{ .text_input_focus_changed = .search });
+                emit(.{ .text_cleared = .search });
             } else if (element_id == form_submit_id) emit(.text_submitted) else if (element_id == permission_id) emit(.{ .platform_permission_requested = .camera }) else if (element_id == file_picker_id) {
                 if (!model.file_picker_pending and !model.file_stream_pending) {
                     emit(.platform_file_picker_requested);
@@ -1477,9 +1551,9 @@ pub fn handleSemanticAction(
                 ) });
             }
         },
-        .set_text => if (element_id == text_field_id) {
+        .set_text => if (textTargetForElement(element_id)) |target| {
             state.focus_state.focus(element_id);
-            if (!model.text_field_focused) emit(.{ .text_field_focus_changed = true });
+            if (model.active_text_input != target) emit(.{ .text_input_focus_changed = target });
             emit(.text_select_all);
             emit(.{ .text_inserted = text });
         },
@@ -1528,6 +1602,12 @@ fn navigationIndex(element_id: u32) ?u8 {
     for (0..3) |index| {
         if (element_id == clay.ElementId.IDI("MainNavigation", @intCast(index)).id) return @intCast(index);
     }
+    return null;
+}
+
+fn textTargetForElement(element_id: u32) ?text_edit.Target {
+    if (element_id == clay.ElementId.ID("DemoTextField").id) return .application_name;
+    if (element_id == clay.ElementId.ID("ProjectSearch").id) return .search;
     return null;
 }
 
@@ -1645,6 +1725,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "DemoSwitch",
         "VolumeSlider",
         "RetryStepper",
+        "ProjectSearch",
         "DemoTextField",
         "SubmitDemoForm",
         "RequestCameraPermission",
@@ -1654,6 +1735,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "DemoDialogCancel",
         "DemoDialogConfirm",
     }) |id| if (element_id == clay.ElementId.ID(id).id) return true;
+    if (element_id == search_field.clearId("ProjectSearch").id) return true;
     return false;
 }
 
@@ -1668,7 +1750,7 @@ fn formatVirtualListItem(index: usize, buffer: []u8) []const u8 {
 }
 
 fn demoTextInvalid(model: *const Model) bool {
-    return model.text_submission_count > 0 and std.mem.trim(u8, model.text(), " \t").len < 2;
+    return model.application_name_input.submission_count > 0 and std.mem.trim(u8, model.text(), " \t").len < 2;
 }
 
 fn drawDemoAccordionPanel(context: ?*anyopaque, index: usize) void {
@@ -2215,7 +2297,7 @@ test "responsive shell emits controls and text" {
             primary_card_bounds.?.y + primary_card_bounds.?.height,
     );
 
-    model.text_submission_count = 1;
+    model.application_name_input.submission_count = 1;
     const revealed_error_frame = build(&model);
     var revealed_error_bounds: ?semantics.Bounds = null;
     for (revealed_error_frame.semantic_nodes) |node| {
@@ -2230,7 +2312,7 @@ test "responsive shell emits controls and text" {
         revealed_error_bounds.?.y + revealed_error_bounds.?.height <=
             primary_card_bounds.?.y + primary_card_bounds.?.height,
     );
-    model.text_submission_count = 0;
+    model.application_name_input.submission_count = 0;
     primary_scroll.scroll_position.y = 0;
     state.focus_state.focused_id = null;
     _ = build(&model);
@@ -2432,7 +2514,7 @@ test "responsive shell emits controls and text" {
     }
     try std.testing.expect(border_count >= 1);
 
-    model.text_submission_count = 1;
+    model.application_name_input.submission_count = 1;
     const toast_frame = build(&model);
     var has_toast_command = false;
     var has_status_semantics = false;
@@ -2554,11 +2636,33 @@ test "semantic actions reuse reducer-facing UI actions" {
         "无障碍输入",
     );
     try std.testing.expectEqual(@as(usize, 3), actions.len);
-    try std.testing.expect(actions[0] == .text_field_focus_changed);
+    try std.testing.expect(actions[0] == .text_input_focus_changed);
     try std.testing.expect(actions[1] == .text_select_all);
     try std.testing.expectEqualStrings("无障碍输入", actions[2].text_inserted);
 
-    model.text_field_focused = true;
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("ProjectSearch").id,
+        .set_text,
+        "日志",
+    );
+    try std.testing.expectEqual(@as(usize, 3), actions.len);
+    try std.testing.expect(actions[0].text_input_focus_changed == .search);
+    try std.testing.expect(actions[1] == .text_select_all);
+    try std.testing.expectEqualStrings("日志", actions[2].text_inserted);
+
+    model.active_text_input = .search;
+    actions = handleSemanticAction(
+        &model,
+        search_field.clearId("ProjectSearch").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 2), actions.len);
+    try std.testing.expect(actions[0].text_input_focus_changed == .search);
+    try std.testing.expect(actions[1].text_cleared == .search);
+
+    model.active_text_input = .application_name;
     actions = handleSemanticAction(
         &model,
         clay.ElementId.ID("SubmitDemoForm").id,
@@ -2566,9 +2670,9 @@ test "semantic actions reuse reducer-facing UI actions" {
         "",
     );
     try std.testing.expectEqual(@as(usize, 2), actions.len);
-    try std.testing.expect(!actions[0].text_field_focus_changed);
+    try std.testing.expect(actions[0].text_input_focus_changed == null);
     try std.testing.expect(actions[1] == .text_submitted);
-    model.text_field_focused = false;
+    model.active_text_input = null;
 
     actions = handleSemanticAction(
         &model,
@@ -2820,10 +2924,10 @@ test "file previews preserve UTF-8 text and format binary as hex" {
 test "demo form validation waits for submission and accepts two characters" {
     var model: Model = .{};
     try std.testing.expect(!demoTextInvalid(&model));
-    model.text_submission_count = 1;
+    model.application_name_input.submission_count = 1;
     try std.testing.expect(demoTextInvalid(&model));
-    @memcpy(model.text_buffer[0.."应用".len], "应用");
-    model.text_length = "应用".len;
+    @memcpy(model.application_name_input.buffer[0.."应用".len], "应用");
+    model.application_name_input.length = "应用".len;
     try std.testing.expect(!demoTextInvalid(&model));
 }
 

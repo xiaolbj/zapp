@@ -652,6 +652,8 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 FormField 已实现：控件保持 TextField 的受控数据和完整编辑/IME 行为，在外层组合标签、必填标记、帮助文本与错误文本。提交无效数据后，输入框使用主题错误色显示边框，语义节点输出 required、invalid 和 error text；Android 映射为 `setContentInvalid(true)` 与 `setError(...)`。错误 supporting text 使用 status 角色并随字段一起自动滚入可见区域；键盘 Enter 可提交，Tab 可从 IME 焦点宿主移动到后续提交按钮。
 
+补充控件 SearchField 已实现：控件复用 TextField 的 UTF-8 编辑、选区和 IME 能力，并在有内容时动态加入清除按钮及原生 button 语义。AppModel 使用 `text_edit.Target` 与多份固定容量 `text_edit.State` 保存字段状态，键盘、剪贴板、IME 和光标 Action 统一路由到当前 active target；示例中的应用名称与项目搜索互不共享缓冲区。两个输入框同帧切换时由 UI 集中仲裁 blur/focus，点击新字段不会被旧字段的外部点击 blur 覆盖。
+
 补充控件 ChipGroup 已实现：多个筛选值由 AppModel 中的位掩码控制，控件只产生切换索引 Action。每项使用稳定派生 ID，点击或 Enter/Space 独立切换 checked 状态；四向键循环移动，Home/End 定位首尾，并自动跳过禁用项。Android 无障碍桥将 chip 角色映射为 `ToggleButton`，同步 checkable/checked/selected/disabled 状态并把系统点击动作送回同一 reducer。
 
 补充控件 NumberStepper 已实现：整数值由 AppModel 控制，减号、数值和加号组成单一范围控件；指针点击与四向键按配置步长增减，Home/End 跳到最小/最大值，边界按钮自动禁用。语义节点新增 value_min/value_max/value_step，Slider 也显式写入自身 `0...1` 与 `0.05` 步长；Android Zig/C 节点 ABI 扩展为 448 字节、JNI geometry 扩展为 8 个 float，并把 spin_button 映射为带 RangeInfo 与双向系统滚动动作的 NumberPicker。

@@ -91,36 +91,31 @@ pub fn update(model: *Model, action: Action) void {
         .focused_control_right_requested => model.focused_control_right_requested = true,
         .focused_control_home_requested => model.focused_control_home_requested = true,
         .focused_control_end_requested => model.focused_control_end_requested = true,
-        .text_field_focus_changed => |focused| {
-            model.text_field_focused = focused;
-            if (focused) {
-                model.text_cursor = model.text_length;
-                model.text_selection_anchor = model.text_cursor;
-            } else {
-                model.text_composition_length = 0;
-            }
+        .text_input_focus_changed => |target| {
+            if (model.activeTextInput()) |current| current.blur();
+            model.active_text_input = target;
+            if (model.activeTextInput()) |current| current.focus();
         },
+        .text_cleared => |target| model.textInput(target).clear(),
         .text_inserted => |text| {
-            model.text_composition_length = 0;
-            insertSingleLine(model, text);
+            const input = editingInput(model);
+            input.cancelComposition();
+            input.insertSingleLine(text);
         },
-        .text_backspace => backspace(model),
-        .text_delete_selection => deleteSelection(model),
-        .text_cursor_moved => |movement| moveCursor(model, movement.direction, movement.selecting),
-        .text_cursor_set => |request| setCursor(model, request.position, request.selecting),
-        .text_cursor_home => |selecting| setCursor(model, 0, selecting),
-        .text_cursor_end => |selecting| setCursor(model, model.text_length, selecting),
-        .text_select_all => {
-            model.text_selection_anchor = 0;
-            model.text_cursor = model.text_length;
+        .text_backspace => editingInput(model).backspace(),
+        .text_delete_selection => editingInput(model).deleteSelection(),
+        .text_cursor_moved => |movement| editingInput(model).moveCursor(movement.direction, movement.selecting),
+        .text_cursor_set => |request| editingInput(model).setCursor(request.position, request.selecting),
+        .text_cursor_home => |selecting| editingInput(model).setCursor(0, selecting),
+        .text_cursor_end => |selecting| {
+            const input = editingInput(model);
+            input.setCursor(input.length, selecting);
         },
-        .text_composition_changed => |text| setComposition(model, text),
-        .text_composition_committed => |text| {
-            model.text_composition_length = 0;
-            insertSingleLine(model, text);
-        },
-        .text_composition_cancelled => model.text_composition_length = 0,
-        .text_submitted => model.text_submission_count += 1,
+        .text_select_all => editingInput(model).selectAll(),
+        .text_composition_changed => |text| editingInput(model).setComposition(text),
+        .text_composition_committed => |text| editingInput(model).commitComposition(text),
+        .text_composition_cancelled => editingInput(model).cancelComposition(),
+        .text_submitted => editingInput(model).submit(),
         .platform_permission_requested => |permission| {
             model.permission_request_pending = true;
             model.last_permission = permission;
@@ -401,7 +396,7 @@ test "text input never splits a UTF-8 sequence at capacity" {
     update(&model, .{ .text_inserted = ascii });
     update(&model, .{ .text_inserted = "中" });
 
-    try std.testing.expectEqual(@as(usize, 255), model.text_length);
+    try std.testing.expectEqual(@as(usize, 255), model.application_name_input.length);
     try std.testing.expect(std.unicode.utf8ValidateSlice(model.text()));
 }
 
@@ -409,12 +404,12 @@ test "text submission and navigation remain controlled by the model" {
     const std = @import("std");
     var model: Model = .{};
 
-    update(&model, .{ .text_field_focus_changed = true });
+    update(&model, .{ .text_input_focus_changed = .application_name });
     update(&model, .text_submitted);
     update(&model, .{ .demo_navigation_selected = 2 });
 
-    try std.testing.expect(model.text_field_focused);
-    try std.testing.expectEqual(@as(u32, 1), model.text_submission_count);
+    try std.testing.expect(model.isTextInputActive(.application_name));
+    try std.testing.expectEqual(@as(u32, 1), model.application_name_input.submission_count);
     try std.testing.expectEqual(@as(u8, 2), model.demo_navigation_index);
 }
 
@@ -497,8 +492,8 @@ test "select all and delete selection clear the field" {
     update(&model, .text_select_all);
     try std.testing.expectEqualStrings("copy me", model.selectedText());
     update(&model, .text_delete_selection);
-    try std.testing.expectEqual(@as(usize, 0), model.text_length);
-    try std.testing.expectEqual(@as(usize, 0), model.text_cursor);
+    try std.testing.expectEqual(@as(usize, 0), model.application_name_input.length);
+    try std.testing.expectEqual(@as(usize, 0), model.application_name_input.cursor);
 }
 
 test "IME composition remains provisional until committed" {
@@ -511,7 +506,25 @@ test "IME composition remains provisional until committed" {
 
     update(&model, .{ .text_composition_committed = "中" });
     try std.testing.expectEqualStrings("A中", model.text());
-    try std.testing.expectEqual(@as(usize, 0), model.text_composition_length);
+    try std.testing.expectEqual(@as(usize, 0), model.application_name_input.composition_length);
+}
+
+test "editing actions route to the active text target" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .text_inserted = "应用" });
+    update(&model, .{ .text_input_focus_changed = .search });
+    update(&model, .{ .text_inserted = "日志" });
+    update(&model, .text_select_all);
+    update(&model, .{ .text_inserted = "项目" });
+
+    try std.testing.expectEqualStrings("应用", model.text());
+    try std.testing.expectEqualStrings("项目", model.searchText());
+    try std.testing.expect(model.isTextInputActive(.search));
+
+    update(&model, .{ .text_cleared = .search });
+    try std.testing.expectEqualStrings("", model.searchText());
+    try std.testing.expectEqualStrings("应用", model.text());
 }
 
 test "keyboard navigation requests are frame-latched" {
@@ -698,119 +711,11 @@ test "file stream rejects discontinuous offsets" {
     try std.testing.expectEqual(@as(u64, 0), model.file_stream_bytes_consumed);
 }
 
-fn insertSingleLine(model: *Model, text: []const u8) void {
-    deleteSelection(model);
-    var index: usize = 0;
-    while (index < text.len) {
-        const first = text[index];
-        if (first == '\r' or first == '\n') break;
-        const sequence_length: usize = if (first < 0x80)
-            1
-        else if (first & 0xE0 == 0xC0)
-            2
-        else if (first & 0xF0 == 0xE0)
-            3
-        else if (first & 0xF8 == 0xF0)
-            4
-        else
-            1;
-        if (index + sequence_length > text.len) break;
-        if (model.text_length + sequence_length > model.text_buffer.len) break;
-        var tail = model.text_length;
-        while (tail > model.text_cursor) : (tail -= 1) {
-            model.text_buffer[tail + sequence_length - 1] = model.text_buffer[tail - 1];
-        }
-        @memcpy(model.text_buffer[model.text_cursor .. model.text_cursor + sequence_length], text[index .. index + sequence_length]);
-        model.text_length += sequence_length;
-        model.text_cursor += sequence_length;
-        model.text_selection_anchor = model.text_cursor;
-        index += sequence_length;
-    }
-}
-
-fn backspace(model: *Model) void {
-    if (model.hasTextSelection()) {
-        deleteSelection(model);
-        return;
-    }
-    if (model.text_cursor == 0) return;
-    const previous = previousCodepoint(model.text(), model.text_cursor);
-    deleteRange(model, previous, model.text_cursor);
-}
-
-fn deleteSelection(model: *Model) void {
-    if (!model.hasTextSelection()) return;
-    deleteRange(model, model.selectionStart(), model.selectionEnd());
-}
-
-fn deleteRange(model: *Model, start: usize, end: usize) void {
-    const removed = end - start;
-    var index = end;
-    while (index < model.text_length) : (index += 1) {
-        model.text_buffer[index - removed] = model.text_buffer[index];
-    }
-    model.text_length -= removed;
-    model.text_cursor = start;
-    model.text_selection_anchor = start;
-}
-
-fn moveCursor(model: *Model, direction: i8, selecting: bool) void {
-    if (!selecting and model.hasTextSelection()) {
-        const target = if (direction < 0) model.selectionStart() else model.selectionEnd();
-        setCursor(model, target, false);
-        return;
-    }
-    const target = if (direction < 0)
-        previousCodepoint(model.text(), model.text_cursor)
-    else
-        nextCodepoint(model.text(), model.text_cursor);
-    setCursor(model, target, selecting);
-}
-
-fn setCursor(model: *Model, target: usize, selecting: bool) void {
-    model.text_cursor = @min(target, model.text_length);
-    if (!selecting) model.text_selection_anchor = model.text_cursor;
-}
-
-fn previousCodepoint(text: []const u8, cursor: usize) usize {
-    if (cursor == 0) return 0;
-    var index = cursor - 1;
-    while (index > 0 and text[index] & 0xC0 == 0x80) index -= 1;
-    return index;
-}
-
-fn nextCodepoint(text: []const u8, cursor: usize) usize {
-    if (cursor >= text.len) return text.len;
-    var index = cursor + 1;
-    while (index < text.len and text[index] & 0xC0 == 0x80) index += 1;
-    return index;
-}
-
-fn setComposition(model: *Model, text: []const u8) void {
-    model.text_composition_length = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        const first = text[index];
-        if (first == '\r' or first == '\n') break;
-        const sequence_length: usize = if (first < 0x80)
-            1
-        else if (first & 0xE0 == 0xC0)
-            2
-        else if (first & 0xF0 == 0xE0)
-            3
-        else if (first & 0xF8 == 0xF0)
-            4
-        else
-            1;
-        if (index + sequence_length > text.len or
-            model.text_composition_length + sequence_length > model.text_composition_buffer.len) break;
-        @memcpy(
-            model.text_composition_buffer[model.text_composition_length .. model.text_composition_length + sequence_length],
-            text[index .. index + sequence_length],
-        );
-        model.text_composition_length += sequence_length;
-        index += sequence_length;
-    }
+/// Reducer tests and programmatic actions retain the application-name field as
+/// the compatibility target when no visual field owns focus. Platform input
+/// always has an active target because the keyboard is only shown on focus.
+fn editingInput(model: *Model) *@import("text_edit.zig").State {
+    return model.activeTextInput() orelse &model.application_name_input;
 }
 
 fn setSelectedFileUri(model: *Model, uri: []const u8) void {

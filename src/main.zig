@@ -35,7 +35,7 @@ export fn init() void {
 
 export fn frame() void {
     const frame_start = stm.now();
-    const keyboard_was_visible = state.app.model.text_field_focused;
+    const keyboard_was_visible = state.app.model.active_text_input != null;
     drainPlatformEvents();
     state.app.dispatch(.{ .tick = sapp.frameDuration() });
     const ui_start = stm.now();
@@ -46,8 +46,9 @@ export fn frame() void {
     }
     for (ui_frame.actions) |action| state.app.dispatch(action);
     processPlatformRequests();
-    if (keyboard_was_visible != state.app.model.text_field_focused) {
-        setKeyboardVisible(state.app.model.text_field_focused);
+    const keyboard_is_visible = state.app.model.active_text_input != null;
+    if (keyboard_was_visible != keyboard_is_visible) {
+        setKeyboardVisible(keyboard_is_visible);
     }
     state.app.dispatch(.input_consumed);
     const render_start = stm.now();
@@ -346,7 +347,7 @@ export fn event(ev: [*c]const sapp.Event) void {
                 } else {
                     state.app.dispatch(.focus_next_requested);
                 }
-            } else if (state.app.model.text_field_focused) {
+            } else if (state.app.model.active_text_input != null) {
                 const command_modifier = current.modifiers & (sapp.modifier_ctrl | sapp.modifier_super) != 0;
                 const selecting = current.modifiers & sapp.modifier_shift != 0;
                 if (command_modifier and current.key_code == .A and !current.key_repeat) {
@@ -388,14 +389,14 @@ export fn event(ev: [*c]const sapp.Event) void {
             }
         },
         .CHAR => {
-            if (state.app.model.text_field_focused and current.char_code >= 32) {
+            if (state.app.model.active_text_input != null and current.char_code >= 32) {
                 var encoded: [4]u8 = undefined;
                 const length = std.unicode.utf8Encode(@intCast(current.char_code), &encoded) catch 0;
                 if (length > 0) state.app.dispatch(.{ .text_inserted = encoded[0..length] });
             }
         },
         .CLIPBOARD_PASTED => {
-            if (state.app.model.text_field_focused) {
+            if (state.app.model.active_text_input != null) {
                 state.app.dispatch(.{ .text_inserted = sapp.getClipboardString() });
             }
         },
