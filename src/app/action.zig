@@ -30,6 +30,23 @@ pub const TextCursorSet = struct {
     selecting: bool,
 };
 
+pub const RuntimeImageProgress = struct {
+    request_id: platform.RequestId,
+    bytes_received: u64,
+};
+
+pub const RuntimeImageResult = struct {
+    request_id: platform.RequestId,
+    encoded_bytes: u64,
+    width: u32,
+    height: u32,
+};
+
+pub const RuntimeImageFailure = struct {
+    request_id: platform.RequestId,
+    error_kind: runtime_image.LoadFailure,
+};
+
 pub const Action = union(enum) {
     tick: f64,
     performance_updated: frame_metrics.Snapshot,
@@ -89,6 +106,13 @@ pub const Action = union(enum) {
     platform_file_stream_completed: platform.FileStreamTerminal,
     platform_file_stream_failed: platform.FileReadFailure,
     platform_file_stream_cancelled: platform.FileStreamTerminal,
+    platform_runtime_image_load_requested,
+    platform_runtime_image_load_started: platform.RequestId,
+    platform_runtime_image_load_cancel_requested,
+    platform_runtime_image_load_progress: RuntimeImageProgress,
+    platform_runtime_image_load_succeeded: RuntimeImageResult,
+    platform_runtime_image_load_failed: RuntimeImageFailure,
+    platform_runtime_image_load_cancelled: platform.FileStreamTerminal,
     demo_navigation_selected: u8,
     demo_tree_toggled: u8,
     demo_tree_selected: u8,
@@ -112,4 +136,5 @@ pub const Action = union(enum) {
 };
 const frame_metrics = @import("../performance/frame_metrics.zig");
 const platform = @import("../platform/platform.zig");
+const runtime_image = @import("../assets/runtime_image.zig");
 const text_edit = @import("text_edit.zig");

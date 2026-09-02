@@ -89,7 +89,7 @@ Clay 滚动容器把 `Clay_GetScrollOffset()` 作为 clip 的 `childOffset` 应�
 
 手柄、电视遥控器和辅助输入设备通过平台层的 `NavigationCommand` 接入：`next`/`previous` 移动焦点，`activate` 激活控件，`decrement`/`increment` 调节 Slider，`up`/`down`/`left`/`right` 保留方向语义供 Tabs、TreeView 等复合控件使用，`first`/`last` 支持菜单等集合首尾跳转，`back` 复用 Escape/Android 返回逻辑。Android Activity 已显式把 DPAD、Tab、Move Home/End 和激活键送入该桥；IME 编辑视图持有焦点时仍由文本输入路径处理按键。
 
-路线图第一批控件（Button、IconButton、Label、Checkbox/Switch、Slider、ScrollView/List、Dialog、Toast、NavigationBar、基础单行 TextField）以及补充的 TreeView、FormField 和 ImageView 均已有可运行实现。图片控件只携带稳定资源 ID、固有尺寸和 fit 策略；Catalog 保存编码字节与元数据，Registry 在启动时执行有尺寸/字节上限的内存 PNG/JPEG 解码，并统一创建、解析和销毁 GPU Image/View 及共享 Sampler。业务 UI 不依赖 Sokol 类型，帧内不进行图片文件 I/O、解码或堆分配。TreeView 的展开掩码和选择项由 AppModel 持有，折叠节点会从布局、焦点顺序和语义树中移除。TextField 已支持 UTF-8 光标、鼠标/触摸定位与拖选、Shift 选择、全选、复制、剪切、粘贴、选区替换以及独立的 IME 组合态；FormField 在其上组合标签、帮助/错误文本和受控验证状态。Android APK 已通过自定义 `NativeActivity`、`InputConnection` 和 JNI 事件队列接入中文软键盘。权限请求与系统文件选择器也已通过同一异步平台桥接入，文件读取结果包含显示名称、MIME 类型、可选大小和内容预览；大文件可以按 4096 字节分块完整消费、取消并显示进度与增量摘要，所有结果统一回到 App reducer。
+路线图第一批控件（Button、IconButton、Label、Checkbox/Switch、Slider、ScrollView/List、Dialog、Toast、NavigationBar、基础单行 TextField）以及补充的 TreeView、FormField 和 ImageView 均已有可运行实现。图片控件只携带稳定资源 ID、固有尺寸和 fit 策略；Catalog 保存内嵌资源，Registry 统一创建、解析和销毁 GPU Image/View 及共享 Sampler。运行时图片复用平台的 4096 字节有序分块流，在主线程以 16 MiB 编码上限组装后执行受限 PNG/JPEG 解码；新 Image/View 全部创建成功后才原子替换动态槽，失败时保留上一张有效纹理。业务 UI 不依赖 Sokol 类型，普通渲染帧不进行图片文件 I/O、解码或堆分配。TreeView 的展开掩码和选择项由 AppModel 持有，折叠节点会从布局、焦点顺序和语义树中移除。TextField 已支持 UTF-8 光标、鼠标/触摸定位与拖选、Shift 选择、全选、复制、剪切、粘贴、选区替换以及独立的 IME 组合态；FormField 在其上组合标签、帮助/错误文本和受控验证状态。Android APK 已通过自定义 `NativeActivity`、`InputConnection` 和 JNI 事件队列接入中文软键盘。权限请求与系统文件选择器也已通过同一异步平台桥接入，文件读取结果包含显示名称、MIME 类型、可选大小和内容预览；大文件可以按 4096 字节分块完整消费、取消并显示进度与增量摘要，所有结果统一回到 App reducer。
 
 交互控件已接入循环键盘焦点顺序：`Tab`/`Shift+Tab` 前后移动，`Enter`/`Space` 激活当前按钮或选择控件，Slider 使用左右方向键按 `0.05` 调整，NumberStepper 使用四向键增减和 Home/End 边界跳转，RadioGroup 使用四向键循环选择，ChipGroup 使用四向键/Home/End 移动并以 Enter/Space 切换，Select 使用上下键选择并可展开进入选项，Tabs 使用横向左右键或纵向上下键自动切换，Menu 使用上下键及 Home/End 在可用项间导航，VirtualList 使用单一 Tab 停靠点和方向键/Home/End 选择并自动滚动，DataTable 使用表头与活动行停靠点完成列排序和稳定行导航，Pagination 使用左右/Home/End 切页并在边界移除不可用停靠点，Accordion 使用上/下/Home/End 在标题间移动并以左右键展开或收起；Dialog 打开时焦点顺序被限制在取消和确认按钮内。Button、IconButton、Checkbox、Switch、Slider、NumberStepper、TextField、NavigationBar、TreeView、Accordion、RadioGroup、ChipGroup、Select、Tabs、Menu、VirtualList、DataTable 和 Pagination 均通过统一 Theme 令牌显示焦点环。
 
@@ -114,7 +114,7 @@ if (button.draw(&state.button_state, input, .{
 - Clay 是正式产品 UI 的布局层；ImGui 仅作为未来可选的开发调试层。
 - UI 发出 Action，由 AppModel/reducer 统一更新业务状态。
 - Android、iOS 等系统 API 通过异步平台桥接层接入。
-- Android 端已实现相机、麦克风、通知、媒体权限请求和 Storage Access Framework 文件选择；文件结果使用 `content://` URI，不假定存在真实文件路径。选中后会在后台自动读取最多 4096 字节预览，UTF-8 文本直接显示，二进制内容使用十六进制显示并标记截断；也可启动带背压和取消能力的完整分块读取。
+- Android 端已实现相机、麦克风、通知、媒体权限请求和 Storage Access Framework 文件选择；文件结果使用 `content://` URI，不假定存在真实文件路径。选中后会在后台自动读取最多 4096 字节预览，UTF-8 文本直接显示，二进制内容使用十六进制显示并标记截断；也可启动带背压和取消能力的完整分块读取，或把受限 PNG/JPEG 动态上传到 Sokol 图片 Registry。
 - Noto Sans SC 使用 OFL-1.1 许可证，许可证随字体保存在 `assets/fonts`。
 - PNG/JPEG 解码使用固定到提交 `2c980bb59875b0d32144a71867fbdebb2f77cd20` 的 `stb_image`；来源、文件哈希和许可证保存在 `third_party/stb`。
 

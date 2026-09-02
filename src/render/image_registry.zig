@@ -10,6 +10,18 @@ pub const Texture = struct {
     sampler: sg.Sampler,
 };
 
+pub const Dimensions = struct {
+    width: u32,
+    height: u32,
+};
+
+pub const ReplaceError = error{
+    ImmutableResource,
+    InvalidData,
+    LimitExceeded,
+    GpuUploadFailed,
+};
+
 const Entry = struct {
     image: sg.Image = .{},
     view: sg.View = .{},
@@ -32,9 +44,11 @@ pub const Registry = struct {
 
         inline for (std.meta.fields(catalog.Resource)) |field| {
             const resource: catalog.Resource = @enumFromInt(field.value);
-            if (!self.load(resource)) {
-                self.shutdown();
-                return false;
+            if (comptime catalog.descriptor(resource)) |item| {
+                if (!self.load(item)) {
+                    self.shutdown();
+                    return false;
+                }
             }
         }
         return true;
@@ -56,35 +70,67 @@ pub const Registry = struct {
         return .{ .view = entry.view, .sampler = self.sampler };
     }
 
-    fn load(self: *Registry, resource: catalog.Resource) bool {
-        const item = catalog.descriptor(resource);
+    /// Replaces a dynamic slot only after decode and both GPU objects succeed.
+    /// A failed update leaves the previously visible texture untouched.
+    pub fn replaceEncoded(
+        self: *Registry,
+        resource: catalog.Resource,
+        encoded_bytes: []const u8,
+    ) ReplaceError!Dimensions {
+        if (catalog.descriptor(resource) != null) return error.ImmutableResource;
+        var decoded = image_decode.decode(encoded_bytes) catch |decode_error| return switch (decode_error) {
+            error.LimitExceeded => error.LimitExceeded,
+            else => error.InvalidData,
+        };
+        defer decoded.deinit();
+
+        const replacement = createEntry(
+            decoded,
+            "zapp-runtime-image",
+        ) catch return error.GpuUploadFailed;
+        const entry = &self.entries[index(resource)];
+        const previous = entry.*;
+        entry.* = replacement;
+        destroyEntry(previous);
+        return .{ .width = decoded.width, .height = decoded.height };
+    }
+
+    fn load(self: *Registry, item: catalog.Descriptor) bool {
         var decoded = image_decode.decode(item.encoded_bytes) catch return false;
         defer decoded.deinit();
         if (decoded.width != item.pixel_width or decoded.height != item.pixel_height) return false;
-
-        var data: sg.ImageData = .{};
-        data.mip_levels[0] = .{ .ptr = decoded.pixels, .size = decoded.byte_count };
-        const entry = &self.entries[index(resource)];
-        entry.image = sg.makeImage(.{
-            .width = @intCast(decoded.width),
-            .height = @intCast(decoded.height),
-            .pixel_format = .RGBA8,
-            .data = data,
-            .label = item.label,
-        });
-        if (entry.image.id == 0) return false;
-        entry.view = sg.makeView(.{
-            .texture = .{ .image = entry.image },
-            .label = item.label,
-        });
-        if (entry.view.id == 0) {
-            sg.destroyImage(entry.image);
-            entry.* = .{};
-            return false;
-        }
+        self.entries[index(item.resource)] = createEntry(decoded, item.label) catch return false;
         return true;
     }
 };
+
+fn createEntry(decoded: image_decode.DecodedImage, label: [:0]const u8) error{GpuUploadFailed}!Entry {
+    var data: sg.ImageData = .{};
+    data.mip_levels[0] = .{ .ptr = decoded.pixels, .size = decoded.byte_count };
+    var entry: Entry = .{};
+    entry.image = sg.makeImage(.{
+        .width = @intCast(decoded.width),
+        .height = @intCast(decoded.height),
+        .pixel_format = .RGBA8,
+        .data = data,
+        .label = label,
+    });
+    if (entry.image.id == 0) return error.GpuUploadFailed;
+    entry.view = sg.makeView(.{
+        .texture = .{ .image = entry.image },
+        .label = label,
+    });
+    if (entry.view.id == 0) {
+        sg.destroyImage(entry.image);
+        return error.GpuUploadFailed;
+    }
+    return entry;
+}
+
+fn destroyEntry(entry: Entry) void {
+    if (entry.view.id != 0) sg.destroyView(entry.view);
+    if (entry.image.id != 0) sg.destroyImage(entry.image);
+}
 
 fn index(resource: catalog.Resource) usize {
     return @intFromEnum(resource);
@@ -93,4 +139,5 @@ fn index(resource: catalog.Resource) usize {
 test "empty registry does not resolve GPU textures" {
     const registry: Registry = .{};
     try std.testing.expect(registry.resolve(.demo_hero) == null);
+    try std.testing.expect(registry.resolve(.runtime_preview) == null);
 }

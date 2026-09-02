@@ -1,4 +1,8 @@
 pub const app = @import("src/app/app.zig");
+pub const assets = struct {
+    pub const image_catalog = @import("src/assets/image_catalog.zig");
+    pub const runtime_image = @import("src/assets/runtime_image.zig");
+};
 pub const performance = @import("src/performance/frame_metrics.zig");
 pub const platform = @import("src/platform/platform.zig");
 pub const render = @import("src/render/clay_renderer.zig");
@@ -8,6 +12,7 @@ pub const ui = @import("src/ui/root.zig");
 
 test {
     _ = @import("src/assets/image_catalog.zig");
+    _ = @import("src/assets/runtime_image.zig");
     _ = app;
     _ = performance;
     _ = platform;

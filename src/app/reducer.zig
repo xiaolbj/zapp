@@ -218,6 +218,48 @@ pub fn update(model: *Model, action: Action) void {
             model.file_stream_cancelled = result.total_bytes == model.file_stream_bytes_consumed;
             model.file_stream_error = if (model.file_stream_cancelled) null else .io;
         },
+        .platform_runtime_image_load_requested => {
+            model.runtime_image_error = null;
+            model.runtime_image_bytes_received = 0;
+        },
+        .platform_runtime_image_load_started => |request_id| {
+            model.last_runtime_image_request_id = request_id;
+            model.runtime_image_load_pending = true;
+            model.runtime_image_cancel_pending = false;
+            model.runtime_image_bytes_received = 0;
+            model.runtime_image_error = null;
+        },
+        .platform_runtime_image_load_cancel_requested => {
+            if (model.runtime_image_load_pending) model.runtime_image_cancel_pending = true;
+        },
+        .platform_runtime_image_load_progress => |progress| {
+            if (progress.request_id != model.last_runtime_image_request_id or
+                !model.runtime_image_load_pending) return;
+            model.runtime_image_bytes_received = progress.bytes_received;
+        },
+        .platform_runtime_image_load_succeeded => |result| {
+            if (result.request_id != model.last_runtime_image_request_id) return;
+            model.runtime_image_load_pending = false;
+            model.runtime_image_cancel_pending = false;
+            model.runtime_image_loaded = true;
+            model.runtime_image_bytes_received = result.encoded_bytes;
+            model.runtime_image_width = result.width;
+            model.runtime_image_height = result.height;
+            model.runtime_image_error = null;
+        },
+        .platform_runtime_image_load_failed => |failure| {
+            if (failure.request_id != model.last_runtime_image_request_id) return;
+            model.runtime_image_load_pending = false;
+            model.runtime_image_cancel_pending = false;
+            model.runtime_image_error = failure.error_kind;
+        },
+        .platform_runtime_image_load_cancelled => |result| {
+            if (result.request_id != model.last_runtime_image_request_id) return;
+            model.runtime_image_load_pending = false;
+            model.runtime_image_cancel_pending = false;
+            model.runtime_image_bytes_received = result.total_bytes;
+            model.runtime_image_error = .interrupted;
+        },
         .demo_navigation_selected => |index| {
             const next_index = @min(index, 2);
             if (next_index != model.demo_navigation_index) {
@@ -821,4 +863,36 @@ test "performance snapshot is retained in the model" {
     try std.testing.expectEqual(@as(f32, 59.8), model.performance.fps);
     try std.testing.expectEqual(@as(f32, 0.75), model.performance.average_ui_cpu_ms);
     try std.testing.expectEqual(@as(u32, 180), model.performance.peak_command_count);
+}
+
+test "runtime image loading preserves the last success across failures" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .platform_runtime_image_load_requested);
+    update(&model, .{ .platform_runtime_image_load_started = 31 });
+    update(&model, .{ .platform_runtime_image_load_progress = .{
+        .request_id = 31,
+        .bytes_received = 4096,
+    } });
+    try std.testing.expect(model.runtime_image_load_pending);
+    try std.testing.expectEqual(@as(u64, 4096), model.runtime_image_bytes_received);
+
+    update(&model, .{ .platform_runtime_image_load_succeeded = .{
+        .request_id = 31,
+        .encoded_bytes = 12_266,
+        .width = 128,
+        .height = 64,
+    } });
+    try std.testing.expect(model.runtime_image_loaded);
+    try std.testing.expectEqual(@as(u32, 128), model.runtime_image_width);
+
+    update(&model, .{ .platform_runtime_image_load_started = 32 });
+    update(&model, .{ .platform_runtime_image_load_failed = .{
+        .request_id = 32,
+        .error_kind = .invalid_data,
+    } });
+    try std.testing.expect(!model.runtime_image_load_pending);
+    try std.testing.expect(model.runtime_image_loaded);
+    try std.testing.expectEqual(@as(u32, 128), model.runtime_image_width);
+    try std.testing.expect(model.runtime_image_error == .invalid_data);
 }

@@ -15,6 +15,7 @@ const state = struct {
     var app: App = .{};
     var renderer: ClayRenderer = .{};
     var metrics: zapp.performance.Collector = .{};
+    var runtime_image_accumulator: zapp.assets.runtime_image.Accumulator = .{};
 };
 
 export fn init() void {
@@ -135,23 +136,39 @@ fn drainPlatformEvents() void {
                     .error_kind = error_kind,
                 } });
             },
-            .file_stream_chunk => state.app.dispatchPlatformEvent(.{ .file_stream_chunk = .{
+            .file_stream_chunk => if (isRuntimeImageRequest(native_event.request_id)) {
+                handleRuntimeImageChunk(&native_event);
+            } else state.app.dispatchPlatformEvent(.{ .file_stream_chunk = .{
                 .request_id = native_event.request_id,
                 .offset = native_event.file_size,
                 .data = native_event.payload(),
             } }),
-            .file_stream_completed => state.app.dispatchPlatformEvent(.{ .file_stream_completed = .{
+            .file_stream_completed => if (isRuntimeImageRequest(native_event.request_id)) {
+                finishRuntimeImage(&native_event);
+            } else state.app.dispatchPlatformEvent(.{ .file_stream_completed = .{
                 .request_id = native_event.request_id,
                 .total_bytes = native_event.file_size,
             } }),
             .file_stream_failed => {
                 const error_kind = fileReadErrorFromValue(native_event.detail_value) orelse .io;
-                state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
+                if (isRuntimeImageRequest(native_event.request_id)) {
+                    state.runtime_image_accumulator.reset(std.heap.c_allocator);
+                    state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                        .request_id = native_event.request_id,
+                        .error_kind = runtimeImagePlatformFailure(error_kind),
+                    } });
+                } else state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
                     .request_id = native_event.request_id,
                     .error_kind = error_kind,
                 } });
             },
-            .file_stream_cancelled => state.app.dispatchPlatformEvent(.{ .file_stream_cancelled = .{
+            .file_stream_cancelled => if (isRuntimeImageRequest(native_event.request_id)) {
+                state.runtime_image_accumulator.reset(std.heap.c_allocator);
+                state.app.dispatch(.{ .platform_runtime_image_load_cancelled = .{
+                    .request_id = native_event.request_id,
+                    .total_bytes = native_event.file_size,
+                } });
+            } else state.app.dispatchPlatformEvent(.{ .file_stream_cancelled = .{
                 .request_id = native_event.request_id,
                 .total_bytes = native_event.file_size,
             } }),
@@ -238,6 +255,23 @@ fn processPlatformRequests() void {
                 } });
             },
             .stream_file => |stream_request| {
+                if (isRuntimeImageRequest(stream_request.request_id)) {
+                    const expected_size = if (state.app.model.file_size_known)
+                        state.app.model.file_size
+                    else
+                        null;
+                    state.runtime_image_accumulator.begin(
+                        std.heap.c_allocator,
+                        stream_request.request_id,
+                        expected_size,
+                    ) catch |accumulator_error| {
+                        state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                            .request_id = stream_request.request_id,
+                            .error_kind = runtimeImageAccumulatorFailure(accumulator_error),
+                        } });
+                        continue;
+                    };
+                }
                 const started = if (comptime builtin.abi.isAndroid())
                     zapp.platform.android.streamFile(
                         stream_request.request_id,
@@ -246,10 +280,18 @@ fn processPlatformRequests() void {
                     )
                 else
                     false;
-                if (!started) state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
-                    .request_id = stream_request.request_id,
-                    .error_kind = .unsupported,
-                } });
+                if (!started) {
+                    if (isRuntimeImageRequest(stream_request.request_id)) {
+                        state.runtime_image_accumulator.reset(std.heap.c_allocator);
+                        state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                            .request_id = stream_request.request_id,
+                            .error_kind = .unsupported,
+                        } });
+                    } else state.app.dispatchPlatformEvent(.{ .file_stream_failed = .{
+                        .request_id = stream_request.request_id,
+                        .error_kind = .unsupported,
+                    } });
+                }
             },
             .cancel_file_stream => |request_id| {
                 const cancelled = if (comptime builtin.abi.isAndroid())
@@ -296,6 +338,85 @@ fn fileReadErrorFromValue(value: c_int) ?zapp.platform.FileReadError {
         @intFromEnum(zapp.platform.FileReadError.io) => .io,
         @intFromEnum(zapp.platform.FileReadError.unsupported) => .unsupported,
         else => null,
+    };
+}
+
+fn isRuntimeImageRequest(request_id: zapp.platform.RequestId) bool {
+    return request_id != 0 and request_id == state.app.model.last_runtime_image_request_id;
+}
+
+fn handleRuntimeImageChunk(native_event: *const zapp.platform.android.Event) void {
+    state.runtime_image_accumulator.append(
+        std.heap.c_allocator,
+        native_event.request_id,
+        native_event.file_size,
+        native_event.payload(),
+    ) catch |accumulator_error| {
+        state.app.dispatch(.platform_runtime_image_load_cancel_requested);
+        state.runtime_image_accumulator.reset(std.heap.c_allocator);
+        state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+            .request_id = native_event.request_id,
+            .error_kind = runtimeImageAccumulatorFailure(accumulator_error),
+        } });
+        return;
+    };
+    state.app.dispatch(.{ .platform_runtime_image_load_progress = .{
+        .request_id = native_event.request_id,
+        .bytes_received = state.runtime_image_accumulator.length,
+    } });
+}
+
+fn finishRuntimeImage(native_event: *const zapp.platform.android.Event) void {
+    const encoded = state.runtime_image_accumulator.finish(
+        native_event.request_id,
+        native_event.file_size,
+    ) catch |accumulator_error| {
+        state.runtime_image_accumulator.reset(std.heap.c_allocator);
+        state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+            .request_id = native_event.request_id,
+            .error_kind = runtimeImageAccumulatorFailure(accumulator_error),
+        } });
+        return;
+    };
+    const dimensions = state.renderer.images.replaceEncoded(.runtime_preview, encoded) catch |replace_error| {
+        state.runtime_image_accumulator.reset(std.heap.c_allocator);
+        state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+            .request_id = native_event.request_id,
+            .error_kind = switch (replace_error) {
+                error.InvalidData, error.ImmutableResource => .invalid_data,
+                error.LimitExceeded => .decoded_limit_exceeded,
+                error.GpuUploadFailed => .gpu_upload_failed,
+            },
+        } });
+        return;
+    };
+    const encoded_bytes = state.runtime_image_accumulator.length;
+    state.runtime_image_accumulator.reset(std.heap.c_allocator);
+    state.app.dispatch(.{ .platform_runtime_image_load_succeeded = .{
+        .request_id = native_event.request_id,
+        .encoded_bytes = encoded_bytes,
+        .width = dimensions.width,
+        .height = dimensions.height,
+    } });
+}
+
+fn runtimeImageAccumulatorFailure(
+    accumulator_error: zapp.assets.runtime_image.AccumulatorError,
+) zapp.assets.runtime_image.LoadFailure {
+    return switch (accumulator_error) {
+        error.LimitExceeded => .encoded_limit_exceeded,
+        error.OutOfMemory => .out_of_memory,
+        error.InvalidRequest, error.NonContiguous => .interrupted,
+    };
+}
+
+fn runtimeImagePlatformFailure(error_kind: zapp.platform.FileReadError) zapp.assets.runtime_image.LoadFailure {
+    return switch (error_kind) {
+        .invalid_uri => .invalid_uri,
+        .not_found => .not_found,
+        .permission_denied => .permission_denied,
+        .io => .io,
+        .unsupported => .unsupported,
     };
 }
 
@@ -433,6 +554,7 @@ fn copyTextSelectionToClipboard(model: *const zapp.app.Model) void {
 
 export fn cleanup() void {
     if (comptime builtin.abi.isAndroid()) zapp.platform.android.reset();
+    state.runtime_image_accumulator.reset(std.heap.c_allocator);
     zapp.ui.shutdown();
     state.renderer.shutdown();
 }

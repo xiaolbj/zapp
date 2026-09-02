@@ -73,6 +73,32 @@ pub const App = struct {
                     } });
                 }
             },
+            .platform_runtime_image_load_requested => {
+                const request_id = self.allocateRequestId();
+                self.dispatch(.{ .platform_runtime_image_load_started = request_id });
+                const stream_request = platform.FileStreamRequest.init(
+                    request_id,
+                    self.model.selectedFileUri(),
+                    platform.file_stream_chunk_bytes,
+                );
+                if (stream_request == null or !self.enqueuePlatformRequest(.{ .stream_file = stream_request.? })) {
+                    self.dispatch(.{ .platform_runtime_image_load_failed = .{
+                        .request_id = request_id,
+                        .error_kind = if (stream_request == null) .invalid_uri else .unsupported,
+                    } });
+                }
+            },
+            .platform_runtime_image_load_cancel_requested => {
+                const request_id = self.model.last_runtime_image_request_id;
+                if (request_id != 0 and self.model.runtime_image_load_pending and
+                    !self.enqueuePlatformRequest(.{ .cancel_file_stream = request_id }))
+                {
+                    self.dispatch(.{ .platform_runtime_image_load_failed = .{
+                        .request_id = request_id,
+                        .error_kind = .unsupported,
+                    } });
+                }
+            },
             .platform_crash_report_export_requested => {
                 const report = self.model.last_native_crash orelse return;
                 const request_id = self.allocateRequestId();
@@ -277,6 +303,34 @@ test "file stream requests and cancellation use stable identifiers" {
     const cancel_request = app.takePlatformRequest().?.cancel_file_stream;
     try std.testing.expectEqual(stream_request.request_id, cancel_request);
     try std.testing.expect(app.model.file_stream_cancel_pending);
+}
+
+test "runtime image loading reuses bounded file stream requests" {
+    const std = @import("std");
+    var app: App = .{};
+    app.dispatchPlatformEvent(.{ .file_selected = .{
+        .request_id = 9,
+        .uri = "content://zapp/photo.png",
+    } });
+    _ = app.takePlatformRequest().?.read_file;
+    app.dispatchPlatformEvent(.{ .file_read_completed = .{
+        .request_id = 9,
+        .data = "preview",
+        .truncated = true,
+        .mime_type = "image/png",
+        .size = 12_266,
+    } });
+
+    app.dispatch(.platform_runtime_image_load_requested);
+    const stream_request = app.takePlatformRequest().?.stream_file;
+    try std.testing.expectEqual(app.model.last_runtime_image_request_id, stream_request.request_id);
+    try std.testing.expectEqualStrings("content://zapp/photo.png", stream_request.uri());
+    try std.testing.expect(app.model.runtime_image_load_pending);
+
+    app.dispatch(.platform_runtime_image_load_cancel_requested);
+    const cancel_request = app.takePlatformRequest().?.cancel_file_stream;
+    try std.testing.expectEqual(stream_request.request_id, cancel_request);
+    try std.testing.expect(app.model.runtime_image_cancel_pending);
 }
 
 test "recovered native crash enters app model" {

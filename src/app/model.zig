@@ -1,5 +1,6 @@
 const frame_metrics = @import("../performance/frame_metrics.zig");
 const platform = @import("../platform/platform.zig");
+const runtime_image = @import("../assets/runtime_image.zig");
 const text_edit = @import("text_edit.zig");
 
 pub const Model = struct {
@@ -75,6 +76,14 @@ pub const Model = struct {
     file_stream_chunk_count: u64 = 0,
     file_stream_hash: u64 = 14695981039346656037,
     file_stream_error: ?platform.FileReadError = null,
+    runtime_image_load_pending: bool = false,
+    runtime_image_cancel_pending: bool = false,
+    runtime_image_loaded: bool = false,
+    last_runtime_image_request_id: platform.RequestId = 0,
+    runtime_image_bytes_received: u64 = 0,
+    runtime_image_width: u32 = 0,
+    runtime_image_height: u32 = 0,
+    runtime_image_error: ?runtime_image.LoadFailure = null,
     demo_navigation_index: u8 = 0,
     demo_tree_expanded_mask: u64 = 0b11,
     demo_tree_selected_index: u8 = 2,

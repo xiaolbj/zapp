@@ -2,6 +2,7 @@ const std = @import("std");
 const clay = @import("zclay");
 const Action = @import("../app/action.zig").Action;
 const Model = @import("../app/model.zig").Model;
+const runtime_image = @import("../assets/runtime_image.zig");
 const text_edit = @import("../app/text_edit.zig");
 const font = @import("../text/font.zig");
 const focus_manager = @import("focus_manager.zig");
@@ -171,6 +172,13 @@ const state = struct {
     var file_metadata_text: [512]u8 = undefined;
     var file_preview_text: [768]u8 = undefined;
     var file_stream_status_text: [320]u8 = undefined;
+    var runtime_image_status_text: [320]u8 = undefined;
+    var runtime_image_source: image_view.Source = .{
+        .resource = .runtime_preview,
+        .pixel_width = 1,
+        .pixel_height = 1,
+        .fit = .contain,
+    };
     var performance_frame_text: [192]u8 = undefined;
     var performance_cpu_text: [192]u8 = undefined;
     var crash_diagnostic_text: [320]u8 = undefined;
@@ -315,6 +323,7 @@ pub fn build(model: *const Model) Frame {
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_button_id = clay.ElementId.ID("StreamSelectedFile").id;
+    const runtime_image_button_id = clay.ElementId.ID("LoadRuntimeImage").id;
     const crash_export_button_id = clay.ElementId.ID("ExportCrashReport").id;
     const active_navigation_index = @min(model.demo_navigation_index, 2);
     if (active_navigation_index != state.last_navigation_index) {
@@ -431,6 +440,7 @@ pub fn build(model: *const Model) Frame {
                 permission_button_id,
                 file_picker_button_id,
                 file_stream_button_id,
+                runtime_image_button_id,
             };
             @memcpy(focus_order[focus_order_count..][0..trailing_order.len], &trailing_order);
             focus_order_count += trailing_order.len;
@@ -628,6 +638,7 @@ pub fn build(model: *const Model) Frame {
     const file_metadata_text = formatFileMetadata(&state.file_metadata_text, model);
     const file_preview_text = formatFilePreview(&state.file_preview_text, model);
     const file_stream_status_text = formatFileStreamStatus(&state.file_stream_status_text, model);
+    const runtime_image_status_text = formatRuntimeImageStatus(&state.runtime_image_status_text, model);
     const performance_frame_text = if (model.performance.sample_count == 0)
         "性能采样中…"
     else
@@ -1406,7 +1417,8 @@ pub fn build(model: *const Model) Frame {
                                     .id = "OpenFilePicker",
                                     .text = if (model.file_picker_pending) "选择中…" else "选择文件",
                                     .width = control_width,
-                                    .disabled = modal_open or model.file_picker_pending or model.file_stream_pending,
+                                    .disabled = modal_open or model.file_picker_pending or model.file_stream_pending or
+                                        model.runtime_image_load_pending,
                                     .focused = state.focus_state.isFocused(file_picker_button_id),
                                     .semantic_registry = &state.semantic_registry,
                                 })) {
@@ -1423,7 +1435,8 @@ pub fn build(model: *const Model) Frame {
                                         "读取完整文件",
                                     .width = control_width,
                                     .disabled = modal_open or model.selectedFileUri().len == 0 or
-                                        model.file_read_pending or model.file_stream_cancel_pending,
+                                        model.file_read_pending or model.file_stream_cancel_pending or
+                                        model.runtime_image_load_pending,
                                     .focused = state.focus_state.isFocused(file_stream_button_id),
                                     .semantic_registry = &state.semantic_registry,
                                 })) {
@@ -1434,6 +1447,29 @@ pub fn build(model: *const Model) Frame {
                                         .platform_file_stream_requested);
                                 }
                             });
+                            if (button.draw(&state.interaction_state, input, .{
+                                .id = "LoadRuntimeImage",
+                                .text = if (model.runtime_image_cancel_pending)
+                                    "取消图片加载中…"
+                                else if (model.runtime_image_load_pending)
+                                    "取消图片加载"
+                                else if (model.runtime_image_loaded)
+                                    "重新加载所选图片"
+                                else
+                                    "加载所选图片",
+                                .width = control_width,
+                                .disabled = modal_open or model.selectedFileUri().len == 0 or
+                                    model.file_read_pending or model.file_stream_pending or
+                                    model.runtime_image_cancel_pending or runtimeImageTooLarge(model),
+                                .focused = state.focus_state.isFocused(runtime_image_button_id),
+                                .semantic_registry = &state.semantic_registry,
+                            })) {
+                                state.focus_state.focus(runtime_image_button_id);
+                                emit(if (model.runtime_image_load_pending)
+                                    .platform_runtime_image_load_cancel_requested
+                                else
+                                    .platform_runtime_image_load_requested);
+                            }
                             label.draw(permission_status_text, .{
                                 .color = theme.controls.text_muted,
                                 .semantic_id = .ID("PermissionStatus"),
@@ -1461,6 +1497,25 @@ pub fn build(model: *const Model) Frame {
                                 .semantic_id = .ID("FileStreamStatus"),
                                 .semantic_registry = &state.semantic_registry,
                             });
+                            if (runtime_image_status_text.len > 0) label.draw(runtime_image_status_text, .{
+                                .color = theme.controls.text_muted,
+                                .wrap_mode = .words,
+                                .semantic_id = .ID("RuntimeImageStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (model.runtime_image_loaded) {
+                                state.runtime_image_source.pixel_width = @floatFromInt(model.runtime_image_width);
+                                state.runtime_image_source.pixel_height = @floatFromInt(model.runtime_image_height);
+                                image_view.draw(.{
+                                    .id = "RuntimeImagePreview",
+                                    .source = &state.runtime_image_source,
+                                    .width = if (compact) 220 else 320,
+                                    .height = 180,
+                                    .corner_radius = theme.controls.radius_medium,
+                                    .semantic_label = "所选文件图片预览",
+                                    .semantic_registry = &state.semantic_registry,
+                                });
+                            }
                             label.draw(confirmation_text, .{
                                 .color = .{ 145, 171, 207, 255 },
                                 .semantic_id = .ID("DialogConfirmationCount"),
@@ -1576,6 +1631,7 @@ pub fn handleSemanticAction(
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_id = clay.ElementId.ID("StreamSelectedFile").id;
+    const runtime_image_id = clay.ElementId.ID("LoadRuntimeImage").id;
     const crash_export_id = clay.ElementId.ID("ExportCrashReport").id;
     const dialog_cancel_id = clay.ElementId.ID("DemoDialogCancel").id;
     const dialog_confirm_id = clay.ElementId.ID("DemoDialogConfirm").id;
@@ -1613,7 +1669,9 @@ pub fn handleSemanticAction(
                 emit(.{ .text_input_focus_changed = .search });
                 emit(.{ .text_cleared = .search });
             } else if (element_id == form_submit_id) emit(.text_submitted) else if (element_id == permission_id) emit(.{ .platform_permission_requested = .camera }) else if (element_id == file_picker_id) {
-                if (!model.file_picker_pending and !model.file_stream_pending) {
+                if (!model.file_picker_pending and !model.file_stream_pending and
+                    !model.runtime_image_load_pending)
+                {
                     emit(.platform_file_picker_requested);
                 }
             } else if (element_id == file_stream_id) {
@@ -1621,6 +1679,15 @@ pub fn handleSemanticAction(
                     emit(.platform_file_stream_cancel_requested);
                 } else if (!model.file_stream_pending and !model.file_read_pending and model.selectedFileUri().len > 0) {
                     emit(.platform_file_stream_requested);
+                }
+            } else if (element_id == runtime_image_id) {
+                if (model.runtime_image_load_pending and !model.runtime_image_cancel_pending) {
+                    emit(.platform_runtime_image_load_cancel_requested);
+                } else if (!model.runtime_image_load_pending and !model.file_stream_pending and
+                    !model.file_read_pending and model.selectedFileUri().len > 0 and
+                    !runtimeImageTooLarge(model))
+                {
+                    emit(.platform_runtime_image_load_requested);
                 }
             } else if (element_id == crash_export_id) {
                 if (model.last_native_crash != null and !model.crash_report_export_pending) {
@@ -1896,6 +1963,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "RequestCameraPermission",
         "OpenFilePicker",
         "StreamSelectedFile",
+        "LoadRuntimeImage",
         "ExportCrashReport",
         "DemoDialogCancel",
         "DemoDialogConfirm",
@@ -2437,6 +2505,52 @@ fn formatFileStreamStatus(buffer: []u8, model: *const Model) []const u8 {
         "完整读取已取消：已消费 {d} 字节（{d} 块）",
         .{ model.file_stream_bytes_consumed, model.file_stream_chunk_count },
     ) catch "完整读取状态不可用";
+    return "";
+}
+
+fn runtimeImageTooLarge(model: *const Model) bool {
+    return model.file_size_known and model.file_size > runtime_image.max_encoded_bytes;
+}
+
+fn formatRuntimeImageStatus(buffer: []u8, model: *const Model) []const u8 {
+    if (runtimeImageTooLarge(model) and !model.runtime_image_load_pending) return std.fmt.bufPrint(
+        buffer,
+        "图片未加载：编码文件超过 {d} MiB 上限",
+        .{runtime_image.max_encoded_bytes / (1024 * 1024)},
+    ) catch "图片状态不可用";
+    if (model.runtime_image_error) |error_kind| return switch (error_kind) {
+        .invalid_data => "图片加载失败：仅支持有效的 PNG 或 JPEG",
+        .encoded_limit_exceeded => "图片加载失败：编码文件超过 16 MiB 上限",
+        .decoded_limit_exceeded => "图片加载失败：尺寸超过 4096 或 RGBA 数据超过 64 MiB",
+        .out_of_memory => "图片加载失败：内存不足",
+        .gpu_upload_failed => "图片加载失败：GPU 纹理创建失败",
+        .interrupted => "图片加载已取消或数据流不连续",
+        .invalid_uri => "图片加载失败：URI 无效",
+        .not_found => "图片加载失败：文件不存在",
+        .permission_denied => "图片加载失败：没有读取权限",
+        .io => "图片加载失败：I/O 错误",
+        .unsupported => "图片加载失败：平台不支持",
+    };
+    if (model.runtime_image_load_pending) {
+        const phase = if (model.runtime_image_cancel_pending) "正在取消" else "正在加载";
+        return if (model.file_size_known)
+            std.fmt.bufPrint(
+                buffer,
+                "图片{s}：{d} / {d} 字节",
+                .{ phase, model.runtime_image_bytes_received, model.file_size },
+            ) catch "图片状态不可用"
+        else
+            std.fmt.bufPrint(
+                buffer,
+                "图片{s}：{d} 字节",
+                .{ phase, model.runtime_image_bytes_received },
+            ) catch "图片状态不可用";
+    }
+    if (model.runtime_image_loaded) return std.fmt.bufPrint(
+        buffer,
+        "运行时图片：{d} × {d}，编码数据 {d} 字节",
+        .{ model.runtime_image_width, model.runtime_image_height, model.runtime_image_bytes_received },
+    ) catch "图片状态不可用";
     return "";
 }
 
@@ -3388,6 +3502,26 @@ test "semantic actions reuse reducer-facing UI actions" {
     try std.testing.expectEqual(@as(usize, 1), actions.len);
     try std.testing.expect(actions[0] == .platform_file_stream_requested);
 
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("LoadRuntimeImage").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expect(actions[0] == .platform_runtime_image_load_requested);
+
+    model.runtime_image_load_pending = true;
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("LoadRuntimeImage").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expect(actions[0] == .platform_runtime_image_load_cancel_requested);
+    model.runtime_image_load_pending = false;
+
     model.file_stream_pending = true;
     actions = handleSemanticAction(
         &model,
@@ -3496,4 +3630,29 @@ test "file stream status reports progress completion and digest" {
     model.file_stream_hash = 0x1234;
     const completed = formatFileStreamStatus(&buffer, &model);
     try std.testing.expect(std.mem.indexOf(u8, completed, "FNV-1a 1234") != null);
+}
+
+test "runtime image status reports bounds progress and dimensions" {
+    var model: Model = .{
+        .file_size = 12_266,
+        .file_size_known = true,
+        .runtime_image_load_pending = true,
+        .runtime_image_bytes_received = 4096,
+    };
+    var buffer: [320]u8 = undefined;
+    const progress = formatRuntimeImageStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, progress, "4096 / 12266") != null);
+
+    model.runtime_image_load_pending = false;
+    model.runtime_image_loaded = true;
+    model.runtime_image_width = 128;
+    model.runtime_image_height = 64;
+    model.runtime_image_bytes_received = 12_266;
+    const loaded = formatRuntimeImageStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, loaded, "128 × 64") != null);
+
+    model.runtime_image_loaded = false;
+    model.file_size = runtime_image.max_encoded_bytes + 1;
+    const oversized = formatRuntimeImageStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, oversized, "16 MiB") != null);
 }
