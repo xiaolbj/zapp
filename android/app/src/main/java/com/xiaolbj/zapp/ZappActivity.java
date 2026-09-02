@@ -594,6 +594,9 @@ public final class ZappActivity extends NativeActivity {
         final float width;
         final float height;
         final float value;
+        final float valueMin;
+        final float valueMax;
+        final float valueStep;
         final String label;
         final String valueText;
         final String errorText;
@@ -614,6 +617,9 @@ public final class ZappActivity extends NativeActivity {
             width = geometry[2];
             height = geometry[3];
             value = geometry[4];
+            valueMin = geometry[5];
+            valueMax = geometry[6];
+            valueStep = geometry[7];
             label = strings[0] == null ? "" : strings[0];
             valueText = strings[1] == null ? "" : strings[1];
             errorText = strings[2] == null ? "" : strings[2];
@@ -667,6 +673,7 @@ public final class ZappActivity extends NativeActivity {
         private static final int ROLE_ROW = 25;
         private static final int ROLE_COLUMN_HEADER = 26;
         private static final int ROLE_CHIP = 27;
+        private static final int ROLE_SPIN_BUTTON = 28;
 
         private final AccessibilityManager accessibilityManager;
         private final SemanticNodeProvider provider = new SemanticNodeProvider();
@@ -690,7 +697,7 @@ public final class ZappActivity extends NativeActivity {
             ArrayList<SemanticNode> updated = new ArrayList<>(count);
             for (int index = 0; index < count; index += 1) {
                 int[] metadata = new int[10];
-                float[] geometry = new float[5];
+                float[] geometry = new float[8];
                 String[] strings = new String[3];
                 if (!nativeAccessibilityNodeAt(index, metadata, geometry, strings)) continue;
                 SemanticNode node = new SemanticNode(metadata, geometry, strings);
@@ -892,17 +899,27 @@ public final class ZappActivity extends NativeActivity {
                     info.setClickable(true);
                     info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
                 }
-                if (node.role == ROLE_SLIDER) {
-                    info.setScrollable(true);
+                if (node.role == ROLE_SLIDER || node.role == ROLE_SPIN_BUTTON) {
+                    boolean canIncrement = Float.isNaN(node.value) || node.value < node.valueMax;
+                    boolean canDecrement = Float.isNaN(node.value) || node.value > node.valueMin;
+                    info.setScrollable(canIncrement || canDecrement);
                     if (!Float.isNaN(node.value)) {
                         info.setRangeInfo(AccessibilityNodeInfo.RangeInfo.obtain(
-                            AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, 0, 1, node.value
+                            node.role == ROLE_SPIN_BUTTON
+                                ? AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT
+                                : AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT,
+                            node.valueMin,
+                            node.valueMax,
+                            node.value
                         ));
                     }
-                    if (Float.isNaN(node.value) || node.value < 1) {
+                    if (node.valueStep > 0) {
+                        info.getExtras().putFloat("zapp.range.step", node.valueStep);
+                    }
+                    if (canIncrement) {
                         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
                     }
-                    if (Float.isNaN(node.value) || node.value > 0) {
+                    if (canDecrement) {
                         info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
                     }
                 }
@@ -958,7 +975,7 @@ public final class ZappActivity extends NativeActivity {
                     nativeAction = ACCESSIBILITY_ACTION_CLICK;
                 } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ||
                     action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.getId()) {
-                    if (node.role == ROLE_SLIDER) {
+                    if (node.role == ROLE_SLIDER || node.role == ROLE_SPIN_BUTTON) {
                         nativeAction = ACCESSIBILITY_ACTION_INCREMENT;
                     } else if (node.hasFlag(FLAG_SCROLLABLE) &&
                         node.hasFlag(FLAG_CAN_SCROLL_FORWARD)) {
@@ -968,7 +985,7 @@ public final class ZappActivity extends NativeActivity {
                     }
                 } else if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD ||
                     action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.getId()) {
-                    if (node.role == ROLE_SLIDER) {
+                    if (node.role == ROLE_SLIDER || node.role == ROLE_SPIN_BUTTON) {
                         nativeAction = ACCESSIBILITY_ACTION_DECREMENT;
                     } else if (node.hasFlag(FLAG_SCROLLABLE) &&
                         node.hasFlag(FLAG_CAN_SCROLL_BACKWARD)) {
@@ -1051,6 +1068,7 @@ public final class ZappActivity extends NativeActivity {
                     case ROLE_ROW: return "android.widget.Button";
                     case ROLE_COLUMN_HEADER: return "android.widget.Button";
                     case ROLE_CHIP: return "android.widget.ToggleButton";
+                    case ROLE_SPIN_BUTTON: return "android.widget.NumberPicker";
                     case ROLE_NAVIGATION_ITEM:
                     case ROLE_TREE_ITEM: return "android.widget.Button";
                     case ROLE_DIALOG: return "android.app.Dialog";
@@ -1065,7 +1083,7 @@ public final class ZappActivity extends NativeActivity {
                     role == ROLE_TREE_ITEM || role == ROLE_RADIO_BUTTON || role == ROLE_COMBO_BOX ||
                     role == ROLE_OPTION || role == ROLE_TAB || role == ROLE_MENU_ITEM ||
                     role == ROLE_LIST_ITEM || role == ROLE_ROW || role == ROLE_COLUMN_HEADER ||
-                    role == ROLE_CHIP;
+                    role == ROLE_CHIP || role == ROLE_SPIN_BUTTON;
             }
         }
     }

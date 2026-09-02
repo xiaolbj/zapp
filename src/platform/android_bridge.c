@@ -78,6 +78,9 @@ typedef struct zapp_accessibility_node {
     float width;
     float height;
     float value;
+    float value_min;
+    float value_max;
+    float value_step;
     uint16_t level;
     uint16_t row_index;
     uint16_t column_index;
@@ -94,7 +97,7 @@ typedef struct zapp_accessibility_node {
 } zapp_accessibility_node;
 
 _Static_assert(sizeof(zapp_android_event) == 4592, "Zig/C Android event ABI mismatch");
-_Static_assert(sizeof(zapp_accessibility_node) == 436, "Zig/C accessibility node ABI mismatch");
+_Static_assert(sizeof(zapp_accessibility_node) == 448, "Zig/C accessibility node ABI mismatch");
 
 typedef struct zapp_jni_scope {
     JavaVM *vm;
@@ -590,7 +593,7 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeAt(
     (void)clazz;
     if (index < 0 || metadata == NULL || geometry == NULL || strings == NULL ||
         (*env)->GetArrayLength(env, metadata) < 10 ||
-        (*env)->GetArrayLength(env, geometry) < 5 ||
+        (*env)->GetArrayLength(env, geometry) < 8 ||
         (*env)->GetArrayLength(env, strings) < 3) return JNI_FALSE;
 
     zapp_accessibility_node node;
@@ -614,9 +617,18 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeAt(
         (jint)node.row_count,
         (jint)node.column_count,
     };
-    const jfloat geometry_values[5] = { node.x, node.y, node.width, node.height, node.value };
+    const jfloat geometry_values[8] = {
+        node.x,
+        node.y,
+        node.width,
+        node.height,
+        node.value,
+        node.value_min,
+        node.value_max,
+        node.value_step,
+    };
     (*env)->SetIntArrayRegion(env, metadata, 0, 10, metadata_values);
-    (*env)->SetFloatArrayRegion(env, geometry, 0, 5, geometry_values);
+    (*env)->SetFloatArrayRegion(env, geometry, 0, 8, geometry_values);
     jstring label = zapp_utf8_to_string(env, node.label, node.label_length);
     jstring value_text = zapp_utf8_to_string(env, node.value_text, node.value_text_length);
     jstring error_text = zapp_utf8_to_string(env, node.error_text, node.error_text_length);

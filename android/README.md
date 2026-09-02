@@ -169,7 +169,7 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 
 Clay 完成每帧布局后，Zig 会为最多 128 个语义节点补齐最终边界，并序列化为固定容量 native 快照。快照内容不变时不会触发 JNI 更新。`AccessibilityBridgeView` 使用 `AccessibilityNodeProvider` 将快照暴露为 Android 虚拟子节点：
 
-- 角色映射到 Button、CheckBox、Switch、ToggleButton/Chip、SeekBar、EditText、ProgressBar、TabWidget、Menu/ListView、虚拟 ListItem、GridView/DataTable、Dialog 等系统类名。
+- 角色映射到 Button、CheckBox、Switch、ToggleButton/Chip、SeekBar、NumberPicker/Stepper、EditText、ProgressBar、TabWidget、Menu/ListView、虚拟 ListItem、GridView/DataTable、Dialog 等系统类名。
 - 中文标签、值、勾选/选中/禁用、焦点、范围、树层级、展开状态，以及表单 required/invalid/error text 均随快照更新。
 - Clay 已通过滚动容器的 clip `childOffset` 把滚动偏移写入最终元素边界；语义层直接读取该坐标，再逐层裁剪到最多四层祖先视口并转换到屏幕坐标。完全不可见的节点不会暴露给系统服务。
 - 点击、滑块增减、TextField 设置文本、TreeView/Accordion 展开与折叠，以及 Card/ScrollView 的向前、向后翻页均通过线程安全事件队列回到 Zig，再复用 UI Action 和 reducer。
@@ -200,6 +200,8 @@ Accordion 已在同一模拟器验证：从全局焦点顺序进入“账户与�
 FormField 已在同一模拟器验证：空的必填“应用名称”提交后显示错误边框与中文错误 supporting text，虚拟 EditText 同时暴露必填描述、content-invalid 和 error；外层 PrimaryCard 自动滚动到字段及错误文本。IME 焦点宿主持有焦点时，硬件 Enter 可提交表单，随后一次 Tab 会退出编辑并聚焦“提交表单”按钮；UIAutomator 确认按钮可见且 `focused=true`。这轮同时用运行时截图和语义边界回归测试确认滚动后视觉内容与虚拟节点使用同一坐标。
 
 ChipGroup 的状态筛选示例包含四个虚拟 ToggleButton：默认选中“开发中”和“已完成”，“已归档”禁用。系统点击动作、Enter/Space 会切换受控位掩码；方向键和 Home/End 在可用项间移动并跳过禁用节点。
+
+NumberStepper 的“重试次数”示例已在模拟器验证为原生虚拟 NumberPicker：初始值 3、范围 `0...10`、步长 1；右键增加到 4，End 到 10 后继续增加不越界，Home 到 0 后继续减少不越界，点击加号可从 0 回到 1。焦点进入时 PrimaryCard 自动显露完整控件，最小值处减号按钮使用禁用视觉。范围元数据通过 448 字节 Zig/C 节点结构和 8-float JNI geometry 传递，Android RangeInfo 不再把所有范围控件硬编码成 `0...1`。
 
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。
 

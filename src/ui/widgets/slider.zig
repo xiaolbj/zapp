@@ -27,6 +27,9 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         .role = .slider,
         .label = config.semantic_label,
         .value = value,
+        .value_min = 0,
+        .value_max = 1,
+        .value_step = 0.05,
         .disabled = config.disabled,
         .focused = config.focused,
     });

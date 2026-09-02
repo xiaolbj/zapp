@@ -20,6 +20,7 @@ const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
 const menu = @import("widgets/menu.zig");
 const navigation_bar = @import("widgets/navigation_bar.zig");
+const number_stepper = @import("widgets/number_stepper.zig");
 const pagination = @import("widgets/pagination.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const radio_group = @import("widgets/radio_group.zig");
@@ -119,6 +120,7 @@ const state = struct {
     var toast_state: toast.State = .{};
     var data_table_state: data_table.State = .{};
     var pagination_state: pagination.State = .{};
+    var number_stepper_state: number_stepper.State = .{};
     var virtual_list_state: virtual_list.State = .{};
     var last_text_submission_count: u32 = 0;
     var actions: [max_actions]Action = undefined;
@@ -171,6 +173,7 @@ pub fn setup(model: *const Model) bool {
     state.toast_state = .{};
     state.data_table_state = .{};
     state.pagination_state = .{};
+    state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = model.text_submission_count;
     state.action_count = 0;
@@ -193,6 +196,7 @@ pub fn shutdown() void {
     state.toast_state = .{};
     state.data_table_state = .{};
     state.pagination_state = .{};
+    state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = 0;
     state.action_count = 0;
@@ -248,6 +252,7 @@ pub fn build(model: *const Model) Frame {
     const active_tab_index = tabs.boundedIndex(model.demo_tab_index, demo_tab_items.len) orelse 0;
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
+    const retry_stepper_id = clay.ElementId.ID("RetryStepper").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const form_submit_id = clay.ElementId.ID("SubmitDemoForm").id;
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -347,6 +352,7 @@ pub fn build(model: *const Model) Frame {
         focus_order_count += 1;
         const trailing_order = [_]u32{
             slider_id,
+            retry_stepper_id,
             text_field_id,
             form_submit_id,
             permission_button_id,
@@ -1100,6 +1106,31 @@ pub fn build(model: *const Model) Frame {
                         state.focus_state.focus(slider_id);
                         emit(.{ .demo_volume_changed = value });
                     }
+                    label.draw("重试次数", .{
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("RetryStepperLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    if (number_stepper.draw(
+                        &state.number_stepper_state,
+                        &state.interaction_state,
+                        input,
+                        .{
+                            .id = "RetryStepper",
+                            .value = model.demo_retry_count,
+                            .min = 0,
+                            .max = 10,
+                            .step = 1,
+                            .width = control_width,
+                            .disabled = modal_open,
+                            .focused = state.focus_state.isFocused(retry_stepper_id),
+                            .semantic_label = "重试次数",
+                            .semantic_registry = &state.semantic_registry,
+                        },
+                    )) |value| {
+                        state.focus_state.focus(retry_stepper_id);
+                        emit(.{ .demo_retry_count_changed = value });
+                    }
                     label.draw("表单字段", .{
                         .font_size = 18,
                         .color = theme.controls.text_muted,
@@ -1337,6 +1368,7 @@ pub fn handleSemanticAction(
     const sort_select_id = select.triggerId("SortSelect").id;
     const actions_menu_id = menu.triggerId("ActionsMenu").id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
+    const retry_stepper_id = clay.ElementId.ID("RetryStepper").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
     const form_submit_id = clay.ElementId.ID("SubmitDemoForm").id;
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
@@ -1431,9 +1463,19 @@ pub fn handleSemanticAction(
                 }
             }
         },
-        .increment, .decrement => if (element_id == slider_id) {
-            const delta: f32 = if (semantic_action == .increment) 0.05 else -0.05;
-            emit(.{ .demo_volume_changed = @min(@max(model.demo_volume + delta, 0), 1) });
+        .increment, .decrement => {
+            if (element_id == slider_id) {
+                const delta: f32 = if (semantic_action == .increment) 0.05 else -0.05;
+                emit(.{ .demo_volume_changed = @min(@max(model.demo_volume + delta, 0), 1) });
+            } else if (element_id == retry_stepper_id) {
+                emit(.{ .demo_retry_count_changed = number_stepper.steppedValue(
+                    model.demo_retry_count,
+                    0,
+                    10,
+                    1,
+                    if (semantic_action == .increment) 1 else -1,
+                ) });
+            }
         },
         .set_text => if (element_id == text_field_id) {
             state.focus_state.focus(element_id);
@@ -1602,6 +1644,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "DemoCheckbox",
         "DemoSwitch",
         "VolumeSlider",
+        "RetryStepper",
         "DemoTextField",
         "SubmitDemoForm",
         "RequestCameraPermission",
@@ -1954,6 +1997,7 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(result.clear_color.a == 1);
     try std.testing.expect(result.semantic_nodes.len >= 10);
     var has_slider_semantics = false;
+    var has_stepper_semantics = false;
     var has_text_field_semantics = false;
     var has_required_valid_text_field = false;
     var has_form_submit_button = false;
@@ -1994,6 +2038,11 @@ test "responsive shell emits controls and text" {
         try std.testing.expect(std.unicode.utf8ValidateSlice(node.label));
         try std.testing.expect(std.unicode.utf8ValidateSlice(node.value_text));
         if (node.role == .slider and node.value != null) has_slider_semantics = true;
+        if (node.role == .spin_button and node.value == 3 and node.value_min == 0 and
+            node.value_max == 10 and node.value_step == 1)
+        {
+            has_stepper_semantics = true;
+        }
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
         if (node.element_id == clay.ElementId.ID("DemoTextField").id and node.required and
             !node.invalid and node.error_text.len == 0)
@@ -2070,6 +2119,7 @@ test "responsive shell emits controls and text" {
         }
     }
     try std.testing.expect(has_slider_semantics);
+    try std.testing.expect(has_stepper_semantics);
     try std.testing.expect(has_text_field_semantics);
     try std.testing.expect(has_required_valid_text_field);
     try std.testing.expect(has_form_submit_button);
@@ -2479,6 +2529,23 @@ test "semantic actions reuse reducer-facing UI actions" {
         "",
     );
     try std.testing.expectEqual(expected_volume, actions[0].demo_volume_changed);
+
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("RetryStepper").id,
+        .increment,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(i32, 4), actions[0].demo_retry_count_changed);
+    model.demo_retry_count = 0;
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("RetryStepper").id,
+        .decrement,
+        "",
+    );
+    try std.testing.expectEqual(@as(i32, 0), actions[0].demo_retry_count_changed);
 
     actions = handleSemanticAction(
         &model,

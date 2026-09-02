@@ -30,6 +30,9 @@ pub const AccessibilityNode = extern struct {
     width: f32,
     height: f32,
     value: f32,
+    value_min: f32,
+    value_max: f32,
+    value_step: f32,
     level: u16,
     row_index: u16,
     column_index: u16,
@@ -63,7 +66,7 @@ var last_accessibility_hash: ?u64 = null;
 
 comptime {
     std.debug.assert(@sizeOf(Event) == 4592);
-    std.debug.assert(@sizeOf(AccessibilityNode) == 436);
+    std.debug.assert(@sizeOf(AccessibilityNode) == 448);
 }
 
 pub const EventKind = enum(c_int) {
@@ -257,6 +260,9 @@ fn serializeAccessibilityNode(node: semantics.Node) AccessibilityNode {
         .width = node.bounds.width,
         .height = node.bounds.height,
         .value = node.value orelse std.math.nan(f32),
+        .value_min = node.value_min,
+        .value_max = node.value_max,
+        .value_step = node.value_step,
         .level = node.level,
         .row_index = node.row_index,
         .column_index = node.column_index,
@@ -365,6 +371,25 @@ test "extended accessibility roles remain ABI-stable" {
     try std.testing.expectEqual(@as(c_int, 24), @intFromEnum(semantics.Role.table));
     try std.testing.expectEqual(@as(c_int, 25), @intFromEnum(semantics.Role.row));
     try std.testing.expectEqual(@as(c_int, 26), @intFromEnum(semantics.Role.column_header));
+    try std.testing.expectEqual(@as(c_int, 27), @intFromEnum(semantics.Role.chip));
+    try std.testing.expectEqual(@as(c_int, 28), @intFromEnum(semantics.Role.spin_button));
+}
+
+test "accessibility serialization preserves numeric range metadata" {
+    const node = serializeAccessibilityNode(.{
+        .element_id = 12,
+        .role = .spin_button,
+        .label = "重试次数",
+        .value_text = "4",
+        .value = 4,
+        .value_min = 0,
+        .value_max = 10,
+        .value_step = 2,
+    });
+    try std.testing.expectEqual(@as(f32, 4), node.value);
+    try std.testing.expectEqual(@as(f32, 0), node.value_min);
+    try std.testing.expectEqual(@as(f32, 10), node.value_max);
+    try std.testing.expectEqual(@as(f32, 2), node.value_step);
 }
 
 test "accessibility serialization preserves collection metadata" {

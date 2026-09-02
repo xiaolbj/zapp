@@ -30,6 +30,7 @@ pub const Role = enum {
     row,
     column_header,
     chip,
+    spin_button,
 };
 
 /// Platform-neutral accessibility metadata emitted alongside a UI frame.
@@ -42,6 +43,9 @@ pub const Node = struct {
     label: []const u8,
     value_text: []const u8 = "",
     value: ?f32 = null,
+    value_min: f32 = 0,
+    value_max: f32 = 1,
+    value_step: f32 = 0,
     checked: ?bool = null,
     disabled: bool = false,
     focused: bool = false,

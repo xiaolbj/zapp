@@ -68,6 +68,7 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 - `card.zig`：统一页面卡片的内边距、间距、背景和圆角。
 - `divider.zig`：用于内容分组的轻量分隔线。
 - `slider.zig`：受控拖拽滑块，将指针位置映射为 `0...1` 数值。
+- `number_stepper.zig`：受控整数步进器，支持可配置范围/步长、边界按钮禁用、方向键与 Home/End，以及原生 NumberPicker 语义。
 - `dialog.zig`：带输入拦截遮罩、取消和确认操作的模态对话框。
 - `navigation_bar.zig`：受控导航项选择，支持横向和纵向布局。
 - `text_field.zig`：基础受控单行 UTF-8 输入框，支持字符、退格、提交和粘贴。
@@ -78,7 +79,7 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 
 `src/ui/focus_manager.zig` 保存当前焦点、模态焦点和打开弹窗前的焦点。Dialog 关闭后会恢复之前的焦点；Escape 和 Android 返回键统一转成 `back_requested` Action。
 
-`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、VirtualList、DataTable、Pagination、TreeView、Accordion、RadioGroup、ChipGroup、Select、Tabs、Menu、FormField 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值、最终布局边界以及 focused/disabled/selected/checked/modal/expanded/required/invalid、错误文本、层级和行列位置等状态；Divider 被明确视为装饰元素，不进入语义树。Android 已通过 `AccessibilityNodeProvider` 将这些数据映射成原生虚拟节点，并把点击、增减、文本设置和展开/折叠动作送回现有 App Action/reducer。TreeView 获得焦点后可用上/下键移动到相邻可见节点、右键展开或进入首个子节点、左键折叠或返回父节点；Accordion 使用上/下/Home/End 在标题间移动、右键展开、左键收起，收起内容不进入布局与语义树；RadioGroup 使用方向键循环移动并选择互斥项；ChipGroup 使用方向键循环且跳过禁用项，以 Enter/Space 独立切换多个筛选值；Select 关闭时方向键直接选择，展开时选项加入焦点和语义树；Tabs 使用与布局方向一致的方向键自动切换活动页；Menu 打开后用上下键或 Home/End 在可用项间导航；VirtualList 使用方向键/Home/End 选择并自动滚动；DataTable 的表头和行支持排序、稳定选择与集合位置语义；Pagination 使用原生按钮语义暴露当前页和禁用边界。
+`src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、VirtualList、DataTable、Pagination、TreeView、Accordion、RadioGroup、ChipGroup、NumberStepper、Select、Tabs、Menu、FormField 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值与 min/max/step 范围、最终布局边界以及 focused/disabled/selected/checked/modal/expanded/required/invalid、错误文本、层级和行列位置等状态；Divider 被明确视为装饰元素，不进入语义树。Android 已通过 `AccessibilityNodeProvider` 将这些数据映射成原生虚拟节点，并把点击、增减、文本设置和展开/折叠动作送回现有 App Action/reducer。TreeView 获得焦点后可用上/下键移动到相邻可见节点、右键展开或进入首个子节点、左键折叠或返回父节点；Accordion 使用上/下/Home/End 在标题间移动、右键展开、左键收起，收起内容不进入布局与语义树；RadioGroup 使用方向键循环移动并选择互斥项；ChipGroup 使用方向键循环且跳过禁用项，以 Enter/Space 独立切换多个筛选值；NumberStepper 使用方向键按步长增减并以 Home/End 跳到边界；Select 关闭时方向键直接选择，展开时选项加入焦点和语义树；Tabs 使用与布局方向一致的方向键自动切换活动页；Menu 打开后用上下键或 Home/End 在可用项间导航；VirtualList 使用方向键/Home/End 选择并自动滚动；DataTable 的表头和行支持排序、稳定选择与集合位置语义；Pagination 使用原生按钮语义暴露当前页和禁用边界。
 
 Clay 滚动容器把 `Clay_GetScrollOffset()` 作为 clip 的 `childOffset` 应用到视觉布局；语义注册表直接读取 Clay 已计算完偏移的最终元素边界，再与最多四层祖先裁剪视口逐层求交，完全不可见的后代输出空边界。这样渲染、命中测试和 Android 虚拟节点保持同一坐标系。键盘焦点进入外层滚动区域下方的控件时，PrimaryCard 会自动滚动使焦点环可见；VirtualList 同时协调内层行滚动与外层容器显露，FormField 验证失败时还会把错误 supporting text 一并显露。
 
@@ -86,7 +87,7 @@ Clay 滚动容器把 `Clay_GetScrollOffset()` 作为 clip 的 `childOffset` 应�
 
 路线图第一批控件（Button、IconButton、Label、Checkbox/Switch、Slider、ScrollView/List、Dialog、Toast、NavigationBar、基础单行 TextField）以及补充的 TreeView 和 FormField 均已有可运行实现。TreeView 的展开掩码和选择项由 AppModel 持有，折叠节点会从布局、焦点顺序和语义树中移除。TextField 已支持 UTF-8 光标、鼠标/触摸定位与拖选、Shift 选择、全选、复制、剪切、粘贴、选区替换以及独立的 IME 组合态；FormField 在其上组合标签、帮助/错误文本和受控验证状态。Android APK 已通过自定义 `NativeActivity`、`InputConnection` 和 JNI 事件队列接入中文软键盘。权限请求与系统文件选择器也已通过同一异步平台桥接入，文件读取结果包含显示名称、MIME 类型、可选大小和内容预览；大文件可以按 4096 字节分块完整消费、取消并显示进度与增量摘要，所有结果统一回到 App reducer。
 
-交互控件已接入循环键盘焦点顺序：`Tab`/`Shift+Tab` 前后移动，`Enter`/`Space` 激活当前按钮或选择控件，Slider 使用左右方向键按 `0.05` 调整，RadioGroup 使用四向键循环选择，ChipGroup 使用四向键/Home/End 移动并以 Enter/Space 切换，Select 使用上下键选择并可展开进入选项，Tabs 使用横向左右键或纵向上下键自动切换，Menu 使用上下键及 Home/End 在可用项间导航，VirtualList 使用单一 Tab 停靠点和方向键/Home/End 选择并自动滚动，DataTable 使用表头与活动行停靠点完成列排序和稳定行导航，Pagination 使用左右/Home/End 切页并在边界移除不可用停靠点，Accordion 使用上/下/Home/End 在标题间移动并以左右键展开或收起；Dialog 打开时焦点顺序被限制在取消和确认按钮内。Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、RadioGroup、ChipGroup、Select、Tabs、Menu、VirtualList、DataTable 和 Pagination 均通过统一 Theme 令牌显示焦点环。
+交互控件已接入循环键盘焦点顺序：`Tab`/`Shift+Tab` 前后移动，`Enter`/`Space` 激活当前按钮或选择控件，Slider 使用左右方向键按 `0.05` 调整，NumberStepper 使用四向键增减和 Home/End 边界跳转，RadioGroup 使用四向键循环选择，ChipGroup 使用四向键/Home/End 移动并以 Enter/Space 切换，Select 使用上下键选择并可展开进入选项，Tabs 使用横向左右键或纵向上下键自动切换，Menu 使用上下键及 Home/End 在可用项间导航，VirtualList 使用单一 Tab 停靠点和方向键/Home/End 选择并自动滚动，DataTable 使用表头与活动行停靠点完成列排序和稳定行导航，Pagination 使用左右/Home/End 切页并在边界移除不可用停靠点，Accordion 使用上/下/Home/End 在标题间移动并以左右键展开或收起；Dialog 打开时焦点顺序被限制在取消和确认按钮内。Button、IconButton、Checkbox、Switch、Slider、NumberStepper、TextField、NavigationBar、TreeView、Accordion、RadioGroup、ChipGroup、Select、Tabs、Menu、VirtualList、DataTable 和 Pagination 均通过统一 Theme 令牌显示焦点环。
 
 所有 `src/ui/widgets` 控件的语义颜色、常用圆角和间距来自 `src/ui/theme.zig` 的共享令牌；Switch 等胶囊形状的半径由控件尺寸计算。
 - Button 使用稳定 Clay ID 跟踪按压归属，只有在控件内按下并在控件内释放才触发点击。

@@ -141,6 +141,7 @@ zapp/
 │  │  │  ├─ label.zig
 │  │  │  ├─ toggle.zig
 │  │  │  ├─ slider.zig
+│  │  │  ├─ number_stepper.zig
 │  │  │  ├─ chip_group.zig
 │  │  │  ├─ scroll_view.zig
 │  │  │  ├─ dialog.zig
@@ -616,6 +617,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `FormField`：在 TextField 上组合标签、必填标记、帮助/错误 supporting text 和受控验证状态。
 - `RadioGroup`：受控互斥选择，支持横/纵布局、鼠标/触摸、四向键循环选择，以及 radio_group/radio_button 语义。
 - `ChipGroup`：受控多选筛选组，支持禁用项、方向键循环、Home/End 首尾导航，以及 chip/ToggleButton 语义。
+- `NumberStepper`：受控整数范围输入，支持可配置 min/max/step、边界禁用、键盘增减，以及 spin_button/NumberPicker 语义。
 - `Select`：受控单选下拉框，支持动态展开选项、键盘导航、外部点击/返回键收起，以及 combo_box/option 语义。
 - `Tabs`：受控标签页导航，支持横/纵布局、方向键自动激活、单一 Tab 停靠点，以及 tab_list/tab 语义。
 - `MenuButton`：受控操作菜单，支持禁用项、上下键循环、Home/End 首尾导航、外部点击/返回键关闭，以及 menu/menu_item 语义。
@@ -652,11 +654,13 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 ChipGroup 已实现：多个筛选值由 AppModel 中的位掩码控制，控件只产生切换索引 Action。每项使用稳定派生 ID，点击或 Enter/Space 独立切换 checked 状态；四向键循环移动，Home/End 定位首尾，并自动跳过禁用项。Android 无障碍桥将 chip 角色映射为 `ToggleButton`，同步 checkable/checked/selected/disabled 状态并把系统点击动作送回同一 reducer。
 
+补充控件 NumberStepper 已实现：整数值由 AppModel 控制，减号、数值和加号组成单一范围控件；指针点击与四向键按配置步长增减，Home/End 跳到最小/最大值，边界按钮自动禁用。语义节点新增 value_min/value_max/value_step，Slider 也显式写入自身 `0...1` 与 `0.05` 步长；Android Zig/C 节点 ABI 扩展为 448 字节、JNI geometry 扩展为 8 个 float，并把 spin_button 映射为带 RangeInfo 与双向系统滚动动作的 NumberPicker。
+
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
 平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/up/down/left/right/first/last/back，并复用键盘的 FocusManager 和一帧请求状态。Android Activity 已显式捕获普通 UI 焦点下的 DPAD、Tab、Enter/Space、Home/End 与手柄 A 键，经 JNI 事件队列进入同一 reducer；IME 编辑视图持有焦点时不截获方向键。Sokol 本身不提供统一 gamepad 事件，Windows XInput 与 Apple GameController 的原生采集仍属于各平台壳实现。
 
-控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、最终布局边界以及 disabled、focused、selected、modal、expanded、required、invalid、error text、行列位置和集合尺寸状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、DataTable、TreeView、Accordion、FormField 和 ChipGroup 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作，DataTable 映射为 CollectionInfo/CollectionItemInfo，FormField 映射必填和验证错误状态，ChipGroup 映射为一组可勾选 ToggleButton；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
+控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、范围 min/max/step、最终布局边界以及 disabled、focused、selected、modal、expanded、required、invalid、error text、行列位置和集合尺寸状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、DataTable、TreeView、Accordion、FormField、ChipGroup 和 NumberStepper 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作，DataTable 映射为 CollectionInfo/CollectionItemInfo，FormField 映射必填和验证错误状态，ChipGroup 映射为一组可勾选 ToggleButton，NumberStepper 映射为 NumberPicker；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
 
 控件主题一致性已完成：widgets 的状态颜色、文字颜色、常用圆角和间距统一引用 Theme 令牌，不再在各控件内维护独立调色板。
 

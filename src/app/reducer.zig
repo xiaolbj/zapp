@@ -74,6 +74,7 @@ pub fn update(model: *Model, action: Action) void {
             if (model.demo_progress > 1.001) model.demo_progress = 0;
         },
         .demo_volume_changed => |value| model.demo_volume = @min(@max(value, 0), 1),
+        .demo_retry_count_changed => |value| model.demo_retry_count = @min(@max(value, 0), 10),
         .demo_dialog_opened => model.demo_dialog_open = true,
         .demo_dialog_closed => model.demo_dialog_open = false,
         .demo_dialog_confirmed => {
@@ -352,6 +353,17 @@ test "volume action clamps controlled slider state" {
     try std.testing.expectEqual(@as(f32, 1), model.demo_volume);
     update(&model, .{ .demo_volume_changed = -0.2 });
     try std.testing.expectEqual(@as(f32, 0), model.demo_volume);
+}
+
+test "retry count action clamps controlled stepper state" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_retry_count_changed = 7 });
+    try std.testing.expectEqual(@as(i32, 7), model.demo_retry_count);
+    update(&model, .{ .demo_retry_count_changed = -4 });
+    try std.testing.expectEqual(@as(i32, 0), model.demo_retry_count);
+    update(&model, .{ .demo_retry_count_changed = 99 });
+    try std.testing.expectEqual(@as(i32, 10), model.demo_retry_count);
 }
 
 test "dialog actions update modal state and confirmation count" {
