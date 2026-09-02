@@ -84,6 +84,7 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
             .attach_points = .{ .element = .right_top, .parent = .right_top },
             .pointer_capture_mode = .capture,
             .attach_to = .to_parent,
+            .clip_to = .to_attached_parent,
         },
     })(clay.UI()(.{
         .layout = .{
@@ -102,6 +103,7 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
             .attach_points = .{ .element = .left_top, .parent = .left_top },
             .pointer_capture_mode = .passthrough,
             .attach_to = .to_parent,
+            .clip_to = .to_attached_parent,
         },
     })({}));
 }
