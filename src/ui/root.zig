@@ -45,6 +45,12 @@ const demo_hero_source: image_view.Source = .{
     .pixel_height = 64,
     .fit = .cover,
 };
+const activity_thumbnail_source: image_view.Source = .{
+    .resource = .activity_thumbnail,
+    .pixel_width = 96,
+    .pixel_height = 64,
+    .fit = .cover,
+};
 
 const demo_tree_items = [_]tree_view.Item{
     .{ .text = "zapp" },
@@ -1930,6 +1936,15 @@ fn drawActivityPage(compact: bool) void {
         label.draw("跨平台应用框架的最新开发记录", .{
             .color = theme.controls.text_muted,
             .semantic_id = .ID("ActivityPageDescription"),
+            .semantic_registry = &state.semantic_registry,
+        });
+        image_view.draw(.{
+            .id = "ActivityThumbnail",
+            .source = &activity_thumbnail_source,
+            .width = if (compact) 220 else 280,
+            .height = 112,
+            .corner_radius = theme.controls.radius_medium,
+            .semantic_label = "活动渐变缩略图",
             .semantic_registry = &state.semantic_registry,
         });
         clay.UI()(.{

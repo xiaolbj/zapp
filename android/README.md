@@ -189,7 +189,7 @@ adb logcat -s zapp sokol app
 
 当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、文件名称/MIME/大小元数据、完整流式读取与取消、Home 暂停后同进程恢复，以及原生无障碍节点树。17,772,300 字节字体样本完整读取为 4,339 块，App 摘要 `2adecf5b9049c2ad` 与本地独立 FNV-1a 计算一致；取消验证在 3,719,168 字节、908 块处有序结束，读取期间 UI 保持响应，日志无丢块或崩溃。UIAutomator 可发现中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView、流式控制和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
 
-Image RenderCommand 已在同一模拟器完成运行时验证：编译期 RGBA 封面通过 Sokol Image/View/Sampler 显示，cover UV 裁切与圆角纹理网格正确；UIAutomator 将其识别为 `android.widget.ImageView`，内容描述为“蓝色渐变应用封面”。冷启动后进程保持存活，AndroidRuntime、libc 和 crash buffer 均无异常。
+Image RenderCommand 已在同一模拟器完成运行时验证：资源 Registry 使用与桌面端相同的内存解码桥，在初始化时把首页 PNG 封面和活动页 JPEG 缩略图解码并上传为 Sokol Image/View，共享线性采样 Sampler；cover UV 裁切与圆角纹理网格正确。UIAutomator 将两者识别为 `android.widget.ImageView`，内容描述分别为“蓝色渐变应用封面”和“活动渐变缩略图”。冷启动后进程保持存活，AndroidRuntime、libc 和 crash buffer 均无异常。Gradle 将 `third_party` 纳入 Zig 构建输入，资源解码不依赖 Android 文件路径或 Java Bitmap API。
 
 首页/活动/设置三页路由已在同一模拟器完成点击验证：活动页只暴露独立 `活动页面` 滚动容器与八条事件，首页 `Clay 应用框架` 节点退出语义树；设置页只暴露 `设置页面`、Accordion、CheckBox、Switch 和 RadioGroup。每次仅一个导航按钮 selected，切换离开设置页再返回后“启用离线缓存”仍保持 checked，证明状态由 AppModel 而非页面实例持有。全程进程存活，AndroidRuntime、libc 和 crash buffer 无异常。
 

@@ -34,9 +34,14 @@ pub fn build(b: *Build) void {
     mod_zapp.addIncludePath(dep_sokol.path("src/sokol/c"));
     mod_zapp.addIncludePath(dep_fontstash.path("src"));
     mod_zapp.addIncludePath(dep_sokol_headers.path("util"));
+    mod_zapp.addIncludePath(b.path("third_party/stb"));
     mod_zapp.addCSourceFile(.{
         .file = b.path("src/text/fontstash_bridge.c"),
         .flags = fontstashCFlags(target.result),
+    });
+    mod_zapp.addCSourceFile(.{
+        .file = b.path("src/render/image_decode_bridge.c"),
+        .flags = &.{ "-std=c11", "-fvisibility=hidden" },
     });
 
     const mod_main = b.createModule(.{
@@ -152,9 +157,14 @@ fn configureAndroidBuild(
     mod_zapp.addIncludePath(dep_sokol.path("src/sokol/c"));
     mod_zapp.addIncludePath(dep_fontstash.path("src"));
     mod_zapp.addIncludePath(dep_sokol_headers.path("util"));
+    mod_zapp.addIncludePath(b.path("third_party/stb"));
     mod_zapp.addCSourceFile(.{
         .file = b.path("src/text/fontstash_bridge.c"),
         .flags = fontstashCFlags(target.result),
+    });
+    mod_zapp.addCSourceFile(.{
+        .file = b.path("src/render/image_decode_bridge.c"),
+        .flags = &.{ "-std=c11", "-fvisibility=hidden" },
     });
 
     const mod_main = b.createModule(.{

@@ -178,6 +178,7 @@ fun registerZigBuild(
     }
     inputs.files(
         fileTree(repositoryRoot.resolve("src")), fileTree(repositoryRoot.resolve("assets")),
+        fileTree(repositoryRoot.resolve("third_party")),
         repositoryRoot.resolve("zapp.zig"), repositoryRoot.resolve("build.zig"),
         repositoryRoot.resolve("build.zig.zon"),
     )

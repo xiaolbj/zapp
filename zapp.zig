@@ -7,12 +7,15 @@ pub const text = @import("src/text/font.zig");
 pub const ui = @import("src/ui/root.zig");
 
 test {
+    _ = @import("src/assets/image_catalog.zig");
     _ = app;
     _ = performance;
     _ = platform;
     _ = semantics;
     _ = text;
     _ = ui;
+    _ = @import("src/render/image_decode.zig");
+    _ = @import("src/render/image_registry.zig");
     _ = @import("src/ui/focus_manager.zig");
     _ = @import("src/ui/widgets/button.zig");
     _ = @import("src/ui/widgets/card.zig");

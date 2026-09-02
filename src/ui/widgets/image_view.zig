@@ -1,9 +1,8 @@
 const clay = @import("zclay");
 const semantics = @import("../semantics.zig");
+const image_catalog = @import("../../assets/image_catalog.zig");
 
-pub const Resource = enum(u32) {
-    demo_hero = 1,
-};
+pub const Resource = image_catalog.Resource;
 
 pub const Fit = enum(u8) {
     stretch,

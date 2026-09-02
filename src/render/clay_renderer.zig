@@ -9,12 +9,11 @@ const sglue = sokol.glue;
 const slog = sokol.log;
 const font = @import("../text/font.zig");
 const image_view = @import("../ui/widgets/image_view.zig");
+const image_registry = @import("image_registry.zig");
 
 pub const ClayRenderer = struct {
     pass_action: sg.PassAction = .{},
-    demo_image: sg.Image = .{},
-    demo_view: sg.View = .{},
-    demo_sampler: sg.Sampler = .{},
+    images: image_registry.Registry = .{},
 
     pub fn setup(self: *ClayRenderer) bool {
         sg.setup(.{
@@ -25,13 +24,13 @@ pub const ClayRenderer = struct {
             .depth_format = .NONE,
             .logger = .{ .func = slog.func },
         });
-        if (!self.setupImages()) {
+        if (!self.images.setup()) {
             sgl.shutdown();
             sg.shutdown();
             return false;
         }
         if (!font.setup()) {
-            self.shutdownImages();
+            self.images.shutdown();
             sgl.shutdown();
             sg.shutdown();
             return false;
@@ -62,51 +61,9 @@ pub const ClayRenderer = struct {
 
     pub fn shutdown(self: *ClayRenderer) void {
         font.shutdown();
-        self.shutdownImages();
+        self.images.shutdown();
         sgl.shutdown();
         sg.shutdown();
-    }
-
-    fn setupImages(self: *ClayRenderer) bool {
-        var data: sg.ImageData = .{};
-        data.mip_levels[0] = .{ .ptr = &demo_pixels, .size = demo_pixels.len };
-        self.demo_image = sg.makeImage(.{
-            .width = demo_image_width,
-            .height = demo_image_height,
-            .pixel_format = .RGBA8,
-            .data = data,
-            .label = "zapp-demo-hero-image",
-        });
-        if (self.demo_image.id == 0) return false;
-        self.demo_view = sg.makeView(.{
-            .texture = .{ .image = self.demo_image },
-            .label = "zapp-demo-hero-view",
-        });
-        if (self.demo_view.id == 0) {
-            self.shutdownImages();
-            return false;
-        }
-        self.demo_sampler = sg.makeSampler(.{
-            .min_filter = .LINEAR,
-            .mag_filter = .LINEAR,
-            .wrap_u = .CLAMP_TO_EDGE,
-            .wrap_v = .CLAMP_TO_EDGE,
-            .label = "zapp-demo-hero-sampler",
-        });
-        if (self.demo_sampler.id == 0) {
-            self.shutdownImages();
-            return false;
-        }
-        return true;
-    }
-
-    fn shutdownImages(self: *ClayRenderer) void {
-        if (self.demo_view.id != 0) sg.destroyView(self.demo_view);
-        if (self.demo_sampler.id != 0) sg.destroySampler(self.demo_sampler);
-        if (self.demo_image.id != 0) sg.destroyImage(self.demo_image);
-        self.demo_view = .{};
-        self.demo_sampler = .{};
-        self.demo_image = .{};
     }
 
     fn recordCommands(self: *ClayRenderer, frame: ui.Frame) void {
@@ -140,10 +97,7 @@ pub const ClayRenderer = struct {
     fn drawImage(self: *ClayRenderer, bounds: clay.BoundingBox, data: clay.ImageRenderData) void {
         const raw_source = data.image_data orelse return;
         const source: *const image_view.Source = @ptrCast(@alignCast(raw_source));
-        const texture = switch (source.resource) {
-            .demo_hero => .{ .view = self.demo_view, .sampler = self.demo_sampler },
-        };
-        if (texture.view.id == 0 or texture.sampler.id == 0) return;
+        const texture = self.images.resolve(source.resource) orelse return;
         const placement = imagePlacement(bounds, source.*);
         const tint = imageTint(data.background_color);
         const requested_radius = @min(
@@ -156,10 +110,6 @@ pub const ClayRenderer = struct {
         sgl.disableTexture();
     }
 };
-
-const demo_image_width = 128;
-const demo_image_height = 64;
-const demo_pixels = makeDemoPixels();
 
 const ImagePlacement = struct {
     bounds: clay.BoundingBox,
@@ -175,23 +125,6 @@ const Tint = struct {
     b: f32,
     a: f32,
 };
-
-fn makeDemoPixels() [demo_image_width * demo_image_height * 4]u8 {
-    @setEvalBranchQuota(100_000);
-    var pixels: [demo_image_width * demo_image_height * 4]u8 = undefined;
-    for (0..demo_image_height) |y| {
-        for (0..demo_image_width) |x| {
-            const offset = (y * demo_image_width + x) * 4;
-            const checker: usize = if ((x / 16 + y / 16) % 2 == 0) 18 else 0;
-            const diagonal = x > y and x - y < 12;
-            pixels[offset] = @intCast(@min(34 + x * 72 / (demo_image_width - 1) + checker, 255));
-            pixels[offset + 1] = @intCast(@min(82 + y * 96 / (demo_image_height - 1) + checker, 255));
-            pixels[offset + 2] = @intCast(if (diagonal) 245 else 174 + x * 52 / (demo_image_width - 1));
-            pixels[offset + 3] = 255;
-        }
-    }
-    return pixels;
-}
 
 fn imagePlacement(container: clay.BoundingBox, source: image_view.Source) ImagePlacement {
     if (container.width <= 0 or container.height <= 0 or source.pixel_width <= 0 or source.pixel_height <= 0) {
