@@ -70,6 +70,13 @@ const demo_density_items = [_]radio_group.Item{
     .{ .text = "宽松" },
 };
 
+const image_cache_budget_items = [_]radio_group.Item{
+    .{ .text = "1 槽" },
+    .{ .text = "2 槽" },
+    .{ .text = "3 槽" },
+    .{ .text = "4 槽" },
+};
+
 const demo_filter_items = [_]chip_group.Item{
     .{ .text = "开发中" },
     .{ .text = "待复核" },
@@ -494,6 +501,10 @@ pub fn build(model: *const Model) Frame {
             focus_order_count += settings_order.len;
             for (demo_density_items, 0..) |_, density_index| {
                 focus_order[focus_order_count] = radio_group.itemId("DensityRadio", density_index).id;
+                focus_order_count += 1;
+            }
+            for (image_cache_budget_items, 0..) |_, budget_index| {
+                focus_order[focus_order_count] = radio_group.itemId("ImageCacheBudgetRadio", budget_index).id;
                 focus_order_count += 1;
             }
         }
@@ -1731,7 +1742,11 @@ pub fn handleSemanticAction(
                     !accordion.isExpanded(model.demo_accordion_expanded_mask, index),
                     .single,
                 ) });
-            } else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (chipIndex(element_id)) |index| {
+            } else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (imageCacheBudgetIndex(element_id)) |index| {
+                if (model.runtime_image_cache_budget_requested == null) {
+                    emit(.{ .runtime_image_cache_budget_selected = index + 1 });
+                }
+            } else if (chipIndex(element_id)) |index| {
                 if (!demo_filter_items[index].disabled) emit(.{ .demo_filter_toggled = index });
             } else if (selectOptionIndex(element_id)) |index| {
                 state.focus_state.focus(sort_select_id);
@@ -1884,6 +1899,13 @@ fn radioIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn imageCacheBudgetIndex(element_id: u32) ?u8 {
+    for (image_cache_budget_items, 0..) |_, index| {
+        if (element_id == radio_group.itemId("ImageCacheBudgetRadio", index).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn chipIndex(element_id: u32) ?u8 {
     for (demo_filter_items, 0..) |_, index| {
         if (element_id == chip_group.itemId("StatusFilters", index).id) return @intCast(index);
@@ -1966,7 +1988,8 @@ fn isInteractiveSemanticId(element_id: u32) bool {
     if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
         treeIndex(element_id) != null or
         accordionIndex(element_id) != null or
-        radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
+        radioIndex(element_id) != null or imageCacheBudgetIndex(element_id) != null or
+        selectOptionIndex(element_id) != null) return true;
     if (chipIndex(element_id)) |index| return !demo_filter_items[index].disabled;
     if (menuItemIndex(element_id)) |index| return !demo_menu_items[index].disabled;
     if (virtualListIndex(element_id) != null) return true;
@@ -2192,6 +2215,37 @@ fn drawSettingsPage(
             state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
             emit(.{ .demo_density_selected = @intCast(index) });
         }
+        label.draw("动态图片缓存预算", .{
+            .color = theme.controls.text_muted,
+            .semantic_id = .ID("ImageCacheBudgetRadioLabel"),
+            .semantic_registry = &state.semantic_registry,
+        });
+        const requested_budget = model.runtime_image_cache_budget_requested orelse
+            model.runtime_image_cache_budget;
+        const budget_result = radio_group.draw(&state.interaction_state, input, .{
+            .id = "ImageCacheBudgetRadio",
+            .items = &image_cache_budget_items,
+            .selected_index = runtime_image.boundedCacheBudget(requested_budget) - 1,
+            .item_width = if (narrow) control_width else 120,
+            .direction = control_direction,
+            .disabled = modal_open or model.runtime_image_cache_budget_requested != null,
+            .focused_id = state.focus_state.focused_id,
+            .semantic_label = "动态图片缓存预算",
+            .semantic_registry = &state.semantic_registry,
+        });
+        if (budget_result.focus_index) |index| {
+            state.focus_state.focus(radio_group.itemId("ImageCacheBudgetRadio", index).id);
+        }
+        if (budget_result.selected_index) |index| {
+            state.focus_state.focus(radio_group.itemId("ImageCacheBudgetRadio", index).id);
+            emit(.{ .runtime_image_cache_budget_selected = @intCast(index + 1) });
+        }
+        label.draw("缩减预算时按 LRU 立即释放超额 GPU 图片", .{
+            .font_size = 13,
+            .color = theme.controls.text_muted,
+            .semantic_id = .ID("ImageCacheBudgetDescription"),
+            .semantic_registry = &state.semantic_registry,
+        });
         state.semantic_registry.popScrollAncestor();
     });
 }
@@ -2583,7 +2637,7 @@ fn formatRuntimeImageStatus(buffer: []u8, model: *const Model) []const u8 {
             model.runtime_image_bytes_received,
             if (model.runtime_image_cache_hit) "命中" else "新增",
             model.runtime_image_cached_count,
-            image_catalog.runtime_resource_count,
+            model.runtime_image_cache_budget,
         },
     ) catch "图片状态不可用";
     if (model.last_runtime_image_cache_clear_reason) |reason| return std.fmt.bufPrint(
@@ -2593,6 +2647,11 @@ fn formatRuntimeImageStatus(buffer: []u8, model: *const Model) []const u8 {
             if (reason == .manual) "用户操作" else "系统内存压力",
             model.last_runtime_image_cache_released_count,
         },
+    ) catch "图片状态不可用";
+    if (model.last_runtime_image_budget_released_count > 0) return std.fmt.bufPrint(
+        buffer,
+        "图片缓存预算已调整为 {d} 槽，按 LRU 淘汰 {d} 个动态槽",
+        .{ model.runtime_image_cache_budget, model.last_runtime_image_budget_released_count },
     ) catch "图片状态不可用";
     return "";
 }
@@ -3204,6 +3263,8 @@ test "responsive shell emits controls and text" {
     var settings_has_checkbox = false;
     var settings_has_switch = false;
     var settings_radio_count: usize = 0;
+    var settings_budget_radio_count: usize = 0;
+    var selected_budget_radio_count: usize = 0;
     for (settings_page_frame.semantic_nodes) |node| {
         if (node.element_id == clay.ElementId.ID("SettingsPage").id and node.scrollable) {
             has_settings_page = true;
@@ -3216,12 +3277,18 @@ test "responsive shell emits controls and text" {
             settings_has_switch = true;
         }
         if (node.role == .radio_button) settings_radio_count += 1;
+        if (imageCacheBudgetIndex(node.element_id) != null) {
+            settings_budget_radio_count += 1;
+            if (node.selected) selected_budget_radio_count += 1;
+        }
     }
     try std.testing.expect(has_settings_page);
     try std.testing.expect(!settings_has_activity_content);
     try std.testing.expect(settings_has_checkbox);
     try std.testing.expect(settings_has_switch);
-    try std.testing.expectEqual(demo_density_items.len, settings_radio_count);
+    try std.testing.expectEqual(demo_density_items.len + image_cache_budget_items.len, settings_radio_count);
+    try std.testing.expectEqual(image_cache_budget_items.len, settings_budget_radio_count);
+    try std.testing.expectEqual(@as(usize, 1), selected_budget_radio_count);
     try std.testing.expect(state.focus_state.isFocused(clay.ElementId.IDI("MainNavigation", 2).id));
 }
 
@@ -3360,6 +3427,24 @@ test "semantic actions reuse reducer-facing UI actions" {
     );
     try std.testing.expectEqual(@as(usize, 1), actions.len);
     try std.testing.expectEqual(@as(u8, 2), actions[0].demo_density_selected);
+
+    actions = handleSemanticAction(
+        &model,
+        radio_group.itemId("ImageCacheBudgetRadio", 1).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u8, 2), actions[0].runtime_image_cache_budget_selected);
+    model.runtime_image_cache_budget_requested = 2;
+    actions = handleSemanticAction(
+        &model,
+        radio_group.itemId("ImageCacheBudgetRadio", 2).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 0), actions.len);
+    model.runtime_image_cache_budget_requested = null;
 
     actions = handleSemanticAction(
         &model,
@@ -3725,4 +3810,11 @@ test "runtime image status reports bounds progress and dimensions" {
     const released = formatRuntimeImageStatus(&buffer, &model);
     try std.testing.expect(std.mem.indexOf(u8, released, "系统内存压力") != null);
     try std.testing.expect(std.mem.indexOf(u8, released, "1 个动态槽") != null);
+
+    model.last_runtime_image_cache_clear_reason = null;
+    model.runtime_image_cache_budget = 2;
+    model.last_runtime_image_budget_released_count = 2;
+    const budget = formatRuntimeImageStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, budget, "调整为 2 槽") != null);
+    try std.testing.expect(std.mem.indexOf(u8, budget, "淘汰 2 个") != null);
 }

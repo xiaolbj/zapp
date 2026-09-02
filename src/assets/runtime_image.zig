@@ -1,6 +1,9 @@
 const std = @import("std");
+const image_catalog = @import("image_catalog.zig");
 
 pub const max_encoded_bytes: usize = 16 * 1024 * 1024;
+pub const min_cache_budget: u8 = 1;
+pub const max_cache_budget: u8 = @intCast(image_catalog.runtime_resource_count);
 const initial_capacity: usize = 64 * 1024;
 
 pub const ClearReason = enum(u8) {
@@ -13,6 +16,10 @@ pub fn shouldReleaseForAndroidTrimLevel(level: u32) bool {
     // UI_HIDDEN (20) alone is not memory pressure, so it deliberately keeps
     // the cache warm for a quick foreground resume.
     return level == 10 or level == 15 or level >= 40;
+}
+
+pub fn boundedCacheBudget(requested: u8) u8 {
+    return @min(@max(requested, min_cache_budget), max_cache_budget);
 }
 
 pub const LoadFailure = enum(u8) {
@@ -141,4 +148,10 @@ test "Android trim levels distinguish UI hiding from memory pressure" {
     try std.testing.expect(!shouldReleaseForAndroidTrimLevel(20));
     try std.testing.expect(shouldReleaseForAndroidTrimLevel(40));
     try std.testing.expect(shouldReleaseForAndroidTrimLevel(80));
+}
+
+test "runtime image cache budget stays within available dynamic slots" {
+    try std.testing.expectEqual(min_cache_budget, boundedCacheBudget(0));
+    try std.testing.expectEqual(@as(u8, 2), boundedCacheBudget(2));
+    try std.testing.expectEqual(max_cache_budget, boundedCacheBudget(255));
 }

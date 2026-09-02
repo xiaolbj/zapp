@@ -223,22 +223,34 @@ fn drainPlatformEvents() void {
 }
 
 fn processRendererRequests() void {
-    if (!state.app.model.runtime_image_cache_clear_requested) return;
-    const reason = state.app.model.runtime_image_cache_clear_reason;
-    if (state.app.model.runtime_image_load_pending) {
-        const request_id = state.app.model.last_runtime_image_request_id;
-        state.app.dispatch(.platform_runtime_image_load_cancel_requested);
-        state.runtime_image_accumulator.reset(std.heap.c_allocator);
-        state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
-            .request_id = request_id,
-            .error_kind = .interrupted,
+    if (state.app.model.runtime_image_cache_clear_requested) {
+        const reason = state.app.model.runtime_image_cache_clear_reason;
+        if (state.app.model.runtime_image_load_pending) {
+            const request_id = state.app.model.last_runtime_image_request_id;
+            state.app.dispatch(.platform_runtime_image_load_cancel_requested);
+            state.runtime_image_accumulator.reset(std.heap.c_allocator);
+            state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                .request_id = request_id,
+                .error_kind = .interrupted,
+            } });
+        }
+        const released_count = state.renderer.images.clearRuntime();
+        state.app.dispatch(.{ .runtime_image_cache_cleared = .{
+            .reason = reason,
+            .released_count = released_count,
         } });
     }
-    const released_count = state.renderer.images.clearRuntime();
-    state.app.dispatch(.{ .runtime_image_cache_cleared = .{
-        .reason = reason,
-        .released_count = released_count,
-    } });
+    if (state.app.model.runtime_image_cache_budget_requested) |requested_budget| {
+        const result = state.renderer.images.setRuntimeCacheBudget(requested_budget);
+        const visible_resource_retained = !state.app.model.runtime_image_loaded or
+            state.renderer.images.resolve(state.app.model.runtime_image_resource) != null;
+        state.app.dispatch(.{ .runtime_image_cache_budget_applied = .{
+            .budget = result.budget,
+            .released_count = result.released_count,
+            .cached_count = result.cached_count,
+            .visible_resource_retained = visible_resource_retained,
+        } });
+    }
 }
 
 fn processPlatformRequests() void {

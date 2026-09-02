@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const capacity: usize = 4;
+pub const min_budget: usize = 1;
 pub const Digest = [32]u8;
 
 pub const Entry = struct {
@@ -16,6 +17,19 @@ pub const Hit = struct {
     width: u32,
     height: u32,
 };
+
+pub const TrimResult = struct {
+    slots: [capacity]usize = undefined,
+    count: usize = 0,
+
+    pub fn items(self: *const TrimResult) []const usize {
+        return self.slots[0..self.count];
+    }
+};
+
+pub fn boundedBudget(requested: usize) usize {
+    return @min(@max(requested, min_budget), capacity);
+}
 
 pub fn contentDigest(encoded_bytes: []const u8) Digest {
     var result: Digest = undefined;
@@ -43,17 +57,23 @@ pub const Index = struct {
         return null;
     }
 
-    pub fn victim(self: *const Index) usize {
-        for (self.entries, 0..) |entry, slot| if (!entry.valid) return slot;
-        var oldest_slot: usize = 0;
-        var oldest_tick = self.entries[0].last_used;
-        for (self.entries[1..], 1..) |entry, slot| {
-            if (entry.last_used < oldest_tick) {
-                oldest_tick = entry.last_used;
-                oldest_slot = slot;
-            }
+    pub fn victim(self: *const Index, requested_budget: usize) usize {
+        if (self.count() < boundedBudget(requested_budget)) {
+            for (self.entries, 0..) |entry, slot| if (!entry.valid) return slot;
         }
-        return oldest_slot;
+        return self.oldestSlot();
+    }
+
+    pub fn trimTo(self: *Index, requested_budget: usize) TrimResult {
+        const budget = boundedBudget(requested_budget);
+        var result: TrimResult = .{};
+        while (self.count() > budget) {
+            const slot = self.oldestSlot();
+            result.slots[result.count] = slot;
+            result.count += 1;
+            self.entries[slot] = .{};
+        }
+        return result;
     }
 
     pub fn commit(self: *Index, slot: usize, digest: Digest, width: u32, height: u32) void {
@@ -89,6 +109,19 @@ pub const Index = struct {
         }
         return self.tick;
     }
+
+    fn oldestSlot(self: *const Index) usize {
+        var oldest_slot: ?usize = null;
+        var oldest_tick: u64 = 0;
+        for (self.entries, 0..) |entry, slot| {
+            if (!entry.valid) continue;
+            if (oldest_slot == null or entry.last_used < oldest_tick) {
+                oldest_slot = slot;
+                oldest_tick = entry.last_used;
+            }
+        }
+        return oldest_slot orelse unreachable;
+    }
 };
 
 test "cache index hits content and evicts the least recently used slot" {
@@ -97,18 +130,37 @@ test "cache index hits content and evicts the least recently used slot" {
     for (&digests, 0..) |*digest, value| digest.* = contentDigest(&.{@intCast(value)});
 
     for (digests[0..capacity], 0..) |digest, slot| {
-        try std.testing.expectEqual(slot, index.victim());
+        try std.testing.expectEqual(slot, index.victim(capacity));
         index.commit(slot, digest, @intCast(100 + slot), 64);
     }
     try std.testing.expectEqual(capacity, index.count());
     const hit = index.lookup(digests[0]).?;
     try std.testing.expectEqual(@as(usize, 0), hit.slot);
     try std.testing.expectEqual(@as(u32, 100), hit.width);
-    try std.testing.expectEqual(@as(usize, 1), index.victim());
+    try std.testing.expectEqual(@as(usize, 1), index.victim(capacity));
 
-    index.commit(index.victim(), digests[capacity], 200, 80);
+    index.commit(index.victim(capacity), digests[capacity], 200, 80);
     try std.testing.expect(index.lookup(digests[1]) == null);
     try std.testing.expect(index.lookup(digests[0]) != null);
+}
+
+test "cache budget trims the least recently used entries and expands without reset" {
+    var index: Index = .{};
+    var digests: [capacity]Digest = undefined;
+    for (&digests, 0..) |*digest, value| digest.* = contentDigest(&.{@intCast(value)});
+    for (digests, 0..) |digest, slot| index.commit(slot, digest, @intCast(100 + slot), 64);
+
+    _ = index.lookup(digests[0]);
+    _ = index.lookup(digests[2]);
+    const trimmed = index.trimTo(2);
+    try std.testing.expectEqualSlices(usize, &.{ 1, 3 }, trimmed.items());
+    try std.testing.expectEqual(@as(usize, 2), index.count());
+    try std.testing.expect(index.lookup(digests[0]) != null);
+    try std.testing.expect(index.lookup(digests[2]) != null);
+    try std.testing.expect(index.lookup(digests[1]) == null);
+    try std.testing.expectEqual(@as(usize, 1), index.victim(3));
+    try std.testing.expectEqual(@as(usize, 1), boundedBudget(0));
+    try std.testing.expectEqual(capacity, boundedBudget(capacity + 1));
 }
 
 test "content digest is stable and distinguishes encoded bytes" {

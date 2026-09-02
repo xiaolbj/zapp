@@ -55,6 +55,13 @@ pub const RuntimeImageCacheCleared = struct {
     released_count: u8,
 };
 
+pub const RuntimeImageCacheBudgetApplied = struct {
+    budget: u8,
+    released_count: u8,
+    cached_count: u8,
+    visible_resource_retained: bool,
+};
+
 pub const Action = union(enum) {
     tick: f64,
     performance_updated: frame_metrics.Snapshot,
@@ -124,6 +131,8 @@ pub const Action = union(enum) {
     platform_memory_pressure_received: u32,
     runtime_image_cache_clear_requested: runtime_image.ClearReason,
     runtime_image_cache_cleared: RuntimeImageCacheCleared,
+    runtime_image_cache_budget_selected: u8,
+    runtime_image_cache_budget_applied: RuntimeImageCacheBudgetApplied,
     demo_navigation_selected: u8,
     demo_tree_toggled: u8,
     demo_tree_selected: u8,

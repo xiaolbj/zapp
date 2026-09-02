@@ -1,5 +1,6 @@
 const Action = @import("action.zig").Action;
 const Model = @import("model.zig").Model;
+const runtime_image = @import("../assets/runtime_image.zig");
 const text_edit = @import("text_edit.zig");
 
 pub fn update(model: *Model, action: Action) void {
@@ -249,6 +250,8 @@ pub fn update(model: *Model, action: Action) void {
             model.runtime_image_cache_hit = result.cache_hit;
             model.runtime_image_cached_count = result.cached_count;
             model.runtime_image_error = null;
+            model.last_runtime_image_cache_clear_reason = null;
+            model.last_runtime_image_budget_released_count = 0;
         },
         .platform_runtime_image_load_failed => |failure| {
             if (failure.request_id != model.last_runtime_image_request_id) return;
@@ -279,6 +282,25 @@ pub fn update(model: *Model, action: Action) void {
             model.runtime_image_error = null;
             model.last_runtime_image_cache_clear_reason = result.reason;
             model.last_runtime_image_cache_released_count = result.released_count;
+            model.last_runtime_image_budget_released_count = 0;
+        },
+        .runtime_image_cache_budget_selected => |requested_budget| {
+            const budget = runtime_image.boundedCacheBudget(requested_budget);
+            model.runtime_image_cache_budget_requested = if (budget == model.runtime_image_cache_budget)
+                null
+            else
+                budget;
+        },
+        .runtime_image_cache_budget_applied => |result| {
+            model.runtime_image_cache_budget = runtime_image.boundedCacheBudget(result.budget);
+            model.runtime_image_cache_budget_requested = null;
+            model.runtime_image_cached_count = @min(result.cached_count, model.runtime_image_cache_budget);
+            if (!result.visible_resource_retained) {
+                model.runtime_image_loaded = false;
+                model.runtime_image_cache_hit = false;
+            }
+            model.last_runtime_image_cache_clear_reason = null;
+            model.last_runtime_image_budget_released_count = result.released_count;
         },
         .demo_navigation_selected => |index| {
             const next_index = @min(index, 2);
@@ -952,4 +974,35 @@ test "runtime image cache clearing records reason and releases visible state" {
     try std.testing.expectEqual(@as(u8, 0), model.runtime_image_cached_count);
     try std.testing.expectEqual(@as(u8, 3), model.last_runtime_image_cache_released_count);
     try std.testing.expect(model.last_runtime_image_cache_clear_reason == .memory_pressure);
+}
+
+test "runtime image cache budget is bounded and only drops an evicted preview" {
+    const std = @import("std");
+    var model: Model = .{
+        .runtime_image_loaded = true,
+        .runtime_image_cached_count = 4,
+    };
+    update(&model, .{ .runtime_image_cache_budget_selected = 2 });
+    try std.testing.expectEqual(@as(?u8, 2), model.runtime_image_cache_budget_requested);
+    update(&model, .{ .runtime_image_cache_budget_applied = .{
+        .budget = 2,
+        .released_count = 2,
+        .cached_count = 2,
+        .visible_resource_retained = true,
+    } });
+    try std.testing.expectEqual(@as(u8, 2), model.runtime_image_cache_budget);
+    try std.testing.expectEqual(@as(u8, 2), model.runtime_image_cached_count);
+    try std.testing.expect(model.runtime_image_loaded);
+
+    update(&model, .{ .runtime_image_cache_budget_selected = 0 });
+    try std.testing.expectEqual(@as(?u8, 1), model.runtime_image_cache_budget_requested);
+    update(&model, .{ .runtime_image_cache_budget_applied = .{
+        .budget = 1,
+        .released_count = 1,
+        .cached_count = 1,
+        .visible_resource_retained = false,
+    } });
+    try std.testing.expectEqual(@as(u8, 1), model.runtime_image_cache_budget);
+    try std.testing.expect(!model.runtime_image_loaded);
+    try std.testing.expectEqual(@as(u8, 1), model.last_runtime_image_budget_released_count);
 }

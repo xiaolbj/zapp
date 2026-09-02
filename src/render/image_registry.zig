@@ -23,6 +23,12 @@ pub const CacheResult = struct {
     cached_count: u8,
 };
 
+pub const BudgetResult = struct {
+    budget: u8,
+    released_count: u8,
+    cached_count: u8,
+};
+
 pub const CacheError = error{
     InvalidData,
     LimitExceeded,
@@ -38,6 +44,7 @@ pub const Registry = struct {
     entries: [catalog.resource_count]Entry = @splat(.{}),
     sampler: sg.Sampler = .{},
     cache: image_cache.Index = .{},
+    cache_budget: u8 = @intCast(image_cache.capacity),
 
     pub fn setup(self: *Registry) bool {
         self.shutdown();
@@ -90,6 +97,22 @@ pub const Registry = struct {
         return released_count;
     }
 
+    pub fn setRuntimeCacheBudget(self: *Registry, requested_budget: u8) BudgetResult {
+        const budget = image_cache.boundedBudget(requested_budget);
+        const trimmed = self.cache.trimTo(budget);
+        for (trimmed.items()) |slot| {
+            const entry = &self.entries[index(catalog.runtimeResource(slot))];
+            destroyEntry(entry.*);
+            entry.* = .{};
+        }
+        self.cache_budget = @intCast(budget);
+        return .{
+            .budget = self.cache_budget,
+            .released_count = @intCast(trimmed.count),
+            .cached_count = @intCast(self.cache.count()),
+        };
+    }
+
     /// Replaces a dynamic slot only after decode and both GPU objects succeed.
     /// A failed update leaves the previously visible texture untouched.
     pub fn cacheEncoded(
@@ -105,7 +128,7 @@ pub const Registry = struct {
             .cached_count = @intCast(self.cache.count()),
         };
 
-        const slot = self.cache.victim();
+        const slot = self.cache.victim(self.cache_budget);
         const resource = catalog.runtimeResource(slot);
         var decoded = image_decode.decode(encoded_bytes) catch |decode_error| return switch (decode_error) {
             error.LimitExceeded => error.LimitExceeded,
@@ -179,4 +202,7 @@ test "empty registry does not resolve GPU textures" {
         try std.testing.expect(registry.resolve(catalog.runtimeResource(slot)) == null);
     }
     try std.testing.expectEqual(@as(u8, 0), registry.clearRuntime());
+    const budget_result = registry.setRuntimeCacheBudget(0);
+    try std.testing.expectEqual(@as(u8, 1), budget_result.budget);
+    try std.testing.expectEqual(@as(u8, 0), budget_result.released_count);
 }
