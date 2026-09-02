@@ -286,12 +286,13 @@ pub fn build(model: *const Model) Frame {
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
     const nested_scroll_before = beginNestedBoundaryScroll(model);
-    const nested_wheel_handled = applyNestedWheelScroll(model);
+    const nested_wheel_target = applyNestedWheelScroll(model);
     applySemanticScroll(model);
     clay.updateScrollContainers(true, .{
         .x = model.scroll_delta_x * 36,
-        .y = if (nested_wheel_handled) 0 else model.scroll_delta_y * 36,
+        .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
+    if (nested_wheel_target) |target| restoreNestedWheelTarget(target);
     if (nested_scroll_before) |before| applyNestedBoundaryScroll(model, before);
     if (model.pointer_released and !model.pointer_down) state.nested_scroll_active = false;
     if (model.application_name_input.submission_count != state.last_text_submission_count) {
@@ -2493,15 +2494,19 @@ const NestedScrollSnapshot = struct {
 /// embedded scrollbar is its sibling, so route wheel input from the complete
 /// VirtualList wrapper explicitly: inner list first, then the outer card only
 /// when the inner endpoint rejects part of the delta.
-fn applyNestedWheelScroll(model: *const Model) bool {
-    if (model.demo_navigation_index != 0 or @abs(model.scroll_delta_y) < 0.0001 or
-        !clay.pointerOver(virtual_list.containerId("RecordsVirtualList")))
+fn applyNestedWheelScroll(model: *const Model) ?NestedScrollSnapshot {
+    if (model.demo_navigation_index != 0 or @abs(model.scroll_delta_y) < 0.0001) return null;
+    const wrapper = clay.getElementData(virtual_list.containerId("RecordsVirtualList"));
+    const outer_element = clay.getElementData(clay.ElementId.ID("PrimaryCard"));
+    if (!wrapper.found or !outer_element.found or
+        !pointInsideBounds(model.pointer_x, model.pointer_y, wrapper.bounding_box) or
+        !pointInsideBounds(model.pointer_x, model.pointer_y, outer_element.bounding_box))
     {
-        return false;
+        return null;
     }
     const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
     const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
-    if (!inner.found or !outer.found) return false;
+    if (!inner.found or !outer.found) return null;
 
     // root passes wheel input to Clay at *36 and Clay applies its own *10.
     const requested_delta = model.scroll_delta_y * 360;
@@ -2519,7 +2524,19 @@ fn applyNestedWheelScroll(model: *const Model) bool {
         );
         outer.scroll_position.y = @min(@max(outer.scroll_position.y + remaining, -outer_max), 0);
     }
-    return true;
+    return .{ .inner_y = inner.scroll_position.y, .outer_y = outer.scroll_position.y };
+}
+
+fn restoreNestedWheelTarget(target: NestedScrollSnapshot) void {
+    const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
+    const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
+    if (inner.found) inner.scroll_position.y = target.inner_y;
+    if (outer.found) outer.scroll_position.y = target.outer_y;
+}
+
+fn pointInsideBounds(x: f32, y: f32, bounds: clay.BoundingBox) bool {
+    return x >= bounds.x and x <= bounds.x + bounds.width and
+        y >= bounds.y and y <= bounds.y + bounds.height;
 }
 
 /// Clay routes a drag to the innermost scroll container. Once that container
@@ -3233,6 +3250,23 @@ test "responsive shell emits controls and text" {
         primary_scroll.scroll_position.y,
         0.01,
     );
+
+    const wheel_inner_max = @max(
+        virtual_list_scroll.content_dimensions.h - demo_virtual_list_height,
+        0,
+    );
+    virtual_list_scroll.scroll_position.y = -wheel_inner_max + 30;
+    _ = build(&model);
+    const outer_before_wheel_boundary = primary_scroll.scroll_position.y;
+    model.scroll_delta_y = -1;
+    _ = build(&model);
+    model.scroll_delta_y = 0;
+    try std.testing.expectApproxEqAbs(-wheel_inner_max, virtual_list_scroll.scroll_position.y, 0.01);
+    try std.testing.expectApproxEqAbs(
+        outer_before_wheel_boundary - 330,
+        primary_scroll.scroll_position.y,
+        0.01,
+    );
     model.pointer_x = 0;
     model.pointer_y = 0;
 
@@ -3245,10 +3279,12 @@ test "responsive shell emits controls and text" {
         clay.ElementId.ID("PrimaryCard").id,
     );
     _ = build(&model);
+    const slow_list_data = clay.getElementData(clay.ElementId.ID("RecordsVirtualList"));
+    try std.testing.expect(slow_list_data.found);
     const outer_before_slow_drag = primary_scroll.scroll_position.y;
     const primary_content_height = primary_scroll.content_dimensions.h;
-    model.pointer_x = virtual_list_data.bounding_box.x + virtual_list_data.bounding_box.width * 0.5;
-    model.pointer_y = virtual_list_data.bounding_box.y + virtual_list_data.bounding_box.height * 0.7;
+    model.pointer_x = slow_list_data.bounding_box.x + slow_list_data.bounding_box.width * 0.5;
+    model.pointer_y = slow_list_data.bounding_box.y + slow_list_data.bounding_box.height * 0.7;
     model.pointer_down = true;
     model.pointer_pressed = true;
     _ = build(&model);
