@@ -47,6 +47,9 @@ pub const Model = struct {
     active_text_input: ?text_edit.Target = null,
     application_name_input: text_edit.State = .{},
     search_input: text_edit.State = .{},
+    remote_image_url_input: text_edit.State = text_edit.State.init(
+        "https://raw.githubusercontent.com/github/explore/main/topics/zig/zig.png",
+    ),
     permission_request_pending: bool = false,
     last_permission_request_id: platform.RequestId = 0,
     last_permission: ?platform.Permission = null,
@@ -78,6 +81,7 @@ pub const Model = struct {
     file_stream_hash: u64 = 14695981039346656037,
     file_stream_error: ?platform.FileReadError = null,
     runtime_image_load_pending: bool = false,
+    runtime_image_source_remote: bool = false,
     runtime_image_cancel_pending: bool = false,
     runtime_image_loaded: bool = false,
     last_runtime_image_request_id: platform.RequestId = 0,
@@ -124,10 +128,15 @@ pub const Model = struct {
         return self.search_input.text();
     }
 
+    pub fn remoteImageUrl(self: *const Model) []const u8 {
+        return self.remote_image_url_input.text();
+    }
+
     pub fn textInput(self: *Model, target: text_edit.Target) *text_edit.State {
         return switch (target) {
             .application_name => &self.application_name_input,
             .search => &self.search_input,
+            .remote_image_url => &self.remote_image_url_input,
         };
     }
 
@@ -135,6 +144,7 @@ pub const Model = struct {
         return switch (target) {
             .application_name => &self.application_name_input,
             .search => &self.search_input,
+            .remote_image_url => &self.remote_image_url_input,
         };
     }
 

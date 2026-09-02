@@ -99,6 +99,34 @@ pub const App = struct {
                     } });
                 }
             },
+            .platform_remote_image_load_requested => {
+                const request_id = self.allocateRequestId();
+                self.dispatch(.{ .platform_runtime_image_load_started = request_id });
+                const request = platform.RemoteImageRequest.init(
+                    request_id,
+                    self.model.remoteImageUrl(),
+                    @intCast(@import("../assets/runtime_image.zig").max_encoded_bytes),
+                    platform.remote_image_chunk_bytes,
+                );
+                if (request == null or !self.enqueuePlatformRequest(.{ .load_remote_image = request.? })) {
+                    self.dispatch(.{ .platform_runtime_image_load_failed = .{
+                        .request_id = request_id,
+                        .error_kind = if (request == null) .invalid_uri else .unsupported,
+                    } });
+                }
+            },
+            .platform_remote_image_load_cancel_requested => {
+                const request_id = self.model.last_runtime_image_request_id;
+                if (request_id != 0 and self.model.runtime_image_load_pending and
+                    self.model.runtime_image_source_remote and
+                    !self.enqueuePlatformRequest(.{ .cancel_remote_image = request_id }))
+                {
+                    self.dispatch(.{ .platform_runtime_image_load_failed = .{
+                        .request_id = request_id,
+                        .error_kind = .unsupported,
+                    } });
+                }
+            },
             .platform_crash_report_export_requested => {
                 const report = self.model.last_native_crash orelse return;
                 const request_id = self.allocateRequestId();
@@ -142,6 +170,7 @@ pub const App = struct {
             .file_stream_completed => |result| self.dispatch(.{ .platform_file_stream_completed = result }),
             .file_stream_failed => |failure| self.dispatch(.{ .platform_file_stream_failed = failure }),
             .file_stream_cancelled => |result| self.dispatch(.{ .platform_file_stream_cancelled = result }),
+            .remote_image_chunk, .remote_image_completed, .remote_image_failed, .remote_image_cancelled => {},
             .ime_composition_changed => |text| self.dispatch(.{ .text_composition_changed = text }),
             .ime_composition_committed => |text| self.dispatch(.{ .text_composition_committed = text }),
             .ime_composition_cancelled => self.dispatch(.text_composition_cancelled),
@@ -340,6 +369,34 @@ test "runtime image loading reuses bounded file stream requests" {
     const cancel_request = app.takePlatformRequest().?.cancel_file_stream;
     try std.testing.expectEqual(stream_request.request_id, cancel_request);
     try std.testing.expect(app.model.runtime_image_cancel_pending);
+}
+
+test "remote image loading owns HTTPS URL and uses dedicated cancellation" {
+    const std = @import("std");
+    var app: App = .{};
+
+    app.dispatch(.platform_remote_image_load_requested);
+    const request = app.takePlatformRequest().?.load_remote_image;
+    try std.testing.expectEqual(app.model.last_runtime_image_request_id, request.request_id);
+    try std.testing.expectEqualStrings(app.model.remoteImageUrl(), request.url());
+    try std.testing.expect(app.model.runtime_image_load_pending);
+    try std.testing.expect(app.model.runtime_image_source_remote);
+
+    app.dispatch(.platform_remote_image_load_cancel_requested);
+    try std.testing.expectEqual(request.request_id, app.takePlatformRequest().?.cancel_remote_image);
+    try std.testing.expect(app.model.runtime_image_cancel_pending);
+}
+
+test "remote image loading rejects non HTTPS URLs before platform dispatch" {
+    const std = @import("std");
+    var app: App = .{};
+    app.model.remote_image_url_input.clear();
+    app.model.remote_image_url_input.insertSingleLine("http://example.com/image.png");
+
+    app.dispatch(.platform_remote_image_load_requested);
+    try std.testing.expect(app.takePlatformRequest() == null);
+    try std.testing.expect(!app.model.runtime_image_load_pending);
+    try std.testing.expect(app.model.runtime_image_error == .invalid_uri);
 }
 
 test "recovered native crash enters app model" {

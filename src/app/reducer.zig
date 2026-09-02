@@ -220,6 +220,12 @@ pub fn update(model: *Model, action: Action) void {
             model.file_stream_error = if (model.file_stream_cancelled) null else .io;
         },
         .platform_runtime_image_load_requested => {
+            model.runtime_image_source_remote = false;
+            model.runtime_image_error = null;
+            model.runtime_image_bytes_received = 0;
+        },
+        .platform_remote_image_load_requested => {
+            model.runtime_image_source_remote = true;
             model.runtime_image_error = null;
             model.runtime_image_bytes_received = 0;
         },
@@ -232,6 +238,10 @@ pub fn update(model: *Model, action: Action) void {
         },
         .platform_runtime_image_load_cancel_requested => {
             if (model.runtime_image_load_pending) model.runtime_image_cancel_pending = true;
+        },
+        .platform_remote_image_load_cancel_requested => {
+            if (model.runtime_image_load_pending and model.runtime_image_source_remote)
+                model.runtime_image_cancel_pending = true;
         },
         .platform_runtime_image_load_progress => |progress| {
             if (progress.request_id != model.last_runtime_image_request_id or

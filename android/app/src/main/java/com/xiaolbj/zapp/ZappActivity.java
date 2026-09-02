@@ -36,8 +36,12 @@ import java.io.FileNotFoundException;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class ZappActivity extends NativeActivity {
     private static final int PERMISSION_CAMERA = 0;
@@ -69,6 +73,11 @@ public final class ZappActivity extends NativeActivity {
     private static final int FILE_READ_ERROR_PERMISSION_DENIED = 3;
     private static final int FILE_READ_ERROR_IO = 4;
     private static final int MAX_FILE_PREVIEW_BYTES = 4096;
+    private static final int REMOTE_IMAGE_ERROR_INVALID_URL = 1;
+    private static final int REMOTE_IMAGE_ERROR_HTTP_STATUS = 2;
+    private static final int REMOTE_IMAGE_ERROR_TOO_LARGE = 3;
+    private static final int REMOTE_IMAGE_ERROR_IO = 4;
+    private static final int REMOTE_IMAGE_ERROR_UNSUPPORTED_CONTENT_TYPE = 5;
 
     private final SparseArray<PermissionRequest> pendingPermissionRequests = new SparseArray<>();
     private ImeBridgeView imeBridgeView;
@@ -76,7 +85,11 @@ public final class ZappActivity extends NativeActivity {
     private int nextPermissionRequestCode = FIRST_PERMISSION_REQUEST_CODE;
     private long pendingFileRequestId;
     private final ExecutorService fileReadExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
     private volatile long activeStreamRequestId;
+    private final AtomicLong activeRemoteRequestId = new AtomicLong();
+    private final AtomicLong remoteBytesReceived = new AtomicLong();
+    private final AtomicReference<HttpURLConnection> activeRemoteConnection = new AtomicReference<>();
     private volatile boolean destroyed;
 
     static {
@@ -107,6 +120,10 @@ public final class ZappActivity extends NativeActivity {
     private static native void nativeFileStreamCompleted(long requestId, long totalBytes);
     private static native void nativeFileStreamFailed(long requestId, int errorKind);
     private static native void nativeFileStreamCancelled(long requestId, long totalBytes);
+    private static native boolean nativeRemoteImageChunk(long requestId, long offset, byte[] data, int length);
+    private static native void nativeRemoteImageCompleted(long requestId, long totalBytes);
+    private static native void nativeRemoteImageFailed(long requestId, int errorKind, int httpStatus);
+    private static native void nativeRemoteImageCancelled(long requestId, long totalBytes);
     private static native void nativeCrashReportExportResult(long requestId, boolean chooserOpened);
     private static native int nativeAccessibilityNodeCount();
     private static native boolean nativeAccessibilityNodeAt(
@@ -197,8 +214,12 @@ public final class ZappActivity extends NativeActivity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        activeRemoteRequestId.set(0);
+        HttpURLConnection connection = activeRemoteConnection.getAndSet(null);
+        if (connection != null) connection.disconnect();
         activeStreamRequestId = 0;
         fileReadExecutor.shutdownNow();
+        networkExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -562,6 +583,109 @@ public final class ZappActivity extends NativeActivity {
     private void finishFileStreamCancelled(long requestId, long totalBytes) {
         if (activeStreamRequestId == requestId) activeStreamRequestId = 0;
         if (!destroyed) nativeFileStreamCancelled(requestId, totalBytes);
+    }
+
+    @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
+    public void loadRemoteImageFromNative(
+        long requestId, String urlText, int requestedMaxBytes, int requestedChunkBytes
+    ) {
+        if (destroyed || requestId == 0 || requestedMaxBytes <= 0 || requestedChunkBytes <= 0 ||
+            !activeRemoteRequestId.compareAndSet(0, requestId)) {
+            if (!destroyed) nativeRemoteImageFailed(requestId, REMOTE_IMAGE_ERROR_IO, 0);
+            return;
+        }
+        remoteBytesReceived.set(0);
+        final int chunkBytes = Math.min(Math.max(requestedChunkBytes, 1), MAX_FILE_PREVIEW_BYTES);
+        networkExecutor.execute(() -> loadRemoteImageInBackground(
+            requestId, urlText, requestedMaxBytes, chunkBytes));
+    }
+
+    @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
+    public void cancelRemoteImageFromNative(long requestId) {
+        if (!activeRemoteRequestId.compareAndSet(requestId, 0)) return;
+        HttpURLConnection connection = activeRemoteConnection.getAndSet(null);
+        if (connection != null) connection.disconnect();
+        if (!destroyed) nativeRemoteImageCancelled(requestId, remoteBytesReceived.get());
+    }
+
+    private void loadRemoteImageInBackground(
+        long requestId, String urlText, int maxBytes, int chunkBytes
+    ) {
+        HttpURLConnection connection = null;
+        long offset = 0;
+        try {
+            URL url = urlText == null ? null : new URL(urlText);
+            if (url == null || !"https".equalsIgnoreCase(url.getProtocol())) {
+                finishRemoteImageFailure(requestId, REMOTE_IMAGE_ERROR_INVALID_URL, 0);
+                return;
+            }
+            if (!isRemoteImageActive(requestId)) return;
+            connection = (HttpURLConnection)url.openConnection();
+            activeRemoteConnection.set(connection);
+            if (!isRemoteImageActive(requestId)) return;
+            connection.setConnectTimeout(10_000);
+            connection.setReadTimeout(15_000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("Accept", "image/png,image/jpeg");
+            connection.connect();
+            if (!"https".equalsIgnoreCase(connection.getURL().getProtocol())) {
+                finishRemoteImageFailure(requestId, REMOTE_IMAGE_ERROR_INVALID_URL, 0);
+                return;
+            }
+            int status = connection.getResponseCode();
+            if (status < 200 || status >= 300) {
+                finishRemoteImageFailure(requestId, REMOTE_IMAGE_ERROR_HTTP_STATUS, status);
+                return;
+            }
+            long contentLength = connection.getContentLengthLong();
+            if (contentLength > maxBytes) {
+                finishRemoteImageFailure(requestId, REMOTE_IMAGE_ERROR_TOO_LARGE, 0);
+                return;
+            }
+            String contentType = connection.getContentType();
+            if (contentType == null || !(contentType.toLowerCase(java.util.Locale.ROOT).startsWith("image/png") ||
+                contentType.toLowerCase(java.util.Locale.ROOT).startsWith("image/jpeg"))) {
+                finishRemoteImageFailure(requestId, REMOTE_IMAGE_ERROR_UNSUPPORTED_CONTENT_TYPE, 0);
+                return;
+            }
+
+            byte[] buffer = new byte[chunkBytes];
+            try (InputStream input = connection.getInputStream()) {
+                while (isRemoteImageActive(requestId)) {
+                    int length = input.read(buffer);
+                    if (length < 0) break;
+                    if (length == 0) continue;
+                    if (offset > maxBytes - (long)length) {
+                        finishRemoteImageFailure(requestId, REMOTE_IMAGE_ERROR_TOO_LARGE, 0);
+                        return;
+                    }
+                    if (!nativeRemoteImageChunk(requestId, offset, buffer, length)) return;
+                    offset += length;
+                    remoteBytesReceived.set(offset);
+                }
+            }
+            if (!activeRemoteRequestId.compareAndSet(requestId, 0)) return;
+            activeRemoteConnection.compareAndSet(connection, null);
+            if (!destroyed) nativeRemoteImageCompleted(requestId, offset);
+        } catch (IOException | RuntimeException exception) {
+            if (isRemoteImageActive(requestId)) {
+                finishRemoteImageFailure(requestId, REMOTE_IMAGE_ERROR_IO, 0);
+            }
+        } finally {
+            activeRemoteConnection.compareAndSet(connection, null);
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private boolean isRemoteImageActive(long requestId) {
+        return !destroyed && activeRemoteRequestId.get() == requestId;
+    }
+
+    private void finishRemoteImageFailure(long requestId, int errorKind, int httpStatus) {
+        if (!activeRemoteRequestId.compareAndSet(requestId, 0)) return;
+        HttpURLConnection connection = activeRemoteConnection.getAndSet(null);
+        if (connection != null) connection.disconnect();
+        if (!destroyed) nativeRemoteImageFailed(requestId, errorKind, httpStatus);
     }
 
     private int allocatePermissionRequestCode() {

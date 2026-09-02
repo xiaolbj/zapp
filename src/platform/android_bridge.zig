@@ -89,6 +89,10 @@ pub const EventKind = enum(c_int) {
     crash_report_export_result = 17,
     navigation_requested = 18,
     memory_pressure = 19,
+    remote_image_chunk = 20,
+    remote_image_completed = 21,
+    remote_image_failed = 22,
+    remote_image_cancelled = 23,
 };
 
 pub const Event = extern struct {
@@ -141,6 +145,10 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.crash_report_export_result) => .crash_report_export_result,
             @intFromEnum(EventKind.navigation_requested) => .navigation_requested,
             @intFromEnum(EventKind.memory_pressure) => .memory_pressure,
+            @intFromEnum(EventKind.remote_image_chunk) => .remote_image_chunk,
+            @intFromEnum(EventKind.remote_image_completed) => .remote_image_completed,
+            @intFromEnum(EventKind.remote_image_failed) => .remote_image_failed,
+            @intFromEnum(EventKind.remote_image_cancelled) => .remote_image_cancelled,
             else => null,
         };
     }
@@ -175,6 +183,8 @@ extern fn zapp_android_bridge_open_file(request_id: u64) bool;
 extern fn zapp_android_bridge_read_file(request_id: u64, uri: [*]const u8, uri_length: usize, max_bytes: u32) bool;
 extern fn zapp_android_bridge_stream_file(request_id: u64, uri: [*]const u8, uri_length: usize, chunk_bytes: u32) bool;
 extern fn zapp_android_bridge_cancel_file_stream(request_id: u64) bool;
+extern fn zapp_android_bridge_load_remote_image(request_id: u64, url: [*]const u8, url_length: usize, max_bytes: u32, chunk_bytes: u32) bool;
+extern fn zapp_android_bridge_cancel_remote_image(request_id: u64) bool;
 extern fn zapp_android_bridge_share_crash_report(request_id: u64, text: [*]const u8, text_length: usize) bool;
 extern fn zapp_android_bridge_update_accessibility(nodes: [*]const AccessibilityNode, count: usize) void;
 extern fn zapp_android_bridge_poll(event: *Event) bool;
@@ -216,6 +226,18 @@ pub fn streamFile(request_id: u64, uri: []const u8, chunk_bytes: u32) bool {
 
 pub fn cancelFileStream(request_id: u64) bool {
     if (comptime builtin.abi.isAndroid()) return zapp_android_bridge_cancel_file_stream(request_id);
+    return false;
+}
+
+pub fn loadRemoteImage(request_id: u64, url: []const u8, max_bytes: u32, chunk_bytes: u32) bool {
+    if (comptime builtin.abi.isAndroid()) {
+        return zapp_android_bridge_load_remote_image(request_id, url.ptr, url.len, max_bytes, chunk_bytes);
+    }
+    return false;
+}
+
+pub fn cancelRemoteImage(request_id: u64) bool {
+    if (comptime builtin.abi.isAndroid()) return zapp_android_bridge_cancel_remote_image(request_id);
     return false;
 }
 

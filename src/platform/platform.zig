@@ -6,6 +6,8 @@ pub const max_file_preview_bytes = 4096;
 pub const max_file_display_name_bytes = 256;
 pub const max_file_mime_type_bytes = 128;
 pub const file_stream_chunk_bytes = 4096;
+pub const max_remote_url_bytes = 1024;
+pub const remote_image_chunk_bytes = 4096;
 pub const max_crash_report_export_bytes = 1024;
 
 pub const android = @import("android_bridge.zig");
@@ -116,6 +118,47 @@ pub const FileStreamTerminal = struct {
     total_bytes: u64,
 };
 
+pub const RemoteImageError = enum(c_int) {
+    invalid_url = 1,
+    http_status = 2,
+    too_large = 3,
+    io = 4,
+    unsupported_content_type = 5,
+    unsupported = 6,
+};
+
+pub const RemoteImageRequest = struct {
+    request_id: RequestId,
+    url_length: usize,
+    url_buffer: [max_remote_url_bytes]u8,
+    max_bytes: u32,
+    chunk_bytes: u32,
+
+    pub fn init(request_id: RequestId, url_text: []const u8, max_bytes: u32, chunk_bytes: u32) ?RemoteImageRequest {
+        if (request_id == 0 or url_text.len == 0 or url_text.len > max_remote_url_bytes or
+            max_bytes == 0 or chunk_bytes == 0 or !std.mem.startsWith(u8, url_text, "https://")) return null;
+        var request: RemoteImageRequest = .{
+            .request_id = request_id,
+            .url_length = url_text.len,
+            .url_buffer = @splat(0),
+            .max_bytes = max_bytes,
+            .chunk_bytes = @min(chunk_bytes, remote_image_chunk_bytes),
+        };
+        @memcpy(request.url_buffer[0..url_text.len], url_text);
+        return request;
+    }
+
+    pub fn url(self: *const RemoteImageRequest) []const u8 {
+        return self.url_buffer[0..self.url_length];
+    }
+};
+
+pub const RemoteImageFailure = struct {
+    request_id: RequestId,
+    error_kind: RemoteImageError,
+    http_status: i32 = 0,
+};
+
 pub const CrashArchitecture = enum(u32) {
     unknown = 0,
     arm64 = 1,
@@ -216,6 +259,8 @@ pub const PlatformRequest = union(enum) {
     read_file: FileReadRequest,
     stream_file: FileStreamRequest,
     cancel_file_stream: RequestId,
+    load_remote_image: RemoteImageRequest,
+    cancel_remote_image: RequestId,
     share_crash_report: CrashReportExportRequest,
 };
 
@@ -247,6 +292,10 @@ pub const PlatformEvent = union(enum) {
     file_stream_completed: FileStreamTerminal,
     file_stream_failed: FileReadFailure,
     file_stream_cancelled: FileStreamTerminal,
+    remote_image_chunk: FileStreamChunk,
+    remote_image_completed: FileStreamTerminal,
+    remote_image_failed: RemoteImageFailure,
+    remote_image_cancelled: FileStreamTerminal,
     ime_composition_changed: []const u8,
     ime_composition_committed: []const u8,
     ime_composition_cancelled,
@@ -306,6 +355,15 @@ test "file stream requests own URI bytes and clamp chunk size" {
     try std.testing.expectEqualStrings("content://x", request.uri());
     try std.testing.expectEqual(@as(u32, file_stream_chunk_bytes), request.chunk_bytes);
     try std.testing.expect(FileStreamRequest.init(1, "", 1) == null);
+}
+
+test "remote image requests own HTTPS URL bytes and clamp chunk size" {
+    var source = [_]u8{ 'h', 't', 't', 'p', 's', ':', '/', '/', 'x' };
+    const request = RemoteImageRequest.init(11, &source, 1024, remote_image_chunk_bytes + 100).?;
+    source[8] = 'y';
+    try std.testing.expectEqualStrings("https://x", request.url());
+    try std.testing.expectEqual(@as(u32, remote_image_chunk_bytes), request.chunk_bytes);
+    try std.testing.expect(RemoteImageRequest.init(1, "http://x", 1, 1) == null);
 }
 
 test "crash export request owns stable diagnostic text" {

@@ -38,6 +38,10 @@ enum zapp_android_event_kind {
     ZAPP_ANDROID_CRASH_REPORT_EXPORT_RESULT = 17,
     ZAPP_ANDROID_NAVIGATION_REQUESTED = 18,
     ZAPP_ANDROID_MEMORY_PRESSURE = 19,
+    ZAPP_ANDROID_REMOTE_IMAGE_CHUNK = 20,
+    ZAPP_ANDROID_REMOTE_IMAGE_COMPLETED = 21,
+    ZAPP_ANDROID_REMOTE_IMAGE_FAILED = 22,
+    ZAPP_ANDROID_REMOTE_IMAGE_CANCELLED = 23,
 };
 
 typedef struct zapp_android_event {
@@ -589,6 +593,64 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeFileStreamCancelled(
     );
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeRemoteImageChunk(
+    JNIEnv *env,
+    jclass clazz,
+    jlong request_id,
+    jlong offset,
+    jbyteArray data,
+    jint length
+) {
+    (void)clazz;
+    if (offset < 0 || data == NULL || length <= 0 ||
+        length > ZAPP_ANDROID_PAYLOAD_CAPACITY ||
+        length > (*env)->GetArrayLength(env, data)) return JNI_FALSE;
+    zapp_android_event event;
+    memset(&event, 0, sizeof(event));
+    event.kind_value = ZAPP_ANDROID_REMOTE_IMAGE_CHUNK;
+    event.request_id = (uint64_t)request_id;
+    event.file_size = (uint64_t)offset;
+    event.text_length = (size_t)length;
+    (*env)->GetByteArrayRegion(env, data, 0, length, (jbyte *)event.text_buffer);
+    if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
+    return zapp_enqueue_stream_event(&event) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeRemoteImageCompleted(
+    JNIEnv *env, jclass clazz, jlong request_id, jlong total_bytes
+) {
+    (void)env; (void)clazz;
+    if (total_bytes < 0) return;
+    zapp_push_stream_terminal(ZAPP_ANDROID_REMOTE_IMAGE_COMPLETED, 0,
+        (uint64_t)request_id, (uint64_t)total_bytes);
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeRemoteImageFailed(
+    JNIEnv *env, jclass clazz, jlong request_id, jint error_kind, jint http_status
+) {
+    (void)env; (void)clazz;
+    zapp_android_event event;
+    memset(&event, 0, sizeof(event));
+    event.kind_value = ZAPP_ANDROID_REMOTE_IMAGE_FAILED;
+    event.detail_value = (int32_t)error_kind;
+    event.action_value = (int32_t)http_status;
+    event.request_id = (uint64_t)request_id;
+    (void)zapp_enqueue_stream_event(&event);
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeRemoteImageCancelled(
+    JNIEnv *env, jclass clazz, jlong request_id, jlong total_bytes
+) {
+    (void)env; (void)clazz;
+    if (total_bytes < 0) return;
+    zapp_push_stream_terminal(ZAPP_ANDROID_REMOTE_IMAGE_CANCELLED, 0,
+        (uint64_t)request_id, (uint64_t)total_bytes);
+}
+
 JNIEXPORT jint JNICALL
 Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeCount(JNIEnv *env, jclass clazz) {
     (void)env;
@@ -849,6 +911,47 @@ bool zapp_android_bridge_cancel_file_stream(uint64_t request_id) {
         (*scope.env)->DeleteLocalRef(scope.env, activity_class);
     }
     return zapp_finish_jni_call(&scope) && activity_class != NULL;
+}
+
+bool zapp_android_bridge_load_remote_image(
+    uint64_t request_id,
+    const uint8_t *url,
+    size_t url_length,
+    uint32_t max_bytes,
+    uint32_t chunk_bytes
+) {
+    if (url == NULL || url_length == 0 || url_length > ZAPP_ANDROID_PAYLOAD_CAPACITY ||
+        max_bytes == 0 || chunk_bytes == 0 || chunk_bytes > ZAPP_ANDROID_PAYLOAD_CAPACITY) return false;
+    zapp_jni_scope scope;
+    if (!zapp_begin_jni_scope(&scope)) return false;
+    jobject activity = zapp_activity_object();
+    jclass activity_class = (*scope.env)->GetObjectClass(scope.env, activity);
+    jstring url_string = zapp_utf8_to_string(scope.env, url, url_length);
+    jmethodID method = NULL;
+    if (activity_class != NULL && url_string != NULL) {
+        method = (*scope.env)->GetMethodID(scope.env, activity_class,
+            "loadRemoteImageFromNative", "(JLjava/lang/String;II)V");
+        if (method != NULL) (*scope.env)->CallVoidMethod(scope.env, activity, method,
+            (jlong)request_id, url_string, (jint)max_bytes, (jint)chunk_bytes);
+    }
+    if (url_string != NULL) (*scope.env)->DeleteLocalRef(scope.env, url_string);
+    if (activity_class != NULL) (*scope.env)->DeleteLocalRef(scope.env, activity_class);
+    return zapp_finish_jni_call(&scope) && activity_class != NULL && url_string != NULL && method != NULL;
+}
+
+bool zapp_android_bridge_cancel_remote_image(uint64_t request_id) {
+    zapp_jni_scope scope;
+    if (!zapp_begin_jni_scope(&scope)) return false;
+    jobject activity = zapp_activity_object();
+    jclass activity_class = (*scope.env)->GetObjectClass(scope.env, activity);
+    jmethodID method = NULL;
+    if (activity_class != NULL) {
+        method = (*scope.env)->GetMethodID(scope.env, activity_class,
+            "cancelRemoteImageFromNative", "(J)V");
+        if (method != NULL) (*scope.env)->CallVoidMethod(scope.env, activity, method, (jlong)request_id);
+        (*scope.env)->DeleteLocalRef(scope.env, activity_class);
+    }
+    return zapp_finish_jni_call(&scope) && activity_class != NULL && method != NULL;
 }
 
 bool zapp_android_bridge_share_crash_report(

@@ -128,6 +128,8 @@ pub const Action = union(enum) {
     platform_runtime_image_load_succeeded: RuntimeImageResult,
     platform_runtime_image_load_failed: RuntimeImageFailure,
     platform_runtime_image_load_cancelled: platform.FileStreamTerminal,
+    platform_remote_image_load_requested,
+    platform_remote_image_load_cancel_requested,
     platform_memory_pressure_received: u32,
     runtime_image_cache_clear_requested: runtime_image.ClearReason,
     runtime_image_cache_cleared: RuntimeImageCacheCleared,

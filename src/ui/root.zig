@@ -235,6 +235,10 @@ pub fn setup(model: *const Model) bool {
     _ = clay.initialize(.init(memory), dimensions(model), .{
         .error_handler_function = clayError,
     });
+    // Clay 0.14 may cull an offscreen clip-start while still emitting its
+    // clip-end, producing an unbalanced render stream. Keep clip pairs intact;
+    // large collections remain bounded by the project's virtual-list widgets.
+    clay.setCullingEnabled(false);
     clay.setMeasureTextFunction(void, {}, font.measure);
     return true;
 }
@@ -332,6 +336,8 @@ pub fn build(model: *const Model) Frame {
     const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_button_id = clay.ElementId.ID("StreamSelectedFile").id;
     const runtime_image_button_id = clay.ElementId.ID("LoadRuntimeImage").id;
+    const remote_image_url_id = clay.ElementId.ID("RemoteImageUrl").id;
+    const remote_image_button_id = clay.ElementId.ID("LoadRemoteImage").id;
     const image_cache_clear_button_id = clay.ElementId.ID("ClearRuntimeImageCache").id;
     const crash_export_button_id = clay.ElementId.ID("ExportCrashReport").id;
     const active_navigation_index = @min(model.demo_navigation_index, 2);
@@ -450,6 +456,8 @@ pub fn build(model: *const Model) Frame {
                 file_picker_button_id,
                 file_stream_button_id,
                 runtime_image_button_id,
+                remote_image_url_id,
+                remote_image_button_id,
                 image_cache_clear_button_id,
             };
             @memcpy(focus_order[focus_order_count..][0..trailing_order.len], &trailing_order);
@@ -1461,6 +1469,55 @@ pub fn build(model: *const Model) Frame {
                                         .platform_file_stream_requested);
                                 }
                             });
+                            const remote_url_result = form_field.draw(&state.interaction_state, input, .{
+                                .id = "RemoteImageUrl",
+                                .label_text = "远程图片 URL",
+                                .text = model.remoteImageUrl(),
+                                .placeholder = "https://example.com/image.png",
+                                .cursor = model.remote_image_url_input.cursor,
+                                .selection_anchor = model.remote_image_url_input.selection_anchor,
+                                .composition = model.remote_image_url_input.composition(),
+                                .helper_text = "仅接受 HTTPS 的 PNG 或 JPEG，最大 16 MiB",
+                                .width = control_width,
+                                .focused = model.isTextInputActive(.remote_image_url),
+                                .disabled = modal_open or model.runtime_image_load_pending,
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (remote_url_result.focus_requested) {
+                                state.focus_state.focus(remote_image_url_id);
+                                text_focus_requested = true;
+                                if (!model.isTextInputActive(.remote_image_url)) {
+                                    emit(.{ .text_input_focus_changed = .remote_image_url });
+                                }
+                            }
+                            if (remote_url_result.blur_requested) text_blur_requested = true;
+                            if (remote_url_result.cursor_position) |position| {
+                                emit(.{ .text_cursor_set = .{
+                                    .position = position,
+                                    .selecting = remote_url_result.selecting,
+                                } });
+                            }
+                            if (button.draw(&state.interaction_state, input, .{
+                                .id = "LoadRemoteImage",
+                                .text = if (model.runtime_image_cancel_pending and model.runtime_image_source_remote)
+                                    "正在取消远程图片…"
+                                else if (model.runtime_image_load_pending and model.runtime_image_source_remote)
+                                    "取消远程图片加载"
+                                else
+                                    "加载远程图片",
+                                .width = control_width,
+                                .disabled = modal_open or model.remoteImageUrl().len == 0 or
+                                    model.runtime_image_cancel_pending or
+                                    (model.runtime_image_load_pending and !model.runtime_image_source_remote),
+                                .focused = state.focus_state.isFocused(remote_image_button_id),
+                                .semantic_registry = &state.semantic_registry,
+                            })) {
+                                state.focus_state.focus(remote_image_button_id);
+                                emit(if (model.runtime_image_load_pending and model.runtime_image_source_remote)
+                                    .platform_remote_image_load_cancel_requested
+                                else
+                                    .platform_remote_image_load_requested);
+                            }
                             if (button.draw(&state.interaction_state, input, .{
                                 .id = "LoadRuntimeImage",
                                 .text = if (model.runtime_image_cancel_pending)
@@ -1474,12 +1531,13 @@ pub fn build(model: *const Model) Frame {
                                 .width = control_width,
                                 .disabled = modal_open or model.selectedFileUri().len == 0 or
                                     model.file_read_pending or model.file_stream_pending or
-                                    model.runtime_image_cancel_pending or runtimeImageTooLarge(model),
+                                    model.runtime_image_cancel_pending or runtimeImageTooLarge(model) or
+                                    (model.runtime_image_load_pending and model.runtime_image_source_remote),
                                 .focused = state.focus_state.isFocused(runtime_image_button_id),
                                 .semantic_registry = &state.semantic_registry,
                             })) {
                                 state.focus_state.focus(runtime_image_button_id);
-                                emit(if (model.runtime_image_load_pending)
+                                emit(if (model.runtime_image_load_pending and !model.runtime_image_source_remote)
                                     .platform_runtime_image_load_cancel_requested
                                 else
                                     .platform_runtime_image_load_requested);
@@ -1663,6 +1721,8 @@ pub fn handleSemanticAction(
     const file_picker_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_id = clay.ElementId.ID("StreamSelectedFile").id;
     const runtime_image_id = clay.ElementId.ID("LoadRuntimeImage").id;
+    const remote_image_url_id = clay.ElementId.ID("RemoteImageUrl").id;
+    const remote_image_id = clay.ElementId.ID("LoadRemoteImage").id;
     const image_cache_clear_id = clay.ElementId.ID("ClearRuntimeImageCache").id;
     const crash_export_id = clay.ElementId.ID("ExportCrashReport").id;
     const dialog_cancel_id = clay.ElementId.ID("DemoDialogCancel").id;
@@ -1713,13 +1773,26 @@ pub fn handleSemanticAction(
                     emit(.platform_file_stream_requested);
                 }
             } else if (element_id == runtime_image_id) {
-                if (model.runtime_image_load_pending and !model.runtime_image_cancel_pending) {
+                if (model.runtime_image_load_pending and !model.runtime_image_source_remote and
+                    !model.runtime_image_cancel_pending)
+                {
                     emit(.platform_runtime_image_load_cancel_requested);
                 } else if (!model.runtime_image_load_pending and !model.file_stream_pending and
                     !model.file_read_pending and model.selectedFileUri().len > 0 and
                     !runtimeImageTooLarge(model))
                 {
                     emit(.platform_runtime_image_load_requested);
+                }
+            } else if (element_id == remote_image_url_id) {
+                if (!model.isTextInputActive(.remote_image_url))
+                    emit(.{ .text_input_focus_changed = .remote_image_url });
+            } else if (element_id == remote_image_id) {
+                if (model.runtime_image_load_pending and model.runtime_image_source_remote and
+                    !model.runtime_image_cancel_pending)
+                {
+                    emit(.platform_remote_image_load_cancel_requested);
+                } else if (!model.runtime_image_load_pending and model.remoteImageUrl().len > 0) {
+                    emit(.platform_remote_image_load_requested);
                 }
             } else if (element_id == image_cache_clear_id) {
                 if (model.runtime_image_cached_count > 0 and !model.runtime_image_load_pending and
@@ -1863,6 +1936,7 @@ fn activityPageItemIndex(element_id: u32) ?u8 {
 fn textTargetForElement(element_id: u32) ?text_edit.Target {
     if (element_id == clay.ElementId.ID("DemoTextField").id) return .application_name;
     if (element_id == clay.ElementId.ID("ProjectSearch").id) return .search;
+    if (element_id == clay.ElementId.ID("RemoteImageUrl").id) return .remote_image_url;
     return null;
 }
 
@@ -2009,6 +2083,8 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "RetryStepper",
         "ProjectSearch",
         "DemoTextField",
+        "RemoteImageUrl",
+        "LoadRemoteImage",
         "SubmitDemoForm",
         "RequestCameraPermission",
         "OpenFilePicker",
@@ -2665,17 +2741,20 @@ test "responsive shell emits controls and text" {
     var rectangle_count: usize = 0;
     var text_count: usize = 0;
     var scissor_count: usize = 0;
+    var scissor_end_count: usize = 0;
     var image_count: usize = 0;
     for (result.commands) |command| {
         if (command.command_type == .rectangle) rectangle_count += 1;
         if (command.command_type == .text) text_count += 1;
         if (command.command_type == .scissor_start) scissor_count += 1;
         if (command.command_type == .image) image_count += 1;
+        if (command.command_type == .scissor_end) scissor_end_count += 1;
     }
 
     try std.testing.expect(rectangle_count >= 14);
     try std.testing.expect(text_count >= 14);
     try std.testing.expect(scissor_count >= 1);
+    try std.testing.expectEqual(scissor_count, scissor_end_count);
     try std.testing.expectEqual(@as(usize, 1), image_count);
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);

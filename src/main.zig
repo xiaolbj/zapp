@@ -173,6 +173,24 @@ fn drainPlatformEvents() void {
                 .request_id = native_event.request_id,
                 .total_bytes = native_event.file_size,
             } }),
+            .remote_image_chunk => if (isRuntimeImageRequest(native_event.request_id))
+                handleRuntimeImageChunk(&native_event),
+            .remote_image_completed => if (isRuntimeImageRequest(native_event.request_id))
+                finishRuntimeImage(&native_event),
+            .remote_image_failed => if (isRuntimeImageRequest(native_event.request_id)) {
+                state.runtime_image_accumulator.reset(std.heap.c_allocator);
+                state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                    .request_id = native_event.request_id,
+                    .error_kind = remoteImagePlatformFailure(native_event.detail_value),
+                } });
+            },
+            .remote_image_cancelled => if (isRuntimeImageRequest(native_event.request_id)) {
+                state.runtime_image_accumulator.reset(std.heap.c_allocator);
+                state.app.dispatch(.{ .platform_runtime_image_load_cancelled = .{
+                    .request_id = native_event.request_id,
+                    .total_bytes = native_event.file_size,
+                } });
+            },
             .native_crash_recovered => state.app.dispatchPlatformEvent(.{ .native_crash_recovered = .{
                 .signal_number = native_event.detail_value,
                 .signal_code = native_event.action_value,
@@ -227,7 +245,7 @@ fn processRendererRequests() void {
         const reason = state.app.model.runtime_image_cache_clear_reason;
         if (state.app.model.runtime_image_load_pending) {
             const request_id = state.app.model.last_runtime_image_request_id;
-            state.app.dispatch(.platform_runtime_image_load_cancel_requested);
+            requestRuntimeImageCancel();
             state.runtime_image_accumulator.reset(std.heap.c_allocator);
             state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
                 .request_id = request_id,
@@ -342,6 +360,45 @@ fn processPlatformRequests() void {
                     .error_kind = .unsupported,
                 } });
             },
+            .load_remote_image => |remote_request| {
+                state.runtime_image_accumulator.begin(
+                    std.heap.c_allocator,
+                    remote_request.request_id,
+                    null,
+                ) catch |accumulator_error| {
+                    state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                        .request_id = remote_request.request_id,
+                        .error_kind = runtimeImageAccumulatorFailure(accumulator_error),
+                    } });
+                    continue;
+                };
+                const started = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.loadRemoteImage(
+                        remote_request.request_id,
+                        remote_request.url(),
+                        remote_request.max_bytes,
+                        remote_request.chunk_bytes,
+                    )
+                else
+                    false;
+                if (!started) {
+                    state.runtime_image_accumulator.reset(std.heap.c_allocator);
+                    state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                        .request_id = remote_request.request_id,
+                        .error_kind = .unsupported,
+                    } });
+                }
+            },
+            .cancel_remote_image => |request_id| {
+                const cancelled = if (comptime builtin.abi.isAndroid())
+                    zapp.platform.android.cancelRemoteImage(request_id)
+                else
+                    false;
+                if (!cancelled) state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+                    .request_id = request_id,
+                    .error_kind = .unsupported,
+                } });
+            },
             .share_crash_report => |export_request| {
                 const started = if (comptime builtin.abi.isAndroid())
                     zapp.platform.android.shareCrashReport(
@@ -391,7 +448,7 @@ fn handleRuntimeImageChunk(native_event: *const zapp.platform.android.Event) voi
         native_event.file_size,
         native_event.payload(),
     ) catch |accumulator_error| {
-        state.app.dispatch(.platform_runtime_image_load_cancel_requested);
+        requestRuntimeImageCancel();
         state.runtime_image_accumulator.reset(std.heap.c_allocator);
         state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
             .request_id = native_event.request_id,
@@ -460,6 +517,26 @@ fn runtimeImagePlatformFailure(error_kind: zapp.platform.FileReadError) zapp.ass
         .io => .io,
         .unsupported => .unsupported,
     };
+}
+
+fn remoteImagePlatformFailure(value: c_int) zapp.assets.runtime_image.LoadFailure {
+    return switch (value) {
+        @intFromEnum(zapp.platform.RemoteImageError.invalid_url) => .invalid_uri,
+        @intFromEnum(zapp.platform.RemoteImageError.too_large) => .encoded_limit_exceeded,
+        @intFromEnum(zapp.platform.RemoteImageError.unsupported) => .unsupported,
+        @intFromEnum(zapp.platform.RemoteImageError.http_status),
+        @intFromEnum(zapp.platform.RemoteImageError.io),
+        @intFromEnum(zapp.platform.RemoteImageError.unsupported_content_type),
+        => .io,
+        else => .io,
+    };
+}
+
+fn requestRuntimeImageCancel() void {
+    state.app.dispatch(if (state.app.model.runtime_image_source_remote)
+        .platform_remote_image_load_cancel_requested
+    else
+        .platform_runtime_image_load_cancel_requested);
 }
 
 fn crashArchitectureFromValue(value: u32) zapp.platform.CrashArchitecture {

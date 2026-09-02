@@ -162,6 +162,7 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 - 原始字节通过 JNI `byte[]` 返回。UTF-8 内容会清理换行等控制字符后预览，二进制内容显示前 64 字节十六进制；超过上限会显示“已截断”。
 - “读取完整文件”使用 4096 字节有序块，每块携带请求 ID 和绝对偏移；reducer 拒绝不连续数据，并增量统计字节数、块数和 FNV-1a 摘要，不把完整文件保存在内存中。
 - “加载所选图片”复用同一分块流，主线程按请求 ID 和绝对偏移组装最多 16 MiB 编码数据，再使用跨平台解码器上传动态 GPU 槽。Registry 提供 4 个槽，设置页可选择 1–4 槽实际预算；缓存以 SHA-256 标识内容并按 LRU 淘汰，缩减预算会立即销毁最旧的超额 Image/View，而幸存的当前预览保持显示。命中不重复解码上传，未命中只在新 GPU 对象成功后提交索引和替换 victim。解码仍限制最大维度 4096 与最大 RGBA 数据 64 MiB；加载可取消，失败保留上一张有效纹理。用户可点击“清空图片缓存”；`onTrimMemory`/`onLowMemory` 只向固定尺寸平台队列写入事件，由后续渲染帧取消未完成的图片流并释放动态 GPU 槽，避免在 Android 回调线程操作 Sokol。`RUNNING_LOW`、`RUNNING_CRITICAL` 和后台级别会释放，单独的 `UI_HIDDEN` 不释放。
+- “加载远程图片”使用 `HttpURLConnection` 在独立单线程执行器中读取 HTTPS URL。桥接层拒绝非 HTTPS 地址和 HTTPS→HTTP 降级，要求 2xx、`image/png` 或 `image/jpeg`，同时校验 Content-Length 和实际流量不超过 16 MiB。每块最多 4096 字节并通过带背压的 JNI 队列交给主线程；完成后复用上述解码、原子替换和 LRU 缓存。取消会断开连接，并用原子请求 ID 保证完成、失败、取消三种终态最多出现一次。`INTERNET` 是普通 Manifest 权限，不需要运行时授权。
 - native 队列为普通交互保留 8 个槽位；流式后台线程在 56 个待消费事件处通过条件变量背压。主循环每帧最多消费 32 个平台事件，避免生产者淹没队列或一次读取长期占用渲染帧。
 - 完整读取支持显式取消。已成功入队的块仍按顺序消费，随后以取消事件和实际消费总数收尾；Activity 清理会唤醒等待中的 native 回调。
 - 无效 URI、文件不存在、权限拒绝、I/O 错误和平台不支持均映射为稳定的 `FileReadError`，陈旧请求结果会按 request ID 丢弃。
@@ -192,6 +193,8 @@ adb logcat -s zapp sokol app
 
 Image RenderCommand 已在同一模拟器完成运行时验证：资源 Registry 使用与桌面端相同的内存解码桥，在初始化时把首页 PNG 封面和活动页 JPEG 缩略图解码并上传为 Sokol Image/View，共享线性采样 Sampler；cover UV 裁切与圆角纹理网格正确。另将 `/sdcard/Download/zapp-runtime.png` 经系统 DocumentsUI 选为真实 `content://` URI，后台分三块读取 12,266 字节后得到 `128 × 64` 动态纹理；首次状态为“缓存新增（1/4）”，不重新选择直接再次加载后状态为“缓存命中（1/4）”。UIAutomator 发现内容描述“所选文件图片预览”的 `android.widget.ImageView`。此前还选择文本文件触发“仅支持有效的 PNG 或 JPEG”错误，上一张 ImageView 仍保留，证明 GPU 槽采用成功后替换。可配置预算也已用两张不同 PNG 验证：预算设为 2 后状态依次为“缓存新增（1/2）”和“缓存新增（2/2）”；缩到 1 后最新预览保持并变为“缓存新增（1/1）”，重新加载较旧图片仍显示“新增”，证明旧槽已按 LRU 销毁。随后用 `am send-trim-memory com.xiaolbj.zapp RUNNING_LOW` 注入真实回调，状态变为“图片缓存已释放：系统内存压力，共 1 个动态槽”，图片语义节点消失且清空按钮禁用；进程保持存活，AndroidRuntime 和 libc 无致命日志。Gradle 将 `third_party` 纳入 Zig 构建输入，资源解码不依赖 Android 文件路径或 Java Bitmap API。
 
+远程来源也在同一模拟器完成验证：默认 HTTPS URL 返回 `image/png` 和 9,784 字节数据，经网络线程和四个以内的 JNI 分块得到 `288 × 288` 动态纹理，界面显示“缓存新增（1/4）”及实际图片，日志中没有 AndroidRuntime、JNI 或网络安全异常。
+
 首页/活动/设置三页路由已在同一模拟器完成点击验证：活动页只暴露独立 `活动页面` 滚动容器与八条事件，首页 `Clay 应用框架` 节点退出语义树；设置页只暴露 `设置页面`、Accordion、CheckBox、Switch 和 RadioGroup。每次仅一个导航按钮 selected，切换离开设置页再返回后“启用离线缓存”仍保持 checked，证明状态由 AppModel 而非页面实例持有。全程进程存活，AndroidRuntime、libc 和 crash buffer 无异常。
 
 VirtualList 还在原始 `1920x1080` 窗口下完成了 UIAutomator 运行时验证：焦点进入列表时外层卡片自动显露列表，第 1 条可见且获得焦点；发送 End 后只暴露末尾第 995–1000 条，第 1000 条同时处于焦点与选中状态，预取行没有泄漏到系统无障碍节点树。
@@ -209,6 +212,8 @@ ChipGroup 的状态筛选示例包含四个虚拟 ToggleButton：默认选中“
 NumberStepper 的“重试次数”示例已在模拟器验证为原生虚拟 NumberPicker：初始值 3、范围 `0...10`、步长 1；右键增加到 4，End 到 10 后继续增加不越界，Home 到 0 后继续减少不越界，点击加号可从 0 回到 1。焦点进入时 PrimaryCard 自动显露完整控件，最小值处减号按钮使用禁用视觉。范围元数据通过 448 字节 Zig/C 节点结构和 8-float JNI geometry 传递，Android RangeInfo 不再把所有范围控件硬编码成 `0...1`。
 
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。
+
+同一模拟器还复验了滚动裁切：修复前 Slider/Stepper 会穿过 `PrimaryCard` 上边界，运行时图片会压到下一张卡片；现在 Clay 输出完整的 clip 对，Sokol 渲染器用嵌套 scissor 交集和父区域恢复进行绘制，并跳过裁切区外命令。相同滚动位置复测后，顶部控件、文字和底部动态图片均严格停在主卡片边界内。
 
 ## 性能基线
 

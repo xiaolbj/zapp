@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Target = enum {
     application_name,
     search,
+    remote_image_url,
 };
 
 pub const capacity = 256;
@@ -17,6 +18,12 @@ pub const State = struct {
     composition_buffer: [capacity]u8 = @splat(0),
     composition_length: usize = 0,
     submission_count: u32 = 0,
+
+    pub fn init(initial_text: []const u8) State {
+        var state: State = .{};
+        state.insertSingleLine(initial_text);
+        return state;
+    }
 
     pub fn text(self: *const State) []const u8 {
         return self.buffer[0..self.length];

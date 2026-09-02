@@ -69,6 +69,8 @@ pub const ClayRenderer = struct {
     fn recordCommands(self: *ClayRenderer, frame: ui.Frame) void {
         const width = sokol.app.widthf();
         const height = sokol.app.heightf();
+        const viewport: clay.BoundingBox = .{ .x = 0, .y = 0, .width = width, .height = height };
+        var scissors: ScissorStack = .{};
 
         sgl.defaults();
         sgl.matrixModeProjection();
@@ -79,15 +81,22 @@ pub const ClayRenderer = struct {
 
         for (frame.commands) |command| {
             switch (command.command_type) {
-                .rectangle => drawRectangle(command.bounding_box, command.render_data.rectangle),
-                .border => drawBorder(command.bounding_box, command.render_data.border),
-                .text => font.draw(command.bounding_box, command.render_data.text),
-                .image => self.drawImage(command.bounding_box, command.render_data.image),
+                .rectangle => if (boundsOverlap(scissors.current(viewport), command.bounding_box))
+                    drawRectangle(command.bounding_box, command.render_data.rectangle),
+                .border => if (boundsOverlap(scissors.current(viewport), command.bounding_box))
+                    drawBorder(command.bounding_box, command.render_data.border),
+                .text => if (boundsOverlap(scissors.current(viewport), command.bounding_box))
+                    font.draw(command.bounding_box, command.render_data.text),
+                .image => if (boundsOverlap(scissors.current(viewport), command.bounding_box))
+                    self.drawImage(command.bounding_box, command.render_data.image),
                 .scissor_start => {
-                    const bounds = command.bounding_box;
+                    const bounds = scissors.push(viewport, command.bounding_box);
                     sgl.scissorRectf(bounds.x, bounds.y, bounds.width, bounds.height, true);
                 },
-                .scissor_end => sgl.scissorRectf(0, 0, width, height, true),
+                .scissor_end => {
+                    const bounds = scissors.pop(viewport);
+                    sgl.scissorRectf(bounds.x, bounds.y, bounds.width, bounds.height, true);
+                },
                 else => {},
             }
         }
@@ -110,6 +119,89 @@ pub const ClayRenderer = struct {
         sgl.disableTexture();
     }
 };
+
+const max_scissor_depth = 64;
+
+/// Clay emits paired scissor commands and may nest horizontal widget clips
+/// inside a vertically scrolling card. Sokol GL only retains one scissor, so
+/// each nested level must intersect its parent and restore that parent on pop.
+const ScissorStack = struct {
+    bounds: [max_scissor_depth]clay.BoundingBox = undefined,
+    count: usize = 0,
+
+    fn push(self: *ScissorStack, viewport: clay.BoundingBox, requested: clay.BoundingBox) clay.BoundingBox {
+        const parent = if (self.count == 0) viewport else self.bounds[self.count - 1];
+        const clipped = intersectBounds(parent, requested);
+        if (self.count < self.bounds.len) {
+            self.bounds[self.count] = clipped;
+            self.count += 1;
+        } else {
+            std.log.warn("Clay scissor nesting exceeds {d} levels", .{self.bounds.len});
+        }
+        return clipped;
+    }
+
+    fn pop(self: *ScissorStack, viewport: clay.BoundingBox) clay.BoundingBox {
+        if (self.count > 0) self.count -= 1;
+        return self.current(viewport);
+    }
+
+    fn current(self: *const ScissorStack, viewport: clay.BoundingBox) clay.BoundingBox {
+        return if (self.count == 0) viewport else self.bounds[self.count - 1];
+    }
+};
+
+fn intersectBounds(a: clay.BoundingBox, b: clay.BoundingBox) clay.BoundingBox {
+    const left = @max(a.x, b.x);
+    const top = @max(a.y, b.y);
+    const right = @min(a.x + @max(a.width, 0), b.x + @max(b.width, 0));
+    const bottom = @min(a.y + @max(a.height, 0), b.y + @max(b.height, 0));
+    return .{
+        .x = left,
+        .y = top,
+        .width = @max(right - left, 0),
+        .height = @max(bottom - top, 0),
+    };
+}
+
+fn boundsOverlap(a: clay.BoundingBox, b: clay.BoundingBox) bool {
+    if (a.width <= 0 or a.height <= 0 or b.width <= 0 or b.height <= 0) return false;
+    return b.x < a.x + a.width and b.x + b.width > a.x and
+        b.y < a.y + a.height and b.y + b.height > a.y;
+}
+
+test "nested scissor intersects children and restores parent" {
+    const viewport: clay.BoundingBox = .{ .x = 0, .y = 0, .width = 1280, .height = 720 };
+    var stack: ScissorStack = .{};
+    const parent = stack.push(viewport, .{ .x = 100, .y = 80, .width = 600, .height = 400 });
+    try std.testing.expectEqual(@as(f32, 100), parent.x);
+    try std.testing.expectEqual(@as(f32, 80), parent.y);
+
+    const child = stack.push(viewport, .{ .x = 50, .y = 200, .width = 800, .height = 400 });
+    try std.testing.expectEqual(@as(f32, 100), child.x);
+    try std.testing.expectEqual(@as(f32, 200), child.y);
+    try std.testing.expectEqual(@as(f32, 600), child.width);
+    try std.testing.expectEqual(@as(f32, 280), child.height);
+
+    try std.testing.expectEqual(parent, stack.pop(viewport));
+    try std.testing.expectEqual(viewport, stack.pop(viewport));
+}
+
+test "scissor intersection clamps disjoint bounds to zero area" {
+    const clipped = intersectBounds(
+        .{ .x = 10, .y = 10, .width = 20, .height = 20 },
+        .{ .x = 50, .y = 60, .width = 10, .height = 10 },
+    );
+    try std.testing.expectEqual(@as(f32, 0), clipped.width);
+    try std.testing.expectEqual(@as(f32, 0), clipped.height);
+}
+
+test "bounds overlap rejects commands outside active clip" {
+    const clip: clay.BoundingBox = .{ .x = 100, .y = 100, .width = 200, .height = 150 };
+    try std.testing.expect(boundsOverlap(clip, .{ .x = 299, .y = 249, .width = 10, .height = 10 }));
+    try std.testing.expect(!boundsOverlap(clip, .{ .x = 300, .y = 120, .width = 10, .height = 10 }));
+    try std.testing.expect(!boundsOverlap(clip, .{ .x = 120, .y = 250, .width = 10, .height = 10 }));
+}
 
 const ImagePlacement = struct {
     bounds: clay.BoundingBox,
