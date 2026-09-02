@@ -678,7 +678,7 @@ Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举�
 
 滚动裁切必须保持命令栈平衡。当前 Clay 版本的内部可见性剔除会在部分屏幕外 clip 元素上省略 `SCISSOR_START`，但仍发出 `SCISSOR_END`，使滚动卡片的外层裁切被提前关闭。项目因此关闭 Clay 的命令级 culling，保留完整成对命令；Sokol 渲染器维护 64 层 scissor 栈，子区域与父区域求交，结束后恢复父区域，并在 CPU 侧跳过与有效裁切区完全不相交的 draw command。VirtualList 继续负责大集合的行级虚拟化，因此不会因关闭 Clay culling 而生成千级列表项。Android 同位置截图已验证顶部 Slider/Stepper 和底部运行时图片不再越过 `PrimaryCard`。由于 Clay 的嵌套滚动容器会优先把触摸交给内层节点，项目还为所有实际溢出的 Card、ScrollView、页面和 VirtualList 添加纵向滚动条：轨道点击与滑块拖动直接写回同一 `scroll_position`，并把轨道两端严格映射到 `0` 与 `-maxScroll`。普通容器可使用继承父裁切的 floating 轨道；VirtualList 必须把轨道和滑块作为包装器内的普通布局兄弟节点输出，避免 Clay 的单一 `clipElementId` 无法表达 VirtualList 与 PrimaryCard 两层裁切交集。自动测试覆盖连续触摸拖动到首尾、滚动条端点换算、VirtualList 滚动条保持非 floating 层级以及末尾 scissor 数量与深度平衡；Android 实机路径已验证滑块从顶部拖到底部后最后一项完整可见，再拖回顶部后标题与首项恢复可见。
 
-VirtualList 的嵌套输入遵循内层优先规则：普通拖动、慢速小步拖动和鼠标滚轮均先改变列表；只有列表确实到达输入方向上的真实布局端点时，未被内层消耗的剩余位移才转交给 PrimaryCard。由于嵌入式轨道是滚动内容的兄弟节点，滚轮路由使用上一帧 VirtualList 包装器与 PrimaryCard 的实际矩形交集判断，覆盖内容、轨道和中间间隙，不依赖真实滚轮事件下可能不稳定的 Clay `pointerOver`；Clay 仍接收原始滚轮以清除惯性，更新后再恢复路由器计算出的内外目标位置，杜绝重复滚动。端点计算固定使用 VirtualList 的布局高度，不使用可能被 PrimaryCard 裁切缩短的可见包围盒。回归测试覆盖内容区与轨道区滚轮、内层持续滚动、边界剩余位移转交、外层内容高度稳定、可见列表项裁切，以及滚到末尾后全局 scissor 命令数量和嵌套深度平衡。
+VirtualList 的嵌套输入遵循严格归属规则：普通拖动和慢速小步拖动优先改变列表，列表确实到达输入方向上的真实布局端点后才可把触摸剩余位移转交给 PrimaryCard；鼠标滚轮只要命中列表包装器便由内层独占，到达端点时丢弃剩余增量，不再带动外层。由于嵌入式轨道是滚动内容的兄弟节点，滚轮路由使用上一帧 VirtualList 包装器与 PrimaryCard 的实际矩形交集判断，覆盖内容、轨道和中间间隙，不依赖真实滚轮事件下可能不稳定的 Clay `pointerOver`。滑块按下或持续拖动时关闭 Clay 的通用容器拖动并恢复 PrimaryCard 原位置，使指针不会被外层抢占；轨道按压使用上一帧真实边界而非 Clay hover 缓存。Clay 仍接收原始滚轮以清除惯性，更新后再恢复路由器计算出的内外目标位置。端点计算固定使用 VirtualList 的布局高度，不使用可能被 PrimaryCard 裁切缩短的可见包围盒。回归测试覆盖内容区与轨道区滚轮、内层持续滚动、滚轮端点隔离、外层内容高度稳定、可见列表项裁切，以及滚到末尾后全局 scissor 命令数量和嵌套深度平衡。
 
 ## 21. 当前实施状态
 

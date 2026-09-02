@@ -90,8 +90,8 @@ pub fn draw(
     else
         false;
 
-    const scroll_bar_width: f32 = 10;
-    const scroll_bar_gap: u16 = 6;
+    const scroll_bar_width: f32 = 14;
+    const scroll_bar_gap: u16 = 4;
     const scroll_bar_reserved_width = if (config.show_scroll_bar)
         scroll_bar_width + @as(f32, @floatFromInt(scroll_bar_gap))
     else

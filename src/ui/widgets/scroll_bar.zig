@@ -53,7 +53,7 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
 
     const track_id = clay.ElementId.ID(config.id);
     const track_data = clay.getElementData(track_id);
-    const hovered = clay.pointerOver(track_id);
+    const hovered = track_data.found and pointInside(input.x, input.y, track_data.bounding_box);
     if (input.pressed and hovered and track_data.found) {
         state.active_id = track_id.id;
         const local_y = input.y - track_data.bounding_box.y;
@@ -142,6 +142,11 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
         };
         clay.UI()(thumb_declaration)({});
     });
+}
+
+fn pointInside(x: f32, y: f32, bounds: clay.BoundingBox) bool {
+    return x >= bounds.x and x <= bounds.x + bounds.width and
+        y >= bounds.y and y <= bounds.y + bounds.height;
 }
 
 fn calculateMetrics(
