@@ -673,7 +673,7 @@ public final class ZappActivity extends NativeActivity {
         }
 
         void refreshSnapshot() {
-            int count = Math.min(Math.max(nativeAccessibilityNodeCount(), 0), 96);
+            int count = Math.min(Math.max(nativeAccessibilityNodeCount(), 0), 128);
             ArrayList<SemanticNode> updated = new ArrayList<>(count);
             for (int index = 0; index < count; index += 1) {
                 int[] metadata = new int[10];

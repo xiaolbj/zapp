@@ -6,6 +6,7 @@ const font = @import("../text/font.zig");
 const focus_manager = @import("focus_manager.zig");
 const semantics = @import("semantics.zig");
 const theme = @import("theme.zig");
+const accordion = @import("widgets/accordion.zig");
 const button = @import("widgets/button.zig");
 const card = @import("widgets/card.zig");
 const checkbox = @import("widgets/checkbox.zig");
@@ -48,6 +49,12 @@ const demo_density_items = [_]radio_group.Item{
     .{ .text = "紧凑" },
     .{ .text = "舒适" },
     .{ .text = "宽松" },
+};
+
+const demo_accordion_items = [_]accordion.Item{
+    .{ .title = "账户与同步" },
+    .{ .title = "通知设置" },
+    .{ .title = "关于应用" },
 };
 
 const demo_sort_items = [_]select.Item{
@@ -264,6 +271,12 @@ pub fn build(model: *const Model) Frame {
         for (demo_tree_items, 0..) |_, tree_index| {
             if (tree_view.isVisible(&demo_tree_items, tree_index, model.demo_tree_expanded_mask)) {
                 focus_order[focus_order_count] = tree_view.itemId("ProjectTree", tree_index).id;
+                focus_order_count += 1;
+            }
+        }
+        for (demo_accordion_items, 0..) |item, accordion_index| {
+            if (!item.disabled) {
+                focus_order[focus_order_count] = accordion.headerId("SettingsAccordion", accordion_index).id;
                 focus_order_count += 1;
             }
         }
@@ -772,6 +785,31 @@ pub fn build(model: *const Model) Frame {
                     if (tree_result.selected_index) |index| {
                         state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
                         emit(.{ .demo_tree_selected = @intCast(index) });
+                    }
+                    label.draw("设置分组", .{
+                        .font_size = 18,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("SettingsAccordionLabel"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    const accordion_result = accordion.draw(&state.interaction_state, input, .{
+                        .id = "SettingsAccordion",
+                        .items = &demo_accordion_items,
+                        .expanded_mask = model.demo_accordion_expanded_mask,
+                        .mode = .single,
+                        .width = control_width,
+                        .disabled = modal_open,
+                        .focused_id = state.focus_state.focused_id,
+                        .semantic_label = "应用设置分组",
+                        .semantic_registry = &state.semantic_registry,
+                        .draw_panel = drawDemoAccordionPanel,
+                        .panel_context = @ptrCast(&state.semantic_registry),
+                    });
+                    if (accordion_result.focus_index) |index| {
+                        state.focus_state.focus(accordion.headerId("SettingsAccordion", index).id);
+                    }
+                    if (accordion_result.expanded_mask) |mask| {
+                        emit(.{ .demo_accordion_expanded = mask });
                     }
                     divider.draw(.{});
                     clay.UI()(.{ .layout = .{
@@ -1288,7 +1326,14 @@ pub fn handleSemanticAction(
                 emit(.{ .demo_sort_expanded = !model.demo_sort_expanded });
             } else if (element_id == actions_menu_id) {
                 emit(.{ .demo_menu_expanded = !model.demo_menu_expanded });
-            } else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (tabIndex(element_id)) |index| emit(.{ .demo_tab_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
+            } else if (navigationIndex(element_id)) |index| emit(.{ .demo_navigation_selected = index }) else if (tabIndex(element_id)) |index| emit(.{ .demo_tab_selected = index }) else if (treeIndex(element_id)) |index| emit(.{ .demo_tree_selected = index }) else if (accordionIndex(element_id)) |index| {
+                emit(.{ .demo_accordion_expanded = accordion.nextExpandedMask(
+                    model.demo_accordion_expanded_mask,
+                    index,
+                    !accordion.isExpanded(model.demo_accordion_expanded_mask, index),
+                    .single,
+                ) });
+            } else if (radioIndex(element_id)) |index| emit(.{ .demo_density_selected = index }) else if (selectOptionIndex(element_id)) |index| {
                 state.focus_state.focus(sort_select_id);
                 emit(.{ .demo_sort_selected = index });
                 if (model.demo_sort_expanded) emit(.{ .demo_sort_expanded = false });
@@ -1351,6 +1396,17 @@ pub fn handleSemanticAction(
                     state.focus_state.focus(element_id);
                     emit(.{ .demo_tree_toggled = index });
                 }
+            } else if (accordionIndex(element_id)) |index| {
+                const expanded = accordion.isExpanded(model.demo_accordion_expanded_mask, index);
+                if (expanded != should_expand) {
+                    state.focus_state.focus(element_id);
+                    emit(.{ .demo_accordion_expanded = accordion.nextExpandedMask(
+                        model.demo_accordion_expanded_mask,
+                        index,
+                        should_expand,
+                        .single,
+                    ) });
+                }
             }
         },
         .scroll_forward, .scroll_backward => if (isScrollableSemanticId(element_id)) {
@@ -1380,6 +1436,13 @@ fn tabIndex(element_id: u32) ?u8 {
 fn treeIndex(element_id: u32) ?u8 {
     for (demo_tree_items, 0..) |_, index| {
         if (element_id == tree_view.itemId("ProjectTree", index).id) return @intCast(index);
+    }
+    return null;
+}
+
+fn accordionIndex(element_id: u32) ?u8 {
+    for (demo_accordion_items, 0..) |_, index| {
+        if (element_id == accordion.headerId("SettingsAccordion", index).id) return @intCast(index);
     }
     return null;
 }
@@ -1451,6 +1514,7 @@ fn paginationTargetPage(model: *const Model, element_id: u32) ?usize {
 fn isInteractiveSemanticId(element_id: u32) bool {
     if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
         treeIndex(element_id) != null or
+        accordionIndex(element_id) != null or
         radioIndex(element_id) != null or selectOptionIndex(element_id) != null) return true;
     if (menuItemIndex(element_id)) |index| return !demo_menu_items[index].disabled;
     if (virtualListIndex(element_id) != null) return true;
@@ -1486,6 +1550,33 @@ fn isScrollableSemanticId(element_id: u32) bool {
 
 fn formatVirtualListItem(index: usize, buffer: []u8) []const u8 {
     return std.fmt.bufPrint(buffer, "数据记录 #{d}", .{index + 1}) catch "数据记录";
+}
+
+fn drawDemoAccordionPanel(context: ?*anyopaque, index: usize) void {
+    const raw_registry = context orelse return;
+    const registry: *semantics.Registry = @ptrCast(@alignCast(raw_registry));
+    const body = switch (index) {
+        1 => "推送通知与应用内提醒均由受控设置决定。",
+        2 => "ZAPP 使用 Zig、Sokol 与 Clay 构建跨平台界面。",
+        else => "账户与同步数据通过 AppModel 和 reducer 统一管理。",
+    };
+    const status = switch (index) {
+        1 => "当前状态：接收应用通知",
+        2 => "当前版本：开发环境",
+        else => "同步状态：本地示例",
+    };
+    label.draw(body, .{
+        .font_size = 14,
+        .color = theme.controls.text_secondary,
+        .semantic_id = .IDI("SettingsAccordionPanelBody", @intCast(index)),
+        .semantic_registry = registry,
+    });
+    label.draw(status, .{
+        .font_size = 13,
+        .color = theme.controls.text_muted,
+        .semantic_id = .IDI("SettingsAccordionPanelStatus", @intCast(index)),
+        .semantic_registry = registry,
+    });
 }
 
 fn formatDemoTableCell(row_index: usize, column_index: usize, buffer: []u8) []const u8 {
@@ -1794,6 +1885,10 @@ test "responsive shell emits controls and text" {
     var has_forward_scroll_semantics = false;
     var has_tree_semantics = false;
     var has_expanded_tree_item = false;
+    var has_accordion_semantics = false;
+    var accordion_header_count: usize = 0;
+    var expanded_accordion_header_count: usize = 0;
+    var has_first_accordion_panel = false;
     var has_radio_group_semantics = false;
     var has_checked_radio_semantics = false;
     var has_combo_box_semantics = false;
@@ -1829,6 +1924,14 @@ test "responsive shell emits controls and text" {
         }
         if (node.role == .tree) has_tree_semantics = true;
         if (node.role == .tree_item and node.expanded != null) has_expanded_tree_item = true;
+        if (node.element_id == clay.ElementId.ID("SettingsAccordion").id) has_accordion_semantics = true;
+        if (accordionIndex(node.element_id) != null) {
+            accordion_header_count += 1;
+            if (node.expanded == true) expanded_accordion_header_count += 1;
+        }
+        if (node.element_id == accordion.panelId("SettingsAccordion", 0).id) {
+            has_first_accordion_panel = true;
+        }
         if (node.role == .radio_group) has_radio_group_semantics = true;
         if (node.role == .radio_button and node.checked == true) has_checked_radio_semantics = true;
         if (node.role == .combo_box and node.expanded == false and node.value_text.len > 0) {
@@ -1880,6 +1983,10 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_forward_scroll_semantics);
     try std.testing.expect(has_tree_semantics);
     try std.testing.expect(has_expanded_tree_item);
+    try std.testing.expect(has_accordion_semantics);
+    try std.testing.expectEqual(demo_accordion_items.len, accordion_header_count);
+    try std.testing.expectEqual(@as(usize, 1), expanded_accordion_header_count);
+    try std.testing.expect(has_first_accordion_panel);
     try std.testing.expect(has_radio_group_semantics);
     try std.testing.expect(has_checked_radio_semantics);
     try std.testing.expect(has_combo_box_semantics);
@@ -1899,6 +2006,25 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(previous_page_disabled);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
+
+    model.demo_accordion_expanded_mask = 0b100;
+    const switched_accordion_frame = build(&model);
+    var has_old_panel = false;
+    var has_new_panel = false;
+    var has_new_panel_body = false;
+    for (switched_accordion_frame.semantic_nodes) |node| {
+        if (node.element_id == accordion.panelId("SettingsAccordion", 0).id) has_old_panel = true;
+        if (node.element_id == accordion.panelId("SettingsAccordion", 2).id) has_new_panel = true;
+        if (node.element_id == clay.ElementId.IDI("SettingsAccordionPanelBody", 2).id and
+            std.mem.indexOf(u8, node.label, "Zig、Sokol 与 Clay") != null)
+        {
+            has_new_panel_body = true;
+        }
+    }
+    try std.testing.expect(!has_old_panel);
+    try std.testing.expect(has_new_panel);
+    try std.testing.expect(has_new_panel_body);
+    model.demo_accordion_expanded_mask = 0b001;
 
     model.demo_sort_expanded = true;
     model.demo_sort_index = 1;
@@ -2312,6 +2438,42 @@ test "semantic actions reuse reducer-facing UI actions" {
         "",
     );
     try std.testing.expectEqual(@as(u8, 0), actions[0].demo_tree_toggled);
+
+    actions = handleSemanticAction(
+        &model,
+        accordion.headerId("SettingsAccordion", 1).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u64, 0b010), actions[0].demo_accordion_expanded);
+
+    actions = handleSemanticAction(
+        &model,
+        accordion.headerId("SettingsAccordion", 0).id,
+        .collapse,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u64, 0), actions[0].demo_accordion_expanded);
+
+    actions = handleSemanticAction(
+        &model,
+        accordion.headerId("SettingsAccordion", 2).id,
+        .expand,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(@as(u64, 0b100), actions[0].demo_accordion_expanded);
+
+    model.demo_accordion_expanded_mask = 0b100;
+    actions = handleSemanticAction(
+        &model,
+        accordion.headerId("SettingsAccordion", 2).id,
+        .expand,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 0), actions.len);
 
     actions = handleSemanticAction(
         &model,

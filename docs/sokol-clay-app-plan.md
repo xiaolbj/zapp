@@ -618,6 +618,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `VirtualList`：固定行高虚拟列表，按滚动位置仅布局可见区与预取行，支持千行级逻辑数据、稳定 ID、选择、键盘首尾导航，以及 list/list_item 语义。
 - `DataTable`：受控数据表格，排序顺序与选中行由 AppModel 持有，支持稳定行身份、可排序表头、键盘行导航，以及 table/column_header/row 集合语义。
 - `Pagination`：受控分页栏，支持紧凑页码窗口、首页/末页、省略号、边界禁用、方向键/Home/End 导航和按钮语义。
+- `Accordion`：受控折叠面板，支持单开/多开模式、调用方组合面板内容、键盘标题导航和展开/折叠语义。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
@@ -641,11 +642,13 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 Pagination 已实现：DataTable 示例按每页六行拆成三页；切页时 AppModel 同步当前页并选择新页首个稳定业务行，排序时反向定位当前选中行所在页。页数不超过七页时显示全部页码，更大集合保留首页、末页和当前页邻居并插入省略号；上一页/下一页在边界禁用。动态页码视觉文本与语义标签由控件 State 固定缓冲区持有，避免跨 draw 返回后出现悬空字符串。
 
-键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
+补充控件 Accordion 已实现：标题和内容使用稳定派生 ID，展开位掩码由 AppModel/reducer 控制，并提供 single/multiple 两种策略。面板内容由调用方回调组合，控件只管理标题、显隐和交互；上/下键循环且跳过禁用项，Home/End 定位首尾，右键展开、左键收起。Android 无障碍桥复用 button 的 expanded 状态与 expand/collapse/click 动作；收起面板不会生成 Clay 布局或语义节点。
+
+键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
 平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/up/down/left/right/first/last/back，并复用键盘的 FocusManager 和一帧请求状态。Android Activity 已显式捕获普通 UI 焦点下的 DPAD、Tab、Enter/Space、Home/End 与手柄 A 键，经 JNI 事件队列进入同一 reducer；IME 编辑视图持有焦点时不截获方向键。Sokol 本身不提供统一 gamepad 事件，Windows XInput 与 Apple GameController 的原生采集仍属于各平台壳实现。
 
-控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、最终布局边界以及 disabled、focused、selected、modal、行列位置和集合尺寸状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、DataTable 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作，DataTable 映射为 CollectionInfo/CollectionItemInfo；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
+控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、最终布局边界以及 disabled、focused、selected、modal、expanded、行列位置和集合尺寸状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、DataTable、TreeView 和 Accordion 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作，DataTable 映射为 CollectionInfo/CollectionItemInfo；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
 
 控件主题一致性已完成：widgets 的状态颜色、文字颜色、常用圆角和间距统一引用 Theme 令牌，不再在各控件内维护独立调色板。
 

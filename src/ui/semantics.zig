@@ -69,7 +69,7 @@ pub const Bounds = struct {
     height: f32 = 0,
 };
 
-pub const max_nodes = 96;
+pub const max_nodes = 128;
 
 pub const Registry = struct {
     nodes: [max_nodes]Node = undefined,

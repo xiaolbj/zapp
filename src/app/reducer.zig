@@ -226,6 +226,7 @@ pub fn update(model: *Model, action: Action) void {
             if (index < 64) model.demo_tree_expanded_mask ^= @as(u64, 1) << @intCast(index);
         },
         .demo_tree_selected => |index| model.demo_tree_selected_index = index,
+        .demo_accordion_expanded => |mask| model.demo_accordion_expanded_mask = mask & 0b111,
         .demo_density_selected => |index| model.demo_density_index = @min(index, 2),
         .demo_sort_selected => |index| model.demo_sort_index = @min(index, 2),
         .demo_sort_expanded => |expanded| {
@@ -409,6 +410,15 @@ test "tree expansion and selection remain controlled by the model" {
     try std.testing.expectEqual(@as(u64, 0b10), model.demo_tree_expanded_mask);
     update(&model, .{ .demo_tree_selected = 4 });
     try std.testing.expectEqual(@as(u8, 4), model.demo_tree_selected_index);
+}
+
+test "accordion expansion mask is reducer controlled and bounded" {
+    const std = @import("std");
+    var model: Model = .{};
+    update(&model, .{ .demo_accordion_expanded = 0b100 });
+    try std.testing.expectEqual(@as(u64, 0b100), model.demo_accordion_expanded_mask);
+    update(&model, .{ .demo_accordion_expanded = std.math.maxInt(u64) });
+    try std.testing.expectEqual(@as(u64, 0b111), model.demo_accordion_expanded_mask);
 }
 
 test "radio selection remains controlled and bounded" {
