@@ -17,6 +17,7 @@ const data_table = @import("widgets/data_table.zig");
 const divider = @import("widgets/divider.zig");
 const dialog = @import("widgets/dialog.zig");
 const icon_button = @import("widgets/icon_button.zig");
+const image_view = @import("widgets/image_view.zig");
 const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
 const menu = @import("widgets/menu.zig");
@@ -38,6 +39,12 @@ const virtual_list = @import("widgets/virtual_list.zig");
 const max_actions = 8;
 const demo_virtual_list_item_count = 1000;
 const demo_table_page_size = 6;
+const demo_hero_source: image_view.Source = .{
+    .resource = .demo_hero,
+    .pixel_width = 128,
+    .pixel_height = 64,
+    .fit = .cover,
+};
 
 const demo_tree_items = [_]tree_view.Item{
     .{ .text = "zapp" },
@@ -720,6 +727,15 @@ pub fn build(model: *const Model) Frame {
                     label.draw("Clay 应用框架", .{
                         .font_size = 22,
                         .semantic_id = .ID("PrimaryCardTitle"),
+                        .semantic_registry = &state.semantic_registry,
+                    });
+                    image_view.draw(.{
+                        .id = "DemoHeroImage",
+                        .source = &demo_hero_source,
+                        .width = control_width,
+                        .height = 120,
+                        .corner_radius = theme.controls.radius_medium,
+                        .semantic_label = "蓝色渐变应用封面",
                         .semantic_registry = &state.semantic_registry,
                     });
                     label.draw("性能基线", .{
@@ -2195,20 +2211,24 @@ test "responsive shell emits controls and text" {
     var rectangle_count: usize = 0;
     var text_count: usize = 0;
     var scissor_count: usize = 0;
+    var image_count: usize = 0;
     for (result.commands) |command| {
         if (command.command_type == .rectangle) rectangle_count += 1;
         if (command.command_type == .text) text_count += 1;
         if (command.command_type == .scissor_start) scissor_count += 1;
+        if (command.command_type == .image) image_count += 1;
     }
 
     try std.testing.expect(rectangle_count >= 14);
     try std.testing.expect(text_count >= 14);
     try std.testing.expect(scissor_count >= 1);
+    try std.testing.expectEqual(@as(usize, 1), image_count);
     try std.testing.expectEqual(@as(usize, 0), result.actions.len);
     try std.testing.expect(result.clear_color.a == 1);
     try std.testing.expect(result.semantic_nodes.len >= 10);
     var has_slider_semantics = false;
     var has_stepper_semantics = false;
+    var has_image_semantics = false;
     var has_text_field_semantics = false;
     var has_required_valid_text_field = false;
     var has_form_submit_button = false;
@@ -2253,6 +2273,11 @@ test "responsive shell emits controls and text" {
             node.value_max == 10 and node.value_step == 1)
         {
             has_stepper_semantics = true;
+        }
+        if (node.element_id == clay.ElementId.ID("DemoHeroImage").id and
+            node.role == .image and std.mem.eql(u8, node.label, "蓝色渐变应用封面"))
+        {
+            has_image_semantics = true;
         }
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
         if (node.element_id == clay.ElementId.ID("DemoTextField").id and node.required and
@@ -2331,6 +2356,7 @@ test "responsive shell emits controls and text" {
     }
     try std.testing.expect(has_slider_semantics);
     try std.testing.expect(has_stepper_semantics);
+    try std.testing.expect(has_image_semantics);
     try std.testing.expect(has_text_field_semantics);
     try std.testing.expect(has_required_valid_text_field);
     try std.testing.expect(has_form_submit_button);

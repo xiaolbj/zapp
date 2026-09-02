@@ -8,9 +8,13 @@ const sgl = sokol.gl;
 const sglue = sokol.glue;
 const slog = sokol.log;
 const font = @import("../text/font.zig");
+const image_view = @import("../ui/widgets/image_view.zig");
 
 pub const ClayRenderer = struct {
     pass_action: sg.PassAction = .{},
+    demo_image: sg.Image = .{},
+    demo_view: sg.View = .{},
+    demo_sampler: sg.Sampler = .{},
 
     pub fn setup(self: *ClayRenderer) bool {
         sg.setup(.{
@@ -21,7 +25,17 @@ pub const ClayRenderer = struct {
             .depth_format = .NONE,
             .logger = .{ .func = slog.func },
         });
-        if (!font.setup()) return false;
+        if (!self.setupImages()) {
+            sgl.shutdown();
+            sg.shutdown();
+            return false;
+        }
+        if (!font.setup()) {
+            self.shutdownImages();
+            sgl.shutdown();
+            sg.shutdown();
+            return false;
+        }
         self.pass_action.colors[0].load_action = .CLEAR;
         return true;
     }
@@ -35,7 +49,7 @@ pub const ClayRenderer = struct {
             .a = color.a,
         };
 
-        recordCommands(frame);
+        self.recordCommands(frame);
 
         sg.beginPass(.{
             .action = self.pass_action,
@@ -46,38 +60,246 @@ pub const ClayRenderer = struct {
         sg.commit();
     }
 
-    pub fn shutdown(_: *ClayRenderer) void {
+    pub fn shutdown(self: *ClayRenderer) void {
         font.shutdown();
+        self.shutdownImages();
         sgl.shutdown();
         sg.shutdown();
     }
+
+    fn setupImages(self: *ClayRenderer) bool {
+        var data: sg.ImageData = .{};
+        data.mip_levels[0] = .{ .ptr = &demo_pixels, .size = demo_pixels.len };
+        self.demo_image = sg.makeImage(.{
+            .width = demo_image_width,
+            .height = demo_image_height,
+            .pixel_format = .RGBA8,
+            .data = data,
+            .label = "zapp-demo-hero-image",
+        });
+        if (self.demo_image.id == 0) return false;
+        self.demo_view = sg.makeView(.{
+            .texture = .{ .image = self.demo_image },
+            .label = "zapp-demo-hero-view",
+        });
+        if (self.demo_view.id == 0) {
+            self.shutdownImages();
+            return false;
+        }
+        self.demo_sampler = sg.makeSampler(.{
+            .min_filter = .LINEAR,
+            .mag_filter = .LINEAR,
+            .wrap_u = .CLAMP_TO_EDGE,
+            .wrap_v = .CLAMP_TO_EDGE,
+            .label = "zapp-demo-hero-sampler",
+        });
+        if (self.demo_sampler.id == 0) {
+            self.shutdownImages();
+            return false;
+        }
+        return true;
+    }
+
+    fn shutdownImages(self: *ClayRenderer) void {
+        if (self.demo_view.id != 0) sg.destroyView(self.demo_view);
+        if (self.demo_sampler.id != 0) sg.destroySampler(self.demo_sampler);
+        if (self.demo_image.id != 0) sg.destroyImage(self.demo_image);
+        self.demo_view = .{};
+        self.demo_sampler = .{};
+        self.demo_image = .{};
+    }
+
+    fn recordCommands(self: *ClayRenderer, frame: ui.Frame) void {
+        const width = sokol.app.widthf();
+        const height = sokol.app.heightf();
+
+        sgl.defaults();
+        sgl.matrixModeProjection();
+        sgl.loadIdentity();
+        sgl.ortho(0, width, height, 0, -1, 1);
+        sgl.matrixModeModelview();
+        sgl.loadIdentity();
+
+        for (frame.commands) |command| {
+            switch (command.command_type) {
+                .rectangle => drawRectangle(command.bounding_box, command.render_data.rectangle),
+                .border => drawBorder(command.bounding_box, command.render_data.border),
+                .text => font.draw(command.bounding_box, command.render_data.text),
+                .image => self.drawImage(command.bounding_box, command.render_data.image),
+                .scissor_start => {
+                    const bounds = command.bounding_box;
+                    sgl.scissorRectf(bounds.x, bounds.y, bounds.width, bounds.height, true);
+                },
+                .scissor_end => sgl.scissorRectf(0, 0, width, height, true),
+                else => {},
+            }
+        }
+        font.flush();
+    }
+
+    fn drawImage(self: *ClayRenderer, bounds: clay.BoundingBox, data: clay.ImageRenderData) void {
+        const raw_source = data.image_data orelse return;
+        const source: *const image_view.Source = @ptrCast(@alignCast(raw_source));
+        const texture = switch (source.resource) {
+            .demo_hero => .{ .view = self.demo_view, .sampler = self.demo_sampler },
+        };
+        if (texture.view.id == 0 or texture.sampler.id == 0) return;
+        const placement = imagePlacement(bounds, source.*);
+        const tint = imageTint(data.background_color);
+        const requested_radius = @min(
+            @min(data.corner_radius.top_left, data.corner_radius.top_right),
+            @min(data.corner_radius.bottom_left, data.corner_radius.bottom_right),
+        );
+        sgl.enableTexture();
+        sgl.texture(texture.view, texture.sampler);
+        drawTexturedRoundedQuad(placement, requested_radius, tint);
+        sgl.disableTexture();
+    }
 };
 
-fn recordCommands(frame: ui.Frame) void {
-    const width = sokol.app.widthf();
-    const height = sokol.app.heightf();
+const demo_image_width = 128;
+const demo_image_height = 64;
+const demo_pixels = makeDemoPixels();
 
-    sgl.defaults();
-    sgl.matrixModeProjection();
-    sgl.loadIdentity();
-    sgl.ortho(0, width, height, 0, -1, 1);
-    sgl.matrixModeModelview();
-    sgl.loadIdentity();
+const ImagePlacement = struct {
+    bounds: clay.BoundingBox,
+    u0: f32 = 0,
+    v0: f32 = 0,
+    u1: f32 = 1,
+    v1: f32 = 1,
+};
 
-    for (frame.commands) |command| {
-        switch (command.command_type) {
-            .rectangle => drawRectangle(command.bounding_box, command.render_data.rectangle),
-            .border => drawBorder(command.bounding_box, command.render_data.border),
-            .text => font.draw(command.bounding_box, command.render_data.text),
-            .scissor_start => {
-                const bounds = command.bounding_box;
-                sgl.scissorRectf(bounds.x, bounds.y, bounds.width, bounds.height, true);
-            },
-            .scissor_end => sgl.scissorRectf(0, 0, width, height, true),
-            else => {},
+const Tint = struct {
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+};
+
+fn makeDemoPixels() [demo_image_width * demo_image_height * 4]u8 {
+    @setEvalBranchQuota(100_000);
+    var pixels: [demo_image_width * demo_image_height * 4]u8 = undefined;
+    for (0..demo_image_height) |y| {
+        for (0..demo_image_width) |x| {
+            const offset = (y * demo_image_width + x) * 4;
+            const checker: usize = if ((x / 16 + y / 16) % 2 == 0) 18 else 0;
+            const diagonal = x > y and x - y < 12;
+            pixels[offset] = @intCast(@min(34 + x * 72 / (demo_image_width - 1) + checker, 255));
+            pixels[offset + 1] = @intCast(@min(82 + y * 96 / (demo_image_height - 1) + checker, 255));
+            pixels[offset + 2] = @intCast(if (diagonal) 245 else 174 + x * 52 / (demo_image_width - 1));
+            pixels[offset + 3] = 255;
         }
     }
-    font.flush();
+    return pixels;
+}
+
+fn imagePlacement(container: clay.BoundingBox, source: image_view.Source) ImagePlacement {
+    if (container.width <= 0 or container.height <= 0 or source.pixel_width <= 0 or source.pixel_height <= 0) {
+        return .{ .bounds = container };
+    }
+    if (source.fit == .stretch) return .{ .bounds = container };
+
+    const source_aspect = source.pixel_width / source.pixel_height;
+    const container_aspect = container.width / container.height;
+    if (source.fit == .contain) {
+        var result = container;
+        if (container_aspect > source_aspect) {
+            result.width = container.height * source_aspect;
+            result.x += (container.width - result.width) * 0.5;
+        } else {
+            result.height = container.width / source_aspect;
+            result.y += (container.height - result.height) * 0.5;
+        }
+        return .{ .bounds = result };
+    }
+
+    var placement: ImagePlacement = .{ .bounds = container };
+    if (container_aspect > source_aspect) {
+        const visible_fraction = source_aspect / container_aspect;
+        placement.v0 = (1 - visible_fraction) * 0.5;
+        placement.v1 = 1 - placement.v0;
+    } else {
+        const visible_fraction = container_aspect / source_aspect;
+        placement.u0 = (1 - visible_fraction) * 0.5;
+        placement.u1 = 1 - placement.u0;
+    }
+    return placement;
+}
+
+fn imageTint(color: clay.Color) Tint {
+    if (color[0] == 0 and color[1] == 0 and color[2] == 0 and color[3] == 0) {
+        return .{ .r = 1, .g = 1, .b = 1, .a = 1 };
+    }
+    return .{
+        .r = color[0] / 255,
+        .g = color[1] / 255,
+        .b = color[2] / 255,
+        .a = color[3] / 255,
+    };
+}
+
+fn drawTexturedRoundedQuad(placement: ImagePlacement, requested_radius: f32, tint: Tint) void {
+    const bounds = placement.bounds;
+    const x0 = bounds.x;
+    const y0 = bounds.y;
+    const x1 = bounds.x + bounds.width;
+    const y1 = bounds.y + bounds.height;
+    const radius = @min(@max(requested_radius, 0), @min(bounds.width, bounds.height) * 0.5);
+    if (radius <= 0.01) {
+        drawTexturedQuad(placement, x0, y0, x1, y1, tint);
+        return;
+    }
+
+    drawTexturedQuad(placement, x0 + radius, y0, x1 - radius, y1, tint);
+    drawTexturedQuad(placement, x0, y0 + radius, x0 + radius, y1 - radius, tint);
+    drawTexturedQuad(placement, x1 - radius, y0 + radius, x1, y1 - radius, tint);
+
+    const pi: f32 = @floatCast(std.math.pi);
+    drawTexturedCorner(placement, x0 + radius, y0 + radius, radius, pi, pi * 1.5, tint);
+    drawTexturedCorner(placement, x1 - radius, y0 + radius, radius, pi * 1.5, pi * 2, tint);
+    drawTexturedCorner(placement, x1 - radius, y1 - radius, radius, 0, pi * 0.5, tint);
+    drawTexturedCorner(placement, x0 + radius, y1 - radius, radius, pi * 0.5, pi, tint);
+}
+
+fn drawTexturedQuad(placement: ImagePlacement, x0: f32, y0: f32, x1: f32, y1: f32, tint: Tint) void {
+    sgl.beginQuads();
+    texturedVertex(placement, x0, y0, tint);
+    texturedVertex(placement, x1, y0, tint);
+    texturedVertex(placement, x1, y1, tint);
+    texturedVertex(placement, x0, y1, tint);
+    sgl.end();
+}
+
+fn drawTexturedCorner(
+    placement: ImagePlacement,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    start: f32,
+    end: f32,
+    tint: Tint,
+) void {
+    const segments = 8;
+    sgl.beginTriangles();
+    for (0..segments) |index| {
+        const t0: f32 = @floatFromInt(index);
+        const t1: f32 = @floatFromInt(index + 1);
+        const angle0 = start + (end - start) * (t0 / segments);
+        const angle1 = start + (end - start) * (t1 / segments);
+        texturedVertex(placement, cx, cy, tint);
+        texturedVertex(placement, cx + @cos(angle0) * radius, cy + @sin(angle0) * radius, tint);
+        texturedVertex(placement, cx + @cos(angle1) * radius, cy + @sin(angle1) * radius, tint);
+    }
+    sgl.end();
+}
+
+fn texturedVertex(placement: ImagePlacement, x: f32, y: f32, tint: Tint) void {
+    const bounds = placement.bounds;
+    const tx = if (bounds.width > 0) (x - bounds.x) / bounds.width else 0;
+    const ty = if (bounds.height > 0) (y - bounds.y) / bounds.height else 0;
+    const u = placement.u0 + (placement.u1 - placement.u0) * tx;
+    const v = placement.v0 + (placement.v1 - placement.v0) * ty;
+    sgl.v2fT2fC4f(x, y, u, v, tint.r, tint.g, tint.b, tint.a);
 }
 
 fn drawBorder(bounds: clay.BoundingBox, data: clay.BorderRenderData) void {
@@ -156,4 +378,55 @@ fn drawCorner(cx: f32, cy: f32, radius: f32, start: f32, end: f32, r: f32, g: f3
         sgl.v2f(cx + @cos(angle1) * radius, cy + @sin(angle1) * radius);
     }
     sgl.end();
+}
+
+test "image placement supports stretch contain and cover" {
+    const container: clay.BoundingBox = .{ .x = 10, .y = 20, .width = 100, .height = 100 };
+
+    const stretched = imagePlacement(container, .{
+        .resource = .demo_hero,
+        .pixel_width = 200,
+        .pixel_height = 100,
+        .fit = .stretch,
+    });
+    try std.testing.expectEqual(container, stretched.bounds);
+    try std.testing.expectEqual(@as(f32, 0), stretched.u0);
+    try std.testing.expectEqual(@as(f32, 1), stretched.u1);
+
+    const contained = imagePlacement(container, .{
+        .resource = .demo_hero,
+        .pixel_width = 200,
+        .pixel_height = 100,
+        .fit = .contain,
+    });
+    try std.testing.expectEqual(@as(f32, 10), contained.bounds.x);
+    try std.testing.expectEqual(@as(f32, 45), contained.bounds.y);
+    try std.testing.expectEqual(@as(f32, 100), contained.bounds.width);
+    try std.testing.expectEqual(@as(f32, 50), contained.bounds.height);
+
+    const covered = imagePlacement(container, .{
+        .resource = .demo_hero,
+        .pixel_width = 200,
+        .pixel_height = 100,
+        .fit = .cover,
+    });
+    try std.testing.expectEqual(container, covered.bounds);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.25), covered.u0, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.75), covered.u1, 0.0001);
+    try std.testing.expectEqual(@as(f32, 0), covered.v0);
+    try std.testing.expectEqual(@as(f32, 1), covered.v1);
+}
+
+test "zero image tint preserves source colors" {
+    const untinted = imageTint(.{ 0, 0, 0, 0 });
+    try std.testing.expectEqual(@as(f32, 1), untinted.r);
+    try std.testing.expectEqual(@as(f32, 1), untinted.g);
+    try std.testing.expectEqual(@as(f32, 1), untinted.b);
+    try std.testing.expectEqual(@as(f32, 1), untinted.a);
+
+    const tinted = imageTint(.{ 255, 128, 0, 64 });
+    try std.testing.expectEqual(@as(f32, 1), tinted.r);
+    try std.testing.expectApproxEqAbs(@as(f32, 128.0 / 255.0), tinted.g, 0.0001);
+    try std.testing.expectEqual(@as(f32, 0), tinted.b);
+    try std.testing.expectApproxEqAbs(@as(f32, 64.0 / 255.0), tinted.a, 0.0001);
 }

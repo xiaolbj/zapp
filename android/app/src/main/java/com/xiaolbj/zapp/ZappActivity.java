@@ -674,6 +674,7 @@ public final class ZappActivity extends NativeActivity {
         private static final int ROLE_COLUMN_HEADER = 26;
         private static final int ROLE_CHIP = 27;
         private static final int ROLE_SPIN_BUTTON = 28;
+        private static final int ROLE_IMAGE = 29;
 
         private final AccessibilityManager accessibilityManager;
         private final SemanticNodeProvider provider = new SemanticNodeProvider();
@@ -1069,6 +1070,7 @@ public final class ZappActivity extends NativeActivity {
                     case ROLE_COLUMN_HEADER: return "android.widget.Button";
                     case ROLE_CHIP: return "android.widget.ToggleButton";
                     case ROLE_SPIN_BUTTON: return "android.widget.NumberPicker";
+                    case ROLE_IMAGE: return "android.widget.ImageView";
                     case ROLE_NAVIGATION_ITEM:
                     case ROLE_TREE_ITEM: return "android.widget.Button";
                     case ROLE_DIALOG: return "android.app.Dialog";

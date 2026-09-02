@@ -20,6 +20,7 @@ test {
     _ = @import("src/ui/widgets/divider.zig");
     _ = @import("src/ui/widgets/dialog.zig");
     _ = @import("src/ui/widgets/icon_button.zig");
+    _ = @import("src/ui/widgets/image_view.zig");
     _ = @import("src/ui/widgets/interaction.zig");
     _ = @import("src/ui/widgets/label.zig");
     _ = @import("src/ui/widgets/navigation_bar.zig");

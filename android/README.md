@@ -169,7 +169,7 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 
 Clay 完成每帧布局后，Zig 会为最多 128 个语义节点补齐最终边界，并序列化为固定容量 native 快照。快照内容不变时不会触发 JNI 更新。`AccessibilityBridgeView` 使用 `AccessibilityNodeProvider` 将快照暴露为 Android 虚拟子节点：
 
-- 角色映射到 Button、CheckBox、Switch、ToggleButton/Chip、SeekBar、NumberPicker/Stepper、EditText、ProgressBar、TabWidget、Menu/ListView、虚拟 ListItem、GridView/DataTable、Dialog 等系统类名。
+- 角色映射到 Button、CheckBox、Switch、ToggleButton/Chip、SeekBar、NumberPicker/Stepper、EditText、ImageView、ProgressBar、TabWidget、Menu/ListView、虚拟 ListItem、GridView/DataTable、Dialog 等系统类名。
 - 中文标签、值、勾选/选中/禁用、焦点、范围、树层级、展开状态，以及表单 required/invalid/error text 均随快照更新。
 - Clay 已通过滚动容器的 clip `childOffset` 把滚动偏移写入最终元素边界；语义层直接读取该坐标，再逐层裁剪到最多四层祖先视口并转换到屏幕坐标。完全不可见的节点不会暴露给系统服务。
 - 点击、滑块增减、TextField 设置文本、TreeView/Accordion 展开与折叠，以及 Card/ScrollView 的向前、向后翻页均通过线程安全事件队列回到 Zig，再复用 UI Action 和 reducer。
@@ -188,6 +188,8 @@ adb logcat -s zapp sokol app
 ```
 
 当前 APK 已验证 Java 编译、Manifest、自定义 NativeActivity、双 ABI 打包、JNI 导出、`sokol_main` 和 `ANativeActivity_onCreate` 入口符号。在 API 28 x86_64 模拟器上已实际验证应用启动、Sokol/Clay 渲染、相机权限允许回调、系统文件选择器拉起/取消/成功选择、`content://` 文本与 PNG 二进制预览、文件名称/MIME/大小元数据、完整流式读取与取消、Home 暂停后同进程恢复，以及原生无障碍节点树。17,772,300 字节字体样本完整读取为 4,339 块，App 摘要 `2adecf5b9049c2ad` 与本地独立 FNV-1a 计算一致；取消验证在 3,719,168 字节、908 块处有序结束，读取期间 UI 保持响应，日志无丢块或崩溃。UIAutomator 可发现中文导航、Button、Checkbox、Switch、SeekBar、TextField、TreeView、流式控制和两个可滚动容器；模态对话框打开后只保留 Dialog、取消和确认三个虚拟节点。中文 IME 仍需覆盖不同厂商输入法，无障碍桥仍需 TalkBack 真机体验验收。
+
+Image RenderCommand 已在同一模拟器完成运行时验证：编译期 RGBA 封面通过 Sokol Image/View/Sampler 显示，cover UV 裁切与圆角纹理网格正确；UIAutomator 将其识别为 `android.widget.ImageView`，内容描述为“蓝色渐变应用封面”。冷启动后进程保持存活，AndroidRuntime、libc 和 crash buffer 均无异常。
 
 VirtualList 还在原始 `1920x1080` 窗口下完成了 UIAutomator 运行时验证：焦点进入列表时外层卡片自动显露列表，第 1 条可见且获得焦点；发送 End 后只暴露末尾第 995–1000 条，第 1000 条同时处于焦点与选中状态，预取行没有泄漏到系统无障碍节点树。
 

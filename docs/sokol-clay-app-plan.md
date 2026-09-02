@@ -590,7 +590,7 @@ zig build -Dtarget=wasm32-emscripten
 
 P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。后续仍按单线推进，不同时展开 Android、控件和 ImGui：
 
-1. 实现圆角、边框与图片命令。
+1. 扩展图片资源注册表与文件解码器（圆角、边框、图片命令及首个编译期 RGBA 资源已完成）。
 2. 建立 Button 等第一批正式交互控件。
 3. 补充布局和渲染回归测试。
 4. 桌面 UI 基线稳定后，再建立 Android APK 壳与 JNI 桥。
@@ -600,7 +600,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 
 ## 20. UI 控件实施状态
 
-截至 2026-09-01，正式 UI 已具备以下可复用控件：
+截至 2026-09-02，正式 UI 已具备以下可复用控件：
 
 - `Label`：统一文本样式入口。
 - `Button` 与 `IconButton`：支持 normal、hover、pressed、disabled 状态。
@@ -625,6 +625,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `DataTable`：受控数据表格，排序顺序与选中行由 AppModel 持有，支持稳定行身份、可排序表头、键盘行导航，以及 table/column_header/row 集合语义。
 - `Pagination`：受控分页栏，支持紧凑页码窗口、首页/末页、省略号、边界禁用、方向键/Home/End 导航和按钮语义。
 - `Accordion`：受控折叠面板，支持单开/多开模式、调用方组合面板内容、键盘标题导航和展开/折叠语义。
+- `ImageView`：使用平台无关资源 ID 引用 GPU 图片，支持 stretch/contain/cover、颜色 tint、圆角纹理网格和图片语义。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
@@ -657,6 +658,8 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 补充控件 ChipGroup 已实现：多个筛选值由 AppModel 中的位掩码控制，控件只产生切换索引 Action。每项使用稳定派生 ID，点击或 Enter/Space 独立切换 checked 状态；四向键循环移动，Home/End 定位首尾，并自动跳过禁用项。Android 无障碍桥将 chip 角色映射为 `ToggleButton`，同步 checkable/checked/selected/disabled 状态并把系统点击动作送回同一 reducer。
 
 补充控件 NumberStepper 已实现：整数值由 AppModel 控制，减号、数值和加号组成单一范围控件；指针点击与四向键按配置步长增减，Home/End 跳到最小/最大值，边界按钮自动禁用。语义节点新增 value_min/value_max/value_step，Slider 也显式写入自身 `0...1` 与 `0.05` 步长；Android Zig/C 节点 ABI 扩展为 448 字节、JNI geometry 扩展为 8 个 float，并把 spin_button 映射为带 RangeInfo 与双向系统滚动动作的 NumberPicker。
+
+Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举、固有像素尺寸和 fit 策略，不让业务 UI 持有 `sg.Image`；`ClayRenderer` 统一创建、解析并销毁 Image/View/Sampler。首个示例资源由编译期 RGBA 数据生成，渲染支持 stretch、contain、cover 的边界/UV 计算、可选颜色 tint 和几何圆角，帧内不加载文件或分配堆内存。图片节点进入平台语义树，Android 映射为原生 `android.widget.ImageView` 类名。
 
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
