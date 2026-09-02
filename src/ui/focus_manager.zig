@@ -1,5 +1,5 @@
 pub const State = struct {
-    const max_ordered_items = 48;
+    const max_ordered_items = 64;
 
     focused_id: ?u32 = null,
     previous_focus_id: ?u32 = null,
@@ -101,4 +101,15 @@ test "ordered focus wraps in both directions" {
     try std.testing.expectEqual(@as(?u32, 5), state.move(1));
     try std.testing.expectEqual(@as(?u32, 3), state.move(-1));
     try std.testing.expectEqual(@as(?u32, 8), state.move(-1));
+}
+
+test "focus order preserves dense application screens beyond 48 controls" {
+    const std = @import("std");
+    var state: State = .{};
+    var ids: [60]u32 = undefined;
+    for (&ids, 0..) |*id, index| id.* = @intCast(index + 1);
+    state.setOrder(&ids);
+    state.focus(59);
+    try std.testing.expectEqual(@as(?u32, 60), state.move(1));
+    try std.testing.expectEqual(@as(?u32, 1), state.move(1));
 }

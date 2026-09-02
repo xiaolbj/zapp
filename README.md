@@ -72,7 +72,7 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 - `dialog.zig`：带输入拦截遮罩、取消和确认操作的模态对话框。
 - `navigation_bar.zig`：受控导航项选择，支持横向和纵向布局。
 - `text_field.zig`：基础受控单行 UTF-8 输入框，支持字符、退格、提交和粘贴。
-- `search_field.zig`：在 TextField 上组合可访问的清除操作，保持独立文本、光标、选区和 IME 组合态。
+- `search_field.zig`：在 TextField 上组合可访问的清除操作，保持独立文本、光标、选区和 IME 组合态；示例实时筛选 DataTable，并同步修复分页、选中项与焦点顺序。
 - `form_field.zig`：组合 Label、TextField 与 supporting text 的受控表单字段，支持必填标记、帮助文本、错误边框、验证消息和原生无障碍错误语义。
 - `toast.zig`：不拦截输入、按时自动消失的全局提示层。
 - `tree_view.zig`：受控层级树，支持展开/折叠、选择、动态焦点顺序、方向键树内导航、折叠后的焦点回收和树语义节点。

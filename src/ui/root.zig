@@ -114,6 +114,15 @@ const demo_table_rows = [_]DemoTableRow{
     .{ .code = "Z-524", .name = "真机验收", .status = "待进行", .updated = "下周" },
 };
 
+const DemoTableFilter = struct {
+    order: [demo_table_rows.len]usize = undefined,
+    count: usize = 0,
+
+    fn items(self: *const DemoTableFilter) []const usize {
+        return self.order[0..self.count];
+    }
+};
+
 const state = struct {
     var memory: ?[]u8 = null;
     var interaction_state: interaction.State = .{};
@@ -130,6 +139,7 @@ const state = struct {
     var counter_text: [96]u8 = undefined;
     var confirmation_text: [96]u8 = undefined;
     var menu_status_text: [128]u8 = undefined;
+    var search_status_text: [128]u8 = undefined;
     var virtual_list_status_text: [128]u8 = undefined;
     var permission_status_text: [160]u8 = undefined;
     var file_status_text: [256]u8 = undefined;
@@ -247,10 +257,26 @@ pub fn build(model: *const Model) Frame {
         demo_virtual_list_item_count,
     ) orelse 0;
     const virtual_list_active_id = virtual_list.itemId("RecordsVirtualList", virtual_list_index).id;
-    const table_selected_row = @min(@as(usize, model.demo_data_table_selected_row), demo_table_rows.len - 1);
+    const filtered_table = demoTableFilteredOrder(
+        model.demo_data_table_sort_column,
+        model.demo_data_table_sort_descending,
+        model.searchText(),
+    );
+    const table_order = filtered_table.items();
+    const requested_selected_row = @min(@as(usize, model.demo_data_table_selected_row), demo_table_rows.len - 1);
+    const selected_display_index = demoTableDisplayIndex(table_order, requested_selected_row);
+    const table_selected_row = if (selected_display_index != null)
+        requested_selected_row
+    else if (table_order.len > 0)
+        table_order[0]
+    else
+        0;
     const table_active_row_id = data_table.rowId("RecordsDataTable", table_selected_row).id;
-    const table_page_count = pagination.pageCount(demo_table_rows.len, demo_table_page_size);
-    const table_page = pagination.boundedPage(model.demo_data_table_page, table_page_count);
+    const table_page_count = pagination.pageCount(table_order.len, demo_table_page_size);
+    const table_page = pagination.boundedPage(
+        if (selected_display_index) |index| index / demo_table_page_size else 0,
+        table_page_count,
+    );
     const active_tab_index = tabs.boundedIndex(model.demo_tab_index, demo_tab_items.len) orelse 0;
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
@@ -348,17 +374,19 @@ pub fn build(model: *const Model) Frame {
             focus_order[focus_order_count] = data_table.headerId("RecordsDataTable", column_index).id;
             focus_order_count += 1;
         }
-        focus_order[focus_order_count] = table_active_row_id;
-        focus_order_count += 1;
-        if (table_page > 0) {
-            focus_order[focus_order_count] = pagination.previousId("RecordsPagination").id;
+        if (table_order.len > 0) {
+            focus_order[focus_order_count] = table_active_row_id;
             focus_order_count += 1;
-        }
-        focus_order[focus_order_count] = pagination.pageId("RecordsPagination", table_page).id;
-        focus_order_count += 1;
-        if (table_page + 1 < table_page_count) {
-            focus_order[focus_order_count] = pagination.nextId("RecordsPagination").id;
+            if (table_page > 0) {
+                focus_order[focus_order_count] = pagination.previousId("RecordsPagination").id;
+                focus_order_count += 1;
+            }
+            focus_order[focus_order_count] = pagination.pageId("RecordsPagination", table_page).id;
             focus_order_count += 1;
+            if (table_page + 1 < table_page_count) {
+                focus_order[focus_order_count] = pagination.nextId("RecordsPagination").id;
+                focus_order_count += 1;
+            }
         }
         focus_order[focus_order_count] = virtual_list_active_id;
         focus_order_count += 1;
@@ -386,8 +414,37 @@ pub fn build(model: *const Model) Frame {
                     state.focus_state.focus(tree_view.itemId("ProjectTree", visible_index).id);
                 }
             }
+            if (dataTableRowIndex(focused_id)) |focused_row_index| {
+                const page_start = table_page * demo_table_page_size;
+                const page_end = @min(page_start + demo_table_page_size, table_order.len);
+                if (demoTableDisplayIndex(table_order[page_start..page_end], focused_row_index) == null) {
+                    state.focus_state.focus(if (table_order.len > 0) table_active_row_id else search_field_id);
+                }
+            } else if (isPaginationElement(focused_id)) {
+                const pagination_focus_valid = table_order.len > 0 and
+                    (if (paginationPageIndex(focused_id)) |focused_page|
+                        focused_page < table_page_count
+                    else if (focused_id == pagination.previousId("RecordsPagination").id)
+                        table_page > 0
+                    else
+                        table_page + 1 < table_page_count);
+                if (!pagination_focus_valid) {
+                    state.focus_state.focus(if (table_order.len > 0)
+                        pagination.pageId("RecordsPagination", table_page).id
+                    else
+                        search_field_id);
+                }
+            }
         }
         state.focus_state.setOrder(focus_order[0..focus_order_count]);
+    }
+    if (!model.demo_dialog_open) {
+        if (table_page != @as(usize, model.demo_data_table_page)) {
+            emit(.{ .demo_data_table_page_selected = @intCast(table_page) });
+        }
+        if (table_order.len > 0 and table_selected_row != requested_selected_row) {
+            emit(.{ .demo_data_table_row_selected = @intCast(table_selected_row) });
+        }
     }
     if (model.focus_next_requested) {
         _ = state.focus_state.move(1);
@@ -476,6 +533,12 @@ pub fn build(model: *const Model) Frame {
             model.demo_menu_activation_count,
         },
     ) catch "菜单操作次数过多";
+    const search_status_text = if (std.mem.trim(u8, model.searchText(), " \t\r\n").len == 0)
+        std.fmt.bufPrint(&state.search_status_text, "共 {d} 个项目", .{table_order.len}) catch "项目数量不可用"
+    else if (table_order.len == 0)
+        "未找到匹配项目"
+    else
+        std.fmt.bufPrint(&state.search_status_text, "找到 {d} 个匹配项目", .{table_order.len}) catch "搜索结果数量不可用";
     const virtual_list_status_text = std.fmt.bufPrint(
         &state.virtual_list_status_text,
         "已选择第 {d} / {d} 条",
@@ -1027,6 +1090,13 @@ pub fn build(model: *const Model) Frame {
                         }
                         emit(.{ .text_cleared = .search });
                     }
+                    label.draw(search_status_text, .{
+                        .font_size = 13,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("ProjectSearchStatus"),
+                        .semantic_role = .status,
+                        .semantic_registry = &state.semantic_registry,
+                    });
                     label.draw("数据表格", .{
                         .color = theme.controls.text_muted,
                         .semantic_id = .ID("RecordsDataTableLabel"),
@@ -1038,10 +1108,6 @@ pub fn build(model: *const Model) Frame {
                         .{ .label = "状态", .width = control_width * 0.25 },
                         .{ .label = "更新", .width = control_width * 0.21 },
                     };
-                    var table_order = demoTableOrder(
-                        model.demo_data_table_sort_column,
-                        model.demo_data_table_sort_descending,
-                    );
                     const table_page_start = table_page * demo_table_page_size;
                     const table_page_end = @min(table_page_start + demo_table_page_size, table_order.len);
                     const table_page_order = table_order[table_page_start..table_page_end];
@@ -1075,32 +1141,38 @@ pub fn build(model: *const Model) Frame {
                             .column_index = @intCast(sort_request.column_index),
                             .descending = descending,
                         } });
-                        const sorted_order = demoTableOrder(sort_request.column_index, descending);
-                        const selected_page = demoTablePageForRow(&sorted_order, table_selected_row);
+                        const sorted_filtered = demoTableFilteredOrder(
+                            sort_request.column_index,
+                            descending,
+                            model.searchText(),
+                        );
+                        const selected_page = demoTablePageForRow(sorted_filtered.items(), table_selected_row);
                         if (selected_page != table_page) {
                             emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
                         }
                     }
-                    const pagination_result = pagination.draw(
-                        &state.pagination_state,
-                        &state.interaction_state,
-                        input,
-                        .{
-                            .id = "RecordsPagination",
-                            .total_items = demo_table_rows.len,
-                            .page_size = demo_table_page_size,
-                            .current_page = table_page,
-                            .disabled = modal_open,
-                            .focused_id = state.focus_state.focused_id,
-                            .semantic_label = "项目数据分页",
-                            .semantic_registry = &state.semantic_registry,
-                        },
-                    );
-                    if (pagination_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
-                    if (pagination_result.selected_page) |selected_page| {
-                        emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
-                        const first_row = table_order[selected_page * demo_table_page_size];
-                        emit(.{ .demo_data_table_row_selected = @intCast(first_row) });
+                    if (table_order.len > 0) {
+                        const pagination_result = pagination.draw(
+                            &state.pagination_state,
+                            &state.interaction_state,
+                            input,
+                            .{
+                                .id = "RecordsPagination",
+                                .total_items = table_order.len,
+                                .page_size = demo_table_page_size,
+                                .current_page = table_page,
+                                .disabled = modal_open,
+                                .focused_id = state.focus_state.focused_id,
+                                .semantic_label = "项目数据分页",
+                                .semantic_registry = &state.semantic_registry,
+                            },
+                        );
+                        if (pagination_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                        if (pagination_result.selected_page) |selected_page| {
+                            emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
+                            const first_row = table_order[selected_page * demo_table_page_size];
+                            emit(.{ .demo_data_table_row_selected = @intCast(first_row) });
+                        }
                     }
                     label.draw("虚拟列表（1000 条）", .{
                         .color = theme.controls.text_muted,
@@ -1523,17 +1595,19 @@ pub fn handleSemanticAction(
             } else if (dataTableRowIndex(element_id)) |index| {
                 emit(.{ .demo_data_table_row_selected = index });
             } else if (paginationTargetPage(model, element_id)) |page| {
+                const filtered = demoTableFilteredOrder(
+                    model.demo_data_table_sort_column,
+                    model.demo_data_table_sort_descending,
+                    model.searchText(),
+                );
+                const filtered_order = filtered.items();
                 const current_page = pagination.boundedPage(
-                    model.demo_data_table_page,
-                    pagination.pageCount(demo_table_rows.len, demo_table_page_size),
+                    demoTablePageForRow(filtered_order, model.demo_data_table_selected_row),
+                    pagination.pageCount(filtered_order.len, demo_table_page_size),
                 );
                 if (page != current_page) {
                     emit(.{ .demo_data_table_page_selected = @intCast(page) });
-                    const order = demoTableOrder(
-                        model.demo_data_table_sort_column,
-                        model.demo_data_table_sort_descending,
-                    );
-                    emit(.{ .demo_data_table_row_selected = @intCast(order[page * demo_table_page_size]) });
+                    emit(.{ .demo_data_table_row_selected = @intCast(filtered_order[page * demo_table_page_size]) });
                 }
             }
         },
@@ -1694,10 +1768,29 @@ fn paginationPageIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn isPaginationElement(element_id: u32) bool {
+    return paginationPageIndex(element_id) != null or
+        element_id == pagination.previousId("RecordsPagination").id or
+        element_id == pagination.nextId("RecordsPagination").id;
+}
+
 fn paginationTargetPage(model: *const Model, element_id: u32) ?usize {
-    const count = pagination.pageCount(demo_table_rows.len, demo_table_page_size);
-    const current = pagination.boundedPage(model.demo_data_table_page, count);
-    if (paginationPageIndex(element_id)) |page| return page;
+    const filtered = demoTableFilteredOrder(
+        model.demo_data_table_sort_column,
+        model.demo_data_table_sort_descending,
+        model.searchText(),
+    );
+    const order = filtered.items();
+    if (order.len == 0) return null;
+    const count = pagination.pageCount(order.len, demo_table_page_size);
+    const current = pagination.boundedPage(
+        demoTablePageForRow(order, model.demo_data_table_selected_row),
+        count,
+    );
+    if (paginationPageIndex(element_id)) |page| {
+        if (page < count) return page;
+        return null;
+    }
     if (element_id == pagination.previousId("RecordsPagination").id and current > 0) return current - 1;
     if (element_id == pagination.nextId("RecordsPagination").id and current + 1 < count) return current + 1;
     return null;
@@ -1813,6 +1906,35 @@ fn demoTableOrder(sort_column: usize, descending: bool) [demo_table_rows.len]usi
     return order;
 }
 
+fn demoTableFilteredOrder(sort_column: usize, descending: bool, query: []const u8) DemoTableFilter {
+    const sorted = demoTableOrder(sort_column, descending);
+    var filtered: DemoTableFilter = .{};
+    for (sorted) |row_index| {
+        if (!demoTableRowMatches(row_index, query)) continue;
+        filtered.order[filtered.count] = row_index;
+        filtered.count += 1;
+    }
+    return filtered;
+}
+
+fn demoTableRowMatches(row_index: usize, raw_query: []const u8) bool {
+    const query = std.mem.trim(u8, raw_query, " \t\r\n");
+    if (query.len == 0) return true;
+    for (0..4) |column_index| {
+        if (containsAsciiInsensitive(demoTableCell(row_index, column_index), query)) return true;
+    }
+    return false;
+}
+
+fn containsAsciiInsensitive(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+    for (0..haystack.len - needle.len + 1) |start| {
+        if (std.ascii.eqlIgnoreCase(haystack[start .. start + needle.len], needle)) return true;
+    }
+    return false;
+}
+
 fn demoTableRowBefore(left: usize, right: usize, sort_column: usize, descending: bool) bool {
     const primary = std.mem.order(u8, demoTableCell(left, sort_column), demoTableCell(right, sort_column));
     const order = if (primary == .eq)
@@ -1827,6 +1949,13 @@ fn demoTablePageForRow(order: []const usize, stable_row_index: usize) usize {
         if (row_index == stable_row_index) return display_index / demo_table_page_size;
     }
     return 0;
+}
+
+fn demoTableDisplayIndex(order: []const usize, stable_row_index: usize) ?usize {
+    for (order, 0..) |row_index, display_index| {
+        if (row_index == stable_row_index) return display_index;
+    }
+    return null;
 }
 
 fn applySemanticScroll(model: *const Model) void {
@@ -2544,6 +2673,54 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(has_invalid_field_semantics);
     try std.testing.expect(has_form_error_status);
 
+    model.search_input.insertSingleLine("android");
+    const filtered_frame = build(&model);
+    var filtered_table_rows: ?u32 = null;
+    var filtered_status = false;
+    var selected_row_repaired = false;
+    for (filtered_frame.semantic_nodes) |node| {
+        if (node.element_id == clay.ElementId.ID("RecordsDataTable").id) {
+            filtered_table_rows = node.row_count;
+        }
+        if (node.element_id == clay.ElementId.ID("ProjectSearchStatus").id and
+            std.mem.eql(u8, node.label, "找到 1 个匹配项目"))
+        {
+            filtered_status = true;
+        }
+    }
+    for (filtered_frame.actions) |action| switch (action) {
+        .demo_data_table_row_selected => |row| selected_row_repaired = row == 1,
+        else => {},
+    };
+    try std.testing.expectEqual(@as(?u32, 2), filtered_table_rows);
+    try std.testing.expect(filtered_status);
+    try std.testing.expect(selected_row_repaired);
+
+    model.search_input.clear();
+    model.search_input.insertSingleLine("not-present");
+    state.focus_state.focus(data_table.rowId("RecordsDataTable", 1).id);
+    const empty_filter_frame = build(&model);
+    var empty_table_rows: ?u32 = null;
+    var empty_status = false;
+    var has_empty_pagination = false;
+    for (empty_filter_frame.semantic_nodes) |node| {
+        if (node.element_id == clay.ElementId.ID("RecordsDataTable").id) {
+            empty_table_rows = node.row_count;
+        }
+        if (node.element_id == clay.ElementId.ID("ProjectSearchStatus").id and
+            std.mem.eql(u8, node.label, "未找到匹配项目"))
+        {
+            empty_status = true;
+        }
+        if (node.element_id == clay.ElementId.ID("RecordsPagination").id) {
+            has_empty_pagination = true;
+        }
+    }
+    try std.testing.expectEqual(@as(?u32, 1), empty_table_rows);
+    try std.testing.expect(empty_status);
+    try std.testing.expect(!has_empty_pagination);
+    try std.testing.expect(state.focus_state.isFocused(clay.ElementId.ID("ProjectSearch").id));
+
     model.demo_dialog_open = true;
     model.back_requested = true;
     const dialog_frame = build(&model);
@@ -2941,6 +3118,31 @@ test "data table sorting preserves stable row identities" {
     try std.testing.expectEqualStrings("虚拟列表", demoTableCell(4, 1));
     try std.testing.expectEqual(@as(usize, 0), demoTablePageForRow(&ascending, 0));
     try std.testing.expectEqual(@as(usize, 2), demoTablePageForRow(&descending, 0));
+}
+
+test "data table search filters every column without losing sort order" {
+    const android = demoTableFilteredOrder(0, false, "android");
+    try std.testing.expectEqual(@as(usize, 1), android.count);
+    try std.testing.expectEqual(@as(usize, 1), android.items()[0]);
+
+    const completed = demoTableFilteredOrder(0, false, " 已完成 ");
+    try std.testing.expect(completed.count > 1);
+    for (completed.items()[1..], 1..) |row_index, display_index| {
+        try std.testing.expect(demoTableRowBefore(
+            completed.items()[display_index - 1],
+            row_index,
+            0,
+            false,
+        ));
+        try std.testing.expectEqualStrings("已完成", demo_table_rows[row_index].status);
+    }
+
+    const chinese = demoTableFilteredOrder(0, false, "输入法");
+    try std.testing.expectEqual(@as(usize, 1), chinese.count);
+    try std.testing.expectEqualStrings("输入法桥", demo_table_rows[chinese.items()[0]].name);
+
+    const missing = demoTableFilteredOrder(0, false, "not-present");
+    try std.testing.expectEqual(@as(usize, 0), missing.count);
 }
 
 test "file metadata formats name MIME type and exact size" {
