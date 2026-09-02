@@ -90,6 +90,7 @@ pub const Model = struct {
     demo_menu_activation_count: u32 = 0,
     demo_virtual_list_selected_index: u16 = 0,
     demo_data_table_selected_row: u8 = 0,
+    demo_data_table_page: u8 = 0,
     demo_data_table_sort_column: u8 = 0,
     demo_data_table_sort_descending: bool = false,
     suspended: bool = false,

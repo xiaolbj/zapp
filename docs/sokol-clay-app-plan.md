@@ -617,6 +617,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `MenuButton`：受控操作菜单，支持禁用项、上下键循环、Home/End 首尾导航、外部点击/返回键关闭，以及 menu/menu_item 语义。
 - `VirtualList`：固定行高虚拟列表，按滚动位置仅布局可见区与预取行，支持千行级逻辑数据、稳定 ID、选择、键盘首尾导航，以及 list/list_item 语义。
 - `DataTable`：受控数据表格，排序顺序与选中行由 AppModel 持有，支持稳定行身份、可排序表头、键盘行导航，以及 table/column_header/row 集合语义。
+- `Pagination`：受控分页栏，支持紧凑页码窗口、首页/末页、省略号、边界禁用、方向键/Home/End 导航和按钮语义。
 
 所有可点击控件共享一个指针捕获状态机。平台输入先进入 AppModel，UI 构建时生成语义 Action，再由 reducer 更新业务状态。滚轮输入与按下/释放边沿一样保留到 UI 消费完成，避免事件发生在两帧之间时丢失。
 
@@ -636,9 +637,11 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 VirtualList 已实现：示例提供 1,000 条逻辑记录和约 42,000 像素内容高度，每帧最多只生成 32 个可见/预取行；顶部与底部占位保持 Clay 的完整滚动范围。活动行作为单一 Tab 停靠点，方向键和 Home/End 更新受控选择并把目标滚入视口；无障碍树只暴露当前可见 list_item，同时列表容器保留系统前后翻页动作。语义注册表记录嵌套滚动祖先，在解析最终边界时累加各层偏移并逐层裁剪；焦点管理还会把 VirtualList 容器自动显露到外层 PrimaryCard，避免内层末行虽选中却仍位于外层视口之外。
 
-补充控件 DataTable 已实现：示例包含四列六行数据，列宽随控件宽度分配；表头点击或 Enter 切换升降序，左右/Home/End 在可排序表头间移动，向下进入当前行；数据行支持上下/Home/End 导航和选择。排序使用显示顺序到稳定业务行索引的映射，因此排序后选中项与焦点不会错误地附着到原显示位置。Android 桥为表格暴露 CollectionInfo，为表头和行暴露 CollectionItemInfo、行列位置、heading 与 selected 状态。
+补充控件 DataTable 已实现：示例包含四列十八行数据，列宽随控件宽度分配；表头点击或 Enter 切换升降序，左右/Home/End 在可排序表头间移动，向下进入当前行；数据行支持上下/Home/End 导航和选择。排序使用显示顺序到稳定业务行索引的映射，因此排序后选中项与焦点不会错误地附着到原显示位置。Android 桥为表格暴露 CollectionInfo，为表头和行暴露 CollectionItemInfo、行列位置、heading 与 selected 状态。
 
-键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Menu、VirtualList 和 DataTable，并由 Border RenderCommand 渲染。
+补充控件 Pagination 已实现：DataTable 示例按每页六行拆成三页；切页时 AppModel 同步当前页并选择新页首个稳定业务行，排序时反向定位当前选中行所在页。页数不超过七页时显示全部页码，更大集合保留首页、末页和当前页邻居并插入省略号；上一页/下一页在边界禁用。动态页码视觉文本与语义标签由控件 State 固定缓冲区持有，避免跨 draw 返回后出现悬空字符串。
+
+键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
 平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/up/down/left/right/first/last/back，并复用键盘的 FocusManager 和一帧请求状态。Android Activity 已显式捕获普通 UI 焦点下的 DPAD、Tab、Enter/Space、Home/End 与手柄 A 键，经 JNI 事件队列进入同一 reducer；IME 编辑视图持有焦点时不截获方向键。Sokol 本身不提供统一 gamepad 事件，Windows XInput 与 Apple GameController 的原生采集仍属于各平台壳实现。
 

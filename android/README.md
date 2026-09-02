@@ -193,6 +193,8 @@ VirtualList 还在原始 `1920x1080` 窗口下完成了 UIAutomator 运行时验
 
 DataTable 同样在 API 28 x86_64 模拟器的 `1920x1080` 窗口下完成运行时验证：UIAutomator 可发现 GridView、四个可点击表头及六个聚合行；编号表头从升序切换到降序后，稳定业务行 Z-104 从首行移动到第 5 行并继续保持 focused/selected，外层 PrimaryCard 自动滚动使该行可见。
 
+Pagination 已在同一模拟器验证：键盘从第 1 页连续切到第 2、3 页后，表格分别显示 Z-318–Z-419 与 Z-437–Z-524，页首稳定业务行保持 selected；当前页按钮同时 focused/selected，末页“下一页”节点 disabled。页码文字使用控件持久状态缓冲区，UIAutomator XML 不含 U+0000 等失效字符。
+
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。
 
 ## 性能基线

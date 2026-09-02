@@ -17,6 +17,7 @@ const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
 const menu = @import("widgets/menu.zig");
 const navigation_bar = @import("widgets/navigation_bar.zig");
+const pagination = @import("widgets/pagination.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const radio_group = @import("widgets/radio_group.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
@@ -31,6 +32,7 @@ const virtual_list = @import("widgets/virtual_list.zig");
 
 const max_actions = 8;
 const demo_virtual_list_item_count = 1000;
+const demo_table_page_size = 6;
 
 const demo_tree_items = [_]tree_view.Item{
     .{ .text = "zapp" },
@@ -80,6 +82,18 @@ const demo_table_rows = [_]DemoTableRow{
     .{ .code = "Z-302", .name = "崩溃报告", .status = "待复核", .updated = "周一" },
     .{ .code = "Z-156", .name = "虚拟列表", .status = "已完成", .updated = "11:05" },
     .{ .code = "Z-241", .name = "数据表格", .status = "开发中", .updated = "刚刚" },
+    .{ .code = "Z-318", .name = "分页控件", .status = "开发中", .updated = "刚刚" },
+    .{ .code = "Z-336", .name = "文件预览", .status = "已完成", .updated = "周二" },
+    .{ .code = "Z-351", .name = "输入法桥", .status = "待复核", .updated = "周二" },
+    .{ .code = "Z-374", .name = "焦点导航", .status = "已完成", .updated = "周三" },
+    .{ .code = "Z-402", .name = "权限请求", .status = "已完成", .updated = "周三" },
+    .{ .code = "Z-419", .name = "发布签名", .status = "待配置", .updated = "周四" },
+    .{ .code = "Z-437", .name = "性能基线", .status = "已完成", .updated = "周四" },
+    .{ .code = "Z-458", .name = "菜单控件", .status = "已完成", .updated = "周五" },
+    .{ .code = "Z-476", .name = "标签页", .status = "已完成", .updated = "周五" },
+    .{ .code = "Z-493", .name = "单选控件", .status = "已完成", .updated = "周六" },
+    .{ .code = "Z-507", .name = "选择控件", .status = "已完成", .updated = "周六" },
+    .{ .code = "Z-524", .name = "真机验收", .status = "待进行", .updated = "下周" },
 };
 
 const state = struct {
@@ -89,6 +103,7 @@ const state = struct {
     var semantic_registry: semantics.Registry = .{};
     var toast_state: toast.State = .{};
     var data_table_state: data_table.State = .{};
+    var pagination_state: pagination.State = .{};
     var virtual_list_state: virtual_list.State = .{};
     var last_text_submission_count: u32 = 0;
     var actions: [max_actions]Action = undefined;
@@ -140,6 +155,7 @@ pub fn setup(model: *const Model) bool {
     state.semantic_registry.reset();
     state.toast_state = .{};
     state.data_table_state = .{};
+    state.pagination_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = model.text_submission_count;
     state.action_count = 0;
@@ -161,6 +177,7 @@ pub fn shutdown() void {
     state.semantic_registry.reset();
     state.toast_state = .{};
     state.data_table_state = .{};
+    state.pagination_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = 0;
     state.action_count = 0;
@@ -208,6 +225,8 @@ pub fn build(model: *const Model) Frame {
     const virtual_list_active_id = virtual_list.itemId("RecordsVirtualList", virtual_list_index).id;
     const table_selected_row = @min(@as(usize, model.demo_data_table_selected_row), demo_table_rows.len - 1);
     const table_active_row_id = data_table.rowId("RecordsDataTable", table_selected_row).id;
+    const table_page_count = pagination.pageCount(demo_table_rows.len, demo_table_page_size);
+    const table_page = pagination.boundedPage(model.demo_data_table_page, table_page_count);
     const active_tab_index = tabs.boundedIndex(model.demo_tab_index, demo_tab_items.len) orelse 0;
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
@@ -283,6 +302,16 @@ pub fn build(model: *const Model) Frame {
         }
         focus_order[focus_order_count] = table_active_row_id;
         focus_order_count += 1;
+        if (table_page > 0) {
+            focus_order[focus_order_count] = pagination.previousId("RecordsPagination").id;
+            focus_order_count += 1;
+        }
+        focus_order[focus_order_count] = pagination.pageId("RecordsPagination", table_page).id;
+        focus_order_count += 1;
+        if (table_page + 1 < table_page_count) {
+            focus_order[focus_order_count] = pagination.nextId("RecordsPagination").id;
+            focus_order_count += 1;
+        }
         focus_order[focus_order_count] = virtual_list_active_id;
         focus_order_count += 1;
         const trailing_order = [_]u32{
@@ -868,6 +897,9 @@ pub fn build(model: *const Model) Frame {
                         model.demo_data_table_sort_column,
                         model.demo_data_table_sort_descending,
                     );
+                    const table_page_start = table_page * demo_table_page_size;
+                    const table_page_end = @min(table_page_start + demo_table_page_size, table_order.len);
+                    const table_page_order = table_order[table_page_start..table_page_end];
                     const table_result = data_table.draw(
                         &state.data_table_state,
                         &state.interaction_state,
@@ -875,8 +907,8 @@ pub fn build(model: *const Model) Frame {
                         .{
                             .id = "RecordsDataTable",
                             .columns = &table_columns,
-                            .row_count = demo_table_rows.len,
-                            .row_order = &table_order,
+                            .row_count = table_page_order.len,
+                            .row_order = table_page_order,
                             .selected_row_index = model.demo_data_table_selected_row,
                             .sort_column_index = model.demo_data_table_sort_column,
                             .sort_direction = if (model.demo_data_table_sort_descending) .descending else .ascending,
@@ -893,10 +925,37 @@ pub fn build(model: *const Model) Frame {
                         emit(.{ .demo_data_table_row_selected = @intCast(row_index) });
                     }
                     if (table_result.sort_request) |sort_request| {
+                        const descending = sort_request.direction == .descending;
                         emit(.{ .demo_data_table_sorted = .{
                             .column_index = @intCast(sort_request.column_index),
-                            .descending = sort_request.direction == .descending,
+                            .descending = descending,
                         } });
+                        const sorted_order = demoTableOrder(sort_request.column_index, descending);
+                        const selected_page = demoTablePageForRow(&sorted_order, table_selected_row);
+                        if (selected_page != table_page) {
+                            emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
+                        }
+                    }
+                    const pagination_result = pagination.draw(
+                        &state.pagination_state,
+                        &state.interaction_state,
+                        input,
+                        .{
+                            .id = "RecordsPagination",
+                            .total_items = demo_table_rows.len,
+                            .page_size = demo_table_page_size,
+                            .current_page = table_page,
+                            .disabled = modal_open,
+                            .focused_id = state.focus_state.focused_id,
+                            .semantic_label = "项目数据分页",
+                            .semantic_registry = &state.semantic_registry,
+                        },
+                    );
+                    if (pagination_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                    if (pagination_result.selected_page) |selected_page| {
+                        emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
+                        const first_row = table_order[selected_page * demo_table_page_size];
+                        emit(.{ .demo_data_table_row_selected = @intCast(first_row) });
                     }
                     label.draw("虚拟列表（1000 条）", .{
                         .color = theme.controls.text_muted,
@@ -1249,6 +1308,19 @@ pub fn handleSemanticAction(
                 } });
             } else if (dataTableRowIndex(element_id)) |index| {
                 emit(.{ .demo_data_table_row_selected = index });
+            } else if (paginationTargetPage(model, element_id)) |page| {
+                const current_page = pagination.boundedPage(
+                    model.demo_data_table_page,
+                    pagination.pageCount(demo_table_rows.len, demo_table_page_size),
+                );
+                if (page != current_page) {
+                    emit(.{ .demo_data_table_page_selected = @intCast(page) });
+                    const order = demoTableOrder(
+                        model.demo_data_table_sort_column,
+                        model.demo_data_table_sort_descending,
+                    );
+                    emit(.{ .demo_data_table_row_selected = @intCast(order[page * demo_table_page_size]) });
+                }
             }
         },
         .increment, .decrement => if (element_id == slider_id) {
@@ -1359,6 +1431,23 @@ fn dataTableRowIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn paginationPageIndex(element_id: u32) ?u8 {
+    const count = pagination.pageCount(demo_table_rows.len, demo_table_page_size);
+    for (0..count) |page| {
+        if (element_id == pagination.pageId("RecordsPagination", page).id) return @intCast(page);
+    }
+    return null;
+}
+
+fn paginationTargetPage(model: *const Model, element_id: u32) ?usize {
+    const count = pagination.pageCount(demo_table_rows.len, demo_table_page_size);
+    const current = pagination.boundedPage(model.demo_data_table_page, count);
+    if (paginationPageIndex(element_id)) |page| return page;
+    if (element_id == pagination.previousId("RecordsPagination").id and current > 0) return current - 1;
+    if (element_id == pagination.nextId("RecordsPagination").id and current + 1 < count) return current + 1;
+    return null;
+}
+
 fn isInteractiveSemanticId(element_id: u32) bool {
     if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
         treeIndex(element_id) != null or
@@ -1366,6 +1455,9 @@ fn isInteractiveSemanticId(element_id: u32) bool {
     if (menuItemIndex(element_id)) |index| return !demo_menu_items[index].disabled;
     if (virtualListIndex(element_id) != null) return true;
     if (dataTableHeaderIndex(element_id) != null or dataTableRowIndex(element_id) != null) return true;
+    if (paginationPageIndex(element_id) != null or
+        element_id == pagination.previousId("RecordsPagination").id or
+        element_id == pagination.nextId("RecordsPagination").id) return true;
     if (element_id == select.triggerId("SortSelect").id or
         element_id == menu.triggerId("ActionsMenu").id) return true;
     inline for ([_][]const u8{
@@ -1436,6 +1528,13 @@ fn demoTableRowBefore(left: usize, right: usize, sort_column: usize, descending:
     else
         primary;
     return if (descending) order == .gt else order == .lt;
+}
+
+fn demoTablePageForRow(order: []const usize, stable_row_index: usize) usize {
+    for (order, 0..) |row_index, display_index| {
+        if (row_index == stable_row_index) return display_index / demo_table_page_size;
+    }
+    return 0;
 }
 
 fn applySemanticScroll(model: *const Model) void {
@@ -1708,9 +1807,16 @@ test "responsive shell emits controls and text" {
     var table_header_count: usize = 0;
     var table_row_count: usize = 0;
     var selected_table_row_count: usize = 0;
+    var has_pagination_semantics = false;
+    var selected_page_count: usize = 0;
+    var previous_page_disabled = false;
     var has_performance_label_semantics = false;
     var has_crash_diagnostics_semantics = false;
     for (result.semantic_nodes) |node| {
+        try std.testing.expect(std.mem.indexOfScalar(u8, node.label, 0) == null);
+        try std.testing.expect(std.mem.indexOfScalar(u8, node.value_text, 0) == null);
+        try std.testing.expect(std.unicode.utf8ValidateSlice(node.label));
+        try std.testing.expect(std.unicode.utf8ValidateSlice(node.value_text));
         if (node.role == .slider and node.value != null) has_slider_semantics = true;
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
         if (node.role == .text) has_text_semantics = true;
@@ -1740,7 +1846,7 @@ test "responsive shell emits controls and text" {
             visible_virtual_item_count += 1;
             if (node.selected) selected_virtual_item_count += 1;
         }
-        if (node.role == .table and node.row_count == demo_table_rows.len + 1 and node.column_count == 4) {
+        if (node.role == .table and node.row_count == demo_table_page_size + 1 and node.column_count == 4) {
             has_data_table_semantics = true;
         }
         if (node.role == .column_header) {
@@ -1751,6 +1857,15 @@ test "responsive shell emits controls and text" {
             table_row_count += 1;
             if (node.selected) selected_table_row_count += 1;
             try std.testing.expectEqual(@as(u16, 4), node.column_span);
+        }
+        if (node.element_id == clay.ElementId.ID("RecordsPagination").id and
+            std.mem.indexOf(u8, node.value_text, "第 1 页，共 3 页") != null)
+        {
+            has_pagination_semantics = true;
+        }
+        if (paginationPageIndex(node.element_id) != null and node.selected) selected_page_count += 1;
+        if (node.element_id == pagination.previousId("RecordsPagination").id and node.disabled) {
+            previous_page_disabled = true;
         }
         if (node.element_id == clay.ElementId.ID("PerformanceMetricsLabel").id) has_performance_label_semantics = true;
         if (node.element_id == clay.ElementId.ID("CrashDiagnosticsStatus").id) {
@@ -1777,8 +1892,11 @@ test "responsive shell emits controls and text" {
     try std.testing.expectEqual(@as(usize, 1), selected_virtual_item_count);
     try std.testing.expect(has_data_table_semantics);
     try std.testing.expectEqual(@as(usize, 4), table_header_count);
-    try std.testing.expectEqual(demo_table_rows.len, table_row_count);
+    try std.testing.expectEqual(@as(usize, demo_table_page_size), table_row_count);
     try std.testing.expectEqual(@as(usize, 1), selected_table_row_count);
+    try std.testing.expect(has_pagination_semantics);
+    try std.testing.expectEqual(@as(usize, 1), selected_page_count);
+    try std.testing.expect(previous_page_disabled);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
 
@@ -2171,6 +2289,24 @@ test "semantic actions reuse reducer-facing UI actions" {
 
     actions = handleSemanticAction(
         &model,
+        pagination.pageId("RecordsPagination", 0).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 0), actions.len);
+
+    actions = handleSemanticAction(
+        &model,
+        pagination.pageId("RecordsPagination", 1).id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 2), actions.len);
+    try std.testing.expectEqual(@as(u8, 1), actions[0].demo_data_table_page_selected);
+    try std.testing.expectEqual(@as(u8, 6), actions[1].demo_data_table_row_selected);
+
+    actions = handleSemanticAction(
+        &model,
         tree_view.itemId("ProjectTree", 0).id,
         .collapse,
         "",
@@ -2230,11 +2366,13 @@ test "file previews preserve UTF-8 text and format binary as hex" {
 test "data table sorting preserves stable row identities" {
     const ascending = demoTableOrder(0, false);
     try std.testing.expectEqual(@as(usize, 2), ascending[0]);
-    try std.testing.expectEqual(@as(usize, 3), ascending[ascending.len - 1]);
+    try std.testing.expectEqual(@as(usize, 17), ascending[ascending.len - 1]);
     const descending = demoTableOrder(0, true);
-    try std.testing.expectEqual(@as(usize, 3), descending[0]);
+    try std.testing.expectEqual(@as(usize, 17), descending[0]);
     try std.testing.expectEqual(@as(usize, 2), descending[descending.len - 1]);
     try std.testing.expectEqualStrings("虚拟列表", demoTableCell(4, 1));
+    try std.testing.expectEqual(@as(usize, 0), demoTablePageForRow(&ascending, 0));
+    try std.testing.expectEqual(@as(usize, 2), demoTablePageForRow(&descending, 0));
 }
 
 test "file metadata formats name MIME type and exact size" {

@@ -243,7 +243,8 @@ pub fn update(model: *Model, action: Action) void {
             model.demo_menu_expanded = false;
         },
         .demo_virtual_list_selected => |index| model.demo_virtual_list_selected_index = @min(index, 999),
-        .demo_data_table_row_selected => |index| model.demo_data_table_selected_row = @min(index, 5),
+        .demo_data_table_row_selected => |index| model.demo_data_table_selected_row = @min(index, 17),
+        .demo_data_table_page_selected => |page| model.demo_data_table_page = @min(page, 2),
         .demo_data_table_sorted => |sort| {
             model.demo_data_table_sort_column = @min(sort.column_index, 3);
             model.demo_data_table_sort_descending = sort.descending;
@@ -537,7 +538,9 @@ test "data table selection and sort remain bounded" {
     update(&model, .{ .demo_data_table_row_selected = 4 });
     try std.testing.expectEqual(@as(u8, 4), model.demo_data_table_selected_row);
     update(&model, .{ .demo_data_table_row_selected = 99 });
-    try std.testing.expectEqual(@as(u8, 5), model.demo_data_table_selected_row);
+    try std.testing.expectEqual(@as(u8, 17), model.demo_data_table_selected_row);
+    update(&model, .{ .demo_data_table_page_selected = 99 });
+    try std.testing.expectEqual(@as(u8, 2), model.demo_data_table_page);
     update(&model, .{ .demo_data_table_sorted = .{ .column_index = 99, .descending = true } });
     try std.testing.expectEqual(@as(u8, 3), model.demo_data_table_sort_column);
     try std.testing.expect(model.demo_data_table_sort_descending);
