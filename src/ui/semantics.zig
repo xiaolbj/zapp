@@ -46,6 +46,9 @@ pub const Node = struct {
     focused: bool = false,
     selected: bool = false,
     modal: bool = false,
+    required: bool = false,
+    invalid: bool = false,
+    error_text: []const u8 = "",
     expanded: ?bool = null,
     level: u16 = 0,
     row_index: u16 = 0,
@@ -124,7 +127,10 @@ pub const Registry = struct {
                 .width = data.bounding_box.width,
                 .height = data.bounding_box.height,
             } else .{};
-            var scroll_offset: clay.Vector2 = .{ .x = 0, .y = 0 };
+            // Clay_GetElementData already includes every ancestor's childOffset
+            // in both descendants and nested clip containers. Only intersect
+            // those final boxes here; adding scrollPosition again would shift
+            // accessibility hit targets twice after scrolling.
             var clip_bounds: [Node.max_scroll_ancestors]Bounds = undefined;
             var clip_count: usize = 0;
             for (node.scroll_ancestor_ids[0..node.scroll_ancestor_count]) |ancestor_value| {
@@ -133,21 +139,14 @@ pub const Registry = struct {
                 const ancestor_data = clay.getElementData(ancestor_id);
                 if (ancestor_data.found) {
                     clip_bounds[clip_count] = .{
-                        .x = ancestor_data.bounding_box.x + scroll_offset.x,
-                        .y = ancestor_data.bounding_box.y + scroll_offset.y,
+                        .x = ancestor_data.bounding_box.x,
+                        .y = ancestor_data.bounding_box.y,
                         .width = ancestor_data.bounding_box.width,
                         .height = ancestor_data.bounding_box.height,
                     };
                     clip_count += 1;
                 }
-                const ancestor_scroll = clay.getScrollContainerData(ancestor_id);
-                if (ancestor_scroll.found) {
-                    scroll_offset.x += ancestor_scroll.scroll_position.x;
-                    scroll_offset.y += ancestor_scroll.scroll_position.y;
-                }
             }
-            node.bounds.x += scroll_offset.x;
-            node.bounds.y += scroll_offset.y;
             for (clip_bounds[0..clip_count]) |clip| {
                 node.bounds = intersectBounds(node.bounds, clip) orelse .{};
             }

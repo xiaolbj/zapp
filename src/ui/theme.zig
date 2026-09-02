@@ -49,6 +49,7 @@ pub const controls = struct {
     pub const dialog_button_pressed: clay.Color = .{ 45, 56, 74, 255 };
     pub const overlay: clay.Color = .{ 2, 6, 14, 190 };
     pub const success: clay.Color = .{ 28, 95, 73, 245 };
+    pub const error_color: clay.Color = .{ 245, 126, 126, 255 };
     pub const text: clay.Color = .{ 232, 239, 249, 255 };
     pub const text_muted: clay.Color = .{ 166, 187, 218, 255 };
     pub const text_disabled: clay.Color = .{ 132, 143, 160, 255 };
@@ -84,5 +85,6 @@ test "control tokens preserve readable alpha" {
     try std.testing.expect(controls.accent[3] == 255);
     try std.testing.expect(controls.text[3] == 255);
     try std.testing.expect(controls.overlay[3] > 0);
+    try std.testing.expect(controls.error_color[3] == 255);
 }
 const clay = @import("zclay");

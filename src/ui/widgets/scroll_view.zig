@@ -33,6 +33,6 @@ pub fn declaration(config: Config) clay.ElementDeclaration {
         },
         .background_color = config.background_color,
         .corner_radius = .all(theme.controls.radius_medium),
-        .clip = .{ .vertical = true },
+        .clip = .{ .vertical = true, .child_offset = clay.getScrollOffset() },
     };
 }

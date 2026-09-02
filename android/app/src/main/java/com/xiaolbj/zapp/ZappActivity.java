@@ -119,7 +119,15 @@ public final class ZappActivity extends NativeActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (imeBridgeView != null && imeBridgeView.hasFocus()) return super.dispatchKeyEvent(event);
+        if (imeBridgeView != null && imeBridgeView.hasFocus()) {
+            int keyCode = event.getKeyCode();
+            boolean submitKey = keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER;
+            if (submitKey) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) nativeSubmit();
+                return true;
+            }
+            if (keyCode != KeyEvent.KEYCODE_TAB) return super.dispatchKeyEvent(event);
+        }
         int command = navigationCommand(event);
         if (command < 0) return super.dispatchKeyEvent(event);
         if (event.getAction() == KeyEvent.ACTION_DOWN &&
@@ -588,6 +596,7 @@ public final class ZappActivity extends NativeActivity {
         final float value;
         final String label;
         final String valueText;
+        final String errorText;
 
         SemanticNode(int[] metadata, float[] geometry, String[] strings) {
             id = metadata[0];
@@ -607,6 +616,7 @@ public final class ZappActivity extends NativeActivity {
             value = geometry[4];
             label = strings[0] == null ? "" : strings[0];
             valueText = strings[1] == null ? "" : strings[1];
+            errorText = strings[2] == null ? "" : strings[2];
         }
 
         boolean hasFlag(int flag) {
@@ -626,6 +636,8 @@ public final class ZappActivity extends NativeActivity {
         private static final int FLAG_SCROLLABLE = 1 << 8;
         private static final int FLAG_CAN_SCROLL_FORWARD = 1 << 9;
         private static final int FLAG_CAN_SCROLL_BACKWARD = 1 << 10;
+        private static final int FLAG_REQUIRED = 1 << 11;
+        private static final int FLAG_INVALID = 1 << 12;
 
         private static final int ROLE_TEXT = 0;
         private static final int ROLE_BUTTON = 1;
@@ -678,7 +690,7 @@ public final class ZappActivity extends NativeActivity {
             for (int index = 0; index < count; index += 1) {
                 int[] metadata = new int[10];
                 float[] geometry = new float[5];
-                String[] strings = new String[2];
+                String[] strings = new String[3];
                 if (!nativeAccessibilityNodeAt(index, metadata, geometry, strings)) continue;
                 SemanticNode node = new SemanticNode(metadata, geometry, strings);
                 if (node.width > 0 && node.height > 0) updated.add(node);
@@ -801,9 +813,15 @@ public final class ZappActivity extends NativeActivity {
                 if (node.role == ROLE_TEXT || node.role == ROLE_STATUS) {
                     info.setText(node.label);
                 } else {
-                    info.setContentDescription(node.label);
+                    info.setContentDescription(node.hasFlag(FLAG_REQUIRED)
+                        ? node.label + "，必填"
+                        : node.label);
                 }
                 if (!node.valueText.isEmpty()) info.setText(node.valueText);
+                if (node.hasFlag(FLAG_INVALID)) {
+                    info.setContentInvalid(true);
+                    if (!node.errorText.isEmpty()) info.setError(node.errorText);
+                }
                 if (node.level > 0) info.getExtras().putInt("zapp.tree.level", node.level);
                 if (node.role == ROLE_TABLE && node.rowCount > 0 && node.columnCount > 0) {
                     info.setCollectionInfo(AccessibilityNodeInfo.CollectionInfo.obtain(

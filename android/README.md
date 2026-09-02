@@ -170,8 +170,8 @@ ZappActivity callback -> C 事件队列 -> PlatformEvent -> App reducer
 Clay 完成每帧布局后，Zig 会为最多 128 个语义节点补齐最终边界，并序列化为固定容量 native 快照。快照内容不变时不会触发 JNI 更新。`AccessibilityBridgeView` 使用 `AccessibilityNodeProvider` 将快照暴露为 Android 虚拟子节点：
 
 - 角色映射到 Button、CheckBox、Switch、SeekBar、EditText、ProgressBar、TabWidget、Menu/ListView、虚拟 ListItem、GridView/DataTable、Dialog 等系统类名。
-- 中文标签、值、勾选/选中/禁用、焦点、范围、树层级和展开状态均随快照更新。
-- 节点边界会累加最多四层滚动祖先偏移并逐层裁剪到容器视口，再转换到屏幕坐标；完全不可见的节点不会暴露给系统服务。
+- 中文标签、值、勾选/选中/禁用、焦点、范围、树层级、展开状态，以及表单 required/invalid/error text 均随快照更新。
+- Clay 已通过滚动容器的 clip `childOffset` 把滚动偏移写入最终元素边界；语义层直接读取该坐标，再逐层裁剪到最多四层祖先视口并转换到屏幕坐标。完全不可见的节点不会暴露给系统服务。
 - 点击、滑块增减、TextField 设置文本、TreeView/Accordion 展开与折叠，以及 Card/ScrollView 的向前、向后翻页均通过线程安全事件队列回到 Zig，再复用 UI Action 和 reducer。
 - 可滚动节点只暴露当前方向实际可用的 `ACTION_SCROLL_FORWARD`/`BACKWARD` 与 `ACTION_SCROLL_DOWN`/`UP`；动作按可视高度的 80% 移动目标 Clay 容器，并在内容边界处夹紧。
 - 模态对话框打开时仅暴露 Dialog 及其按钮，避免读屏焦点进入被遮挡内容。
@@ -196,6 +196,8 @@ DataTable 同样在 API 28 x86_64 模拟器的 `1920x1080` 窗口下完成运行
 Pagination 已在同一模拟器验证：键盘从第 1 页连续切到第 2、3 页后，表格分别显示 Z-318–Z-419 与 Z-437–Z-524，页首稳定业务行保持 selected；当前页按钮同时 focused/selected，末页“下一页”节点 disabled。页码文字使用控件持久状态缓冲区，UIAutomator XML 不含 U+0000 等失效字符。
 
 Accordion 已在同一模拟器验证：从全局焦点顺序进入“账户与同步”时外层 PrimaryCard 自动显露焦点标题；下键移动到“通知设置”，右键按 single 模式展开后旧面板退出语义树，新面板及正文进入，左键收起后只保留三个 `android.widget.Button` 标题且焦点不丢失。运行过程无 AndroidRuntime 或 libc 崩溃日志。
+
+FormField 已在同一模拟器验证：空的必填“应用名称”提交后显示错误边框与中文错误 supporting text，虚拟 EditText 同时暴露必填描述、content-invalid 和 error；外层 PrimaryCard 自动滚动到字段及错误文本。IME 焦点宿主持有焦点时，硬件 Enter 可提交表单，随后一次 Tab 会退出编辑并聚焦“提交表单”按钮；UIAutomator 确认按钮可见且 `focused=true`。这轮同时用运行时截图和语义边界回归测试确认滚动后视觉内容与虚拟节点使用同一坐标。
 
 Android 动态库构建会捆绑 Zig compiler-rt，并显式链接 `libaaudio`；链接器启用 `--no-undefined`，使缺少运行库或系统库的问题在构建期失败，而不是安装后才在动态加载阶段崩溃。`ZappActivity` 还会显式加载 `libzapp.so`，保证 Java 声明的 native 回调由正确的应用 ClassLoader 解析。
 

@@ -15,6 +15,9 @@ pub const Config = struct {
     width: f32 = 320,
     focused: bool = false,
     disabled: bool = false,
+    required: bool = false,
+    invalid: bool = false,
+    error_message: []const u8 = "",
     semantic_label: ?[]const u8 = null,
     semantic_registry: ?*semantics.Registry = null,
 };
@@ -35,6 +38,9 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         .value_text = config.text,
         .disabled = config.disabled,
         .focused = config.focused,
+        .required = config.required,
+        .invalid = config.invalid,
+        .error_text = if (config.invalid) config.error_message else "",
     });
     const hovered = clay.pointerOver(id);
     const pointer = interaction.update(state, id.id, hovered, input, config.disabled);
@@ -69,8 +75,8 @@ pub fn draw(state: *interaction.State, input: interaction.Input, config: Config)
         .background_color = background,
         .corner_radius = .all(theme.controls.radius_medium),
         .border = .{
-            .color = theme.controls.focus,
-            .width = if (config.focused) .outside(theme.controls.focus_width) else .{},
+            .color = if (config.invalid) theme.controls.error_color else theme.controls.focus,
+            .width = if (config.focused or config.invalid) .outside(theme.controls.focus_width) else .{},
         },
         .clip = .{ .horizontal = true },
     })({

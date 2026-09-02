@@ -143,7 +143,8 @@ zapp/
 │  │  │  ├─ slider.zig
 │  │  │  ├─ scroll_view.zig
 │  │  │  ├─ dialog.zig
-│  │  │  └─ text_field.zig
+│  │  │  ├─ text_field.zig
+│  │  │  └─ form_field.zig
 │  │  └─ screens/
 │  ├─ render/
 │  │  ├─ clay_renderer.zig
@@ -611,6 +612,7 @@ P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。�
 - `NavigationBar`：受控页面选择，支持横向和纵向排列。
 - `Toast`：非模态、输入穿透、定时消失的反馈浮层。
 - `TextField`：受控单行 UTF-8 文本，支持字符输入、完整码点退格、Enter 提交、系统粘贴和移动软键盘显示。
+- `FormField`：在 TextField 上组合标签、必填标记、帮助/错误 supporting text 和受控验证状态。
 - `RadioGroup`：受控互斥选择，支持横/纵布局、鼠标/触摸、四向键循环选择，以及 radio_group/radio_button 语义。
 - `Select`：受控单选下拉框，支持动态展开选项、键盘导航、外部点击/返回键收起，以及 combo_box/option 语义。
 - `Tabs`：受控标签页导航，支持横/纵布局、方向键自动激活、单一 Tab 停靠点，以及 tab_list/tab 语义。
@@ -636,7 +638,7 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 MenuButton 已实现：展开状态和最近执行操作由 AppModel/reducer 控制；打开时焦点进入首个可用项，上下键循环且跳过禁用项，Home/End 定位首尾，激活、外部点击或返回键关闭并恢复触发器焦点。Menu 与 Select 互斥展开，Android 无障碍桥暴露 menu/menu_item 角色和禁用状态。
 
-补充控件 VirtualList 已实现：示例提供 1,000 条逻辑记录和约 42,000 像素内容高度，每帧最多只生成 32 个可见/预取行；顶部与底部占位保持 Clay 的完整滚动范围。活动行作为单一 Tab 停靠点，方向键和 Home/End 更新受控选择并把目标滚入视口；无障碍树只暴露当前可见 list_item，同时列表容器保留系统前后翻页动作。语义注册表记录嵌套滚动祖先，在解析最终边界时累加各层偏移并逐层裁剪；焦点管理还会把 VirtualList 容器自动显露到外层 PrimaryCard，避免内层末行虽选中却仍位于外层视口之外。
+补充控件 VirtualList 已实现：示例提供 1,000 条逻辑记录和约 42,000 像素内容高度，每帧最多只生成 32 个可见/预取行；顶部与底部占位保持 Clay 的完整滚动范围。活动行作为单一 Tab 停靠点，方向键和 Home/End 更新受控选择并把目标滚入视口；无障碍树只暴露当前可见 list_item，同时列表容器保留系统前后翻页动作。滚动容器把 Clay scroll offset 配置为 clip child offset，使渲染、命中测试和最终元素边界使用同一坐标；语义注册表读取最终边界后只负责按嵌套祖先视口逐层裁剪。焦点管理还会把 VirtualList 容器自动显露到外层 PrimaryCard，避免内层末行虽选中却仍位于外层视口之外。
 
 补充控件 DataTable 已实现：示例包含四列十八行数据，列宽随控件宽度分配；表头点击或 Enter 切换升降序，左右/Home/End 在可排序表头间移动，向下进入当前行；数据行支持上下/Home/End 导航和选择。排序使用显示顺序到稳定业务行索引的映射，因此排序后选中项与焦点不会错误地附着到原显示位置。Android 桥为表格暴露 CollectionInfo，为表头和行暴露 CollectionItemInfo、行列位置、heading 与 selected 状态。
 
@@ -644,11 +646,13 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 Accordion 已实现：标题和内容使用稳定派生 ID，展开位掩码由 AppModel/reducer 控制，并提供 single/multiple 两种策略。面板内容由调用方回调组合，控件只管理标题、显隐和交互；上/下键循环且跳过禁用项，Home/End 定位首尾，右键展开、左键收起。Android 无障碍桥复用 button 的 expanded 状态与 expand/collapse/click 动作；收起面板不会生成 Clay 布局或语义节点。
 
+补充控件 FormField 已实现：控件保持 TextField 的受控数据和完整编辑/IME 行为，在外层组合标签、必填标记、帮助文本与错误文本。提交无效数据后，输入框使用主题错误色显示边框，语义节点输出 required、invalid 和 error text；Android 映射为 `setContentInvalid(true)` 与 `setError(...)`。错误 supporting text 使用 status 角色并随字段一起自动滚入可见区域；键盘 Enter 可提交，Tab 可从 IME 焦点宿主移动到后续提交按钮。
+
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
 平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/up/down/left/right/first/last/back，并复用键盘的 FocusManager 和一帧请求状态。Android Activity 已显式捕获普通 UI 焦点下的 DPAD、Tab、Enter/Space、Home/End 与手柄 A 键，经 JNI 事件队列进入同一 reducer；IME 编辑视图持有焦点时不截获方向键。Sokol 本身不提供统一 gamepad 事件，Windows XInput 与 Apple GameController 的原生采集仍属于各平台壳实现。
 
-控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、最终布局边界以及 disabled、focused、selected、modal、expanded、行列位置和集合尺寸状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、DataTable、TreeView 和 Accordion 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作，DataTable 映射为 CollectionInfo/CollectionItemInfo；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
+控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、最终布局边界以及 disabled、focused、selected、modal、expanded、required、invalid、error text、行列位置和集合尺寸状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、DataTable、TreeView、Accordion 和 FormField 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作，DataTable 映射为 CollectionInfo/CollectionItemInfo，FormField 映射必填和验证错误状态；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
 
 控件主题一致性已完成：widgets 的状态颜色、文字颜色、常用圆角和间距统一引用 Theme 令牌，不再在各控件内维护独立调色板。
 

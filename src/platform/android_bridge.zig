@@ -39,9 +39,10 @@ pub const AccessibilityNode = extern struct {
     column_count: u16,
     label_length: u16,
     value_text_length: u16,
-    reserved: u16,
+    error_text_length: u16,
     label: [max_accessibility_text_bytes]u8,
     value_text: [max_accessibility_text_bytes]u8,
+    error_text: [max_accessibility_text_bytes]u8,
 };
 
 const accessibility_flag_checked_present: u32 = 1 << 0;
@@ -55,12 +56,14 @@ const accessibility_flag_expanded: u32 = 1 << 7;
 const accessibility_flag_scrollable: u32 = 1 << 8;
 const accessibility_flag_can_scroll_forward: u32 = 1 << 9;
 const accessibility_flag_can_scroll_backward: u32 = 1 << 10;
+const accessibility_flag_required: u32 = 1 << 11;
+const accessibility_flag_invalid: u32 = 1 << 12;
 
 var last_accessibility_hash: ?u64 = null;
 
 comptime {
     std.debug.assert(@sizeOf(Event) == 4592);
-    std.debug.assert(@sizeOf(AccessibilityNode) == 308);
+    std.debug.assert(@sizeOf(AccessibilityNode) == 436);
 }
 
 pub const EventKind = enum(c_int) {
@@ -263,9 +266,10 @@ fn serializeAccessibilityNode(node: semantics.Node) AccessibilityNode {
         .column_count = node.column_count,
         .label_length = 0,
         .value_text_length = 0,
-        .reserved = 0,
+        .error_text_length = 0,
         .label = @splat(0),
         .value_text = @splat(0),
+        .error_text = @splat(0),
     };
     if (node.checked) |checked| {
         result.flags |= accessibility_flag_checked_present;
@@ -282,8 +286,11 @@ fn serializeAccessibilityNode(node: semantics.Node) AccessibilityNode {
     if (node.scrollable) result.flags |= accessibility_flag_scrollable;
     if (node.can_scroll_forward) result.flags |= accessibility_flag_can_scroll_forward;
     if (node.can_scroll_backward) result.flags |= accessibility_flag_can_scroll_backward;
+    if (node.required) result.flags |= accessibility_flag_required;
+    if (node.invalid) result.flags |= accessibility_flag_invalid;
     result.label_length = @intCast(copyUtf8Prefix(&result.label, node.label));
     result.value_text_length = @intCast(copyUtf8Prefix(&result.value_text, node.value_text));
+    result.error_text_length = @intCast(copyUtf8Prefix(&result.error_text, node.error_text));
     return result;
 }
 
@@ -394,6 +401,23 @@ test "accessibility serialization preserves flags bounds and UTF-8 boundaries" {
     try std.testing.expect(node.flags & accessibility_flag_focused != 0);
     try std.testing.expectEqual(@as(f32, 30), node.width);
     try std.testing.expectEqualStrings("中文按钮", node.label[0..node.label_length]);
+}
+
+test "accessibility serialization preserves form validation metadata" {
+    const node = serializeAccessibilityNode(.{
+        .element_id = 11,
+        .role = .text_field,
+        .label = "应用名称",
+        .required = true,
+        .invalid = true,
+        .error_text = "应用名称至少需要 2 个字符",
+    });
+    try std.testing.expect(node.flags & accessibility_flag_required != 0);
+    try std.testing.expect(node.flags & accessibility_flag_invalid != 0);
+    try std.testing.expectEqualStrings(
+        "应用名称至少需要 2 个字符",
+        node.error_text[0..node.error_text_length],
+    );
 }
 
 test "accessibility serialization exposes available scroll directions" {

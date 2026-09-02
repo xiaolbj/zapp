@@ -96,7 +96,7 @@ pub fn draw(
         },
         .background_color = theme.controls.scroll_surface,
         .corner_radius = .all(theme.controls.radius_medium),
-        .clip = .{ .vertical = true },
+        .clip = .{ .vertical = true, .child_offset = clay.getScrollOffset() },
     })({
         const top_height = @as(f32, @floatFromInt(range.start)) * config.row_height;
         if (top_height > 0) spacer(config.id, std.math.maxInt(u32) - 1, top_height);

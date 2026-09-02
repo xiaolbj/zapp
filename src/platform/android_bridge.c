@@ -87,13 +87,14 @@ typedef struct zapp_accessibility_node {
     uint16_t column_count;
     uint16_t label_length;
     uint16_t value_text_length;
-    uint16_t reserved;
+    uint16_t error_text_length;
     uint8_t label[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
     uint8_t value_text[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
+    uint8_t error_text[ZAPP_ACCESSIBILITY_TEXT_CAPACITY];
 } zapp_accessibility_node;
 
 _Static_assert(sizeof(zapp_android_event) == 4592, "Zig/C Android event ABI mismatch");
-_Static_assert(sizeof(zapp_accessibility_node) == 308, "Zig/C accessibility node ABI mismatch");
+_Static_assert(sizeof(zapp_accessibility_node) == 436, "Zig/C accessibility node ABI mismatch");
 
 typedef struct zapp_jni_scope {
     JavaVM *vm;
@@ -590,7 +591,7 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeAt(
     if (index < 0 || metadata == NULL || geometry == NULL || strings == NULL ||
         (*env)->GetArrayLength(env, metadata) < 10 ||
         (*env)->GetArrayLength(env, geometry) < 5 ||
-        (*env)->GetArrayLength(env, strings) < 2) return JNI_FALSE;
+        (*env)->GetArrayLength(env, strings) < 3) return JNI_FALSE;
 
     zapp_accessibility_node node;
     pthread_mutex_lock(&zapp_accessibility_mutex);
@@ -618,10 +619,13 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeAccessibilityNodeAt(
     (*env)->SetFloatArrayRegion(env, geometry, 0, 5, geometry_values);
     jstring label = zapp_utf8_to_string(env, node.label, node.label_length);
     jstring value_text = zapp_utf8_to_string(env, node.value_text, node.value_text_length);
+    jstring error_text = zapp_utf8_to_string(env, node.error_text, node.error_text_length);
     if (label != NULL) (*env)->SetObjectArrayElement(env, strings, 0, label);
     if (value_text != NULL) (*env)->SetObjectArrayElement(env, strings, 1, value_text);
+    if (error_text != NULL) (*env)->SetObjectArrayElement(env, strings, 2, error_text);
     if (label != NULL) (*env)->DeleteLocalRef(env, label);
     if (value_text != NULL) (*env)->DeleteLocalRef(env, value_text);
+    if (error_text != NULL) (*env)->DeleteLocalRef(env, error_text);
     return (*env)->ExceptionCheck(env) ? JNI_FALSE : JNI_TRUE;
 }
 

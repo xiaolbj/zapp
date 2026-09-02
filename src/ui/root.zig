@@ -4,6 +4,7 @@ const Action = @import("../app/action.zig").Action;
 const Model = @import("../app/model.zig").Model;
 const font = @import("../text/font.zig");
 const focus_manager = @import("focus_manager.zig");
+const form_field = @import("widgets/form_field.zig");
 const semantics = @import("semantics.zig");
 const theme = @import("theme.zig");
 const accordion = @import("widgets/accordion.zig");
@@ -25,7 +26,6 @@ const scroll_view = @import("widgets/scroll_view.zig");
 const select = @import("widgets/select.zig");
 const slider = @import("widgets/slider.zig");
 const tabs = @import("widgets/tabs.zig");
-const text_field = @import("widgets/text_field.zig");
 const toast = @import("widgets/toast.zig");
 const tree_view = @import("widgets/tree_view.zig");
 const toggle_switch = @import("widgets/switch.zig");
@@ -210,7 +210,10 @@ pub fn build(model: *const Model) Frame {
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
     if (model.text_submission_count != state.last_text_submission_count) {
         state.last_text_submission_count = model.text_submission_count;
-        state.toast_state.show("文本已提交", 2.5);
+        state.toast_state.show(
+            if (demoTextInvalid(model)) "请修正表单错误" else "表单已提交",
+            2.5,
+        );
     }
     state.toast_state.update(model.frame_delta_seconds);
     clay.beginLayout();
@@ -238,6 +241,7 @@ pub fn build(model: *const Model) Frame {
     const active_tab_id = tabs.itemId("DataTabs", active_tab_index).id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
+    const form_submit_id = clay.ElementId.ID("SubmitDemoForm").id;
     const permission_button_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_button_id = clay.ElementId.ID("StreamSelectedFile").id;
@@ -330,6 +334,7 @@ pub fn build(model: *const Model) Frame {
         const trailing_order = [_]u32{
             slider_id,
             text_field_id,
+            form_submit_id,
             permission_button_id,
             file_picker_button_id,
             file_stream_button_id,
@@ -361,6 +366,8 @@ pub fn build(model: *const Model) Frame {
         if (state.focus_state.focused_id) |focused_id| {
             const reveal_id = if (virtualListIndex(focused_id) != null)
                 clay.ElementId.ID("RecordsVirtualList").id
+            else if (focused_id == text_field_id and demoTextInvalid(model))
+                form_field.containerId("DemoTextField").id
             else
                 focused_id;
             ensureElementVisibleInScrollContainer(reveal_id, clay.ElementId.ID("PrimaryCard").id);
@@ -1057,22 +1064,27 @@ pub fn build(model: *const Model) Frame {
                         state.focus_state.focus(slider_id);
                         emit(.{ .demo_volume_changed = value });
                     }
-                    label.draw("单行文本输入", .{
-                        .color = .{ 166, 187, 218, 255 },
-                        .semantic_id = .ID("TextFieldLabel"),
+                    label.draw("表单字段", .{
+                        .font_size = 18,
+                        .color = theme.controls.text_muted,
+                        .semantic_id = .ID("FormFieldSectionLabel"),
                         .semantic_registry = &state.semantic_registry,
                     });
-                    const text_result = text_field.draw(&state.interaction_state, input, .{
+                    const text_result = form_field.draw(&state.interaction_state, input, .{
                         .id = "DemoTextField",
+                        .label_text = "应用名称",
                         .text = model.text(),
-                        .placeholder = "输入中文或英文，按 Enter 提交",
+                        .placeholder = "例如：我的 ZAPP",
                         .cursor = model.text_cursor,
                         .selection_anchor = model.text_selection_anchor,
                         .composition = model.textComposition(),
+                        .helper_text = "至少输入 2 个字符，按 Enter 提交",
+                        .error_message = "应用名称至少需要 2 个字符",
                         .width = control_width,
                         .focused = model.text_field_focused,
                         .disabled = modal_open,
-                        .semantic_label = "单行文本输入",
+                        .required = true,
+                        .invalid = demoTextInvalid(model),
                         .semantic_registry = &state.semantic_registry,
                     });
                     if (text_result.focus_requested and !model.text_field_focused) {
@@ -1086,6 +1098,18 @@ pub fn build(model: *const Model) Frame {
                             .position = position,
                             .selecting = text_result.selecting,
                         } });
+                    }
+                    if (button.draw(&state.interaction_state, input, .{
+                        .id = "SubmitDemoForm",
+                        .text = "提交表单",
+                        .width = control_width,
+                        .disabled = modal_open,
+                        .focused = state.focus_state.isFocused(form_submit_id),
+                        .semantic_registry = &state.semantic_registry,
+                    })) {
+                        state.focus_state.focus(form_submit_id);
+                        if (model.text_field_focused) emit(.{ .text_field_focus_changed = false });
+                        emit(.text_submitted);
                     }
                     divider.draw(.{});
                     label.draw("平台 API", .{
@@ -1278,6 +1302,7 @@ pub fn handleSemanticAction(
     const actions_menu_id = menu.triggerId("ActionsMenu").id;
     const slider_id = clay.ElementId.ID("VolumeSlider").id;
     const text_field_id = clay.ElementId.ID("DemoTextField").id;
+    const form_submit_id = clay.ElementId.ID("SubmitDemoForm").id;
     const permission_id = clay.ElementId.ID("RequestCameraPermission").id;
     const file_picker_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_id = clay.ElementId.ID("StreamSelectedFile").id;
@@ -1308,7 +1333,7 @@ pub fn handleSemanticAction(
             }
             if (element_id == primary_id) emit(.primary_button_pressed) else if (element_id == progress_id) emit(.demo_progress_incremented) else if (element_id == dialog_open_id) emit(.demo_dialog_opened) else if (element_id == checkbox_id) emit(.demo_checkbox_toggled) else if (element_id == switch_id) emit(.demo_switch_toggled) else if (element_id == text_field_id) {
                 if (!model.text_field_focused) emit(.{ .text_field_focus_changed = true });
-            } else if (element_id == permission_id) emit(.{ .platform_permission_requested = .camera }) else if (element_id == file_picker_id) {
+            } else if (element_id == form_submit_id) emit(.text_submitted) else if (element_id == permission_id) emit(.{ .platform_permission_requested = .camera }) else if (element_id == file_picker_id) {
                 if (!model.file_picker_pending and !model.file_stream_pending) {
                     emit(.platform_file_picker_requested);
                 }
@@ -1532,6 +1557,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "DemoSwitch",
         "VolumeSlider",
         "DemoTextField",
+        "SubmitDemoForm",
         "RequestCameraPermission",
         "OpenFilePicker",
         "StreamSelectedFile",
@@ -1550,6 +1576,10 @@ fn isScrollableSemanticId(element_id: u32) bool {
 
 fn formatVirtualListItem(index: usize, buffer: []u8) []const u8 {
     return std.fmt.bufPrint(buffer, "数据记录 #{d}", .{index + 1}) catch "数据记录";
+}
+
+fn demoTextInvalid(model: *const Model) bool {
+    return model.text_submission_count > 0 and std.mem.trim(u8, model.text(), " \t").len < 2;
 }
 
 fn drawDemoAccordionPanel(context: ?*anyopaque, index: usize) void {
@@ -1657,7 +1687,7 @@ fn ensureElementVisibleInScrollContainer(element_value: u32, container_value: u3
     const current_y = scroll.scroll_position.y;
     const visible_top = container.bounding_box.y;
     const visible_bottom = visible_top + container.bounding_box.height;
-    const element_top = element.bounding_box.y + current_y;
+    const element_top = element.bounding_box.y;
     const element_bottom = element_top + element.bounding_box.height;
     var target_y = current_y;
     if (element_top < visible_top) {
@@ -1879,6 +1909,8 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(result.semantic_nodes.len >= 10);
     var has_slider_semantics = false;
     var has_text_field_semantics = false;
+    var has_required_valid_text_field = false;
+    var has_form_submit_button = false;
     var has_text_semantics = false;
     var has_progress_semantics = false;
     var has_list_semantics = false;
@@ -1914,6 +1946,14 @@ test "responsive shell emits controls and text" {
         try std.testing.expect(std.unicode.utf8ValidateSlice(node.value_text));
         if (node.role == .slider and node.value != null) has_slider_semantics = true;
         if (node.role == .text_field and node.value_text.len == model.text().len) has_text_field_semantics = true;
+        if (node.element_id == clay.ElementId.ID("DemoTextField").id and node.required and
+            !node.invalid and node.error_text.len == 0)
+        {
+            has_required_valid_text_field = true;
+        }
+        if (node.element_id == clay.ElementId.ID("SubmitDemoForm").id and node.role == .button) {
+            has_form_submit_button = true;
+        }
         if (node.role == .text) has_text_semantics = true;
         if (node.role == .progress_bar and node.value != null) has_progress_semantics = true;
         if (node.role == .list) {
@@ -1977,6 +2017,8 @@ test "responsive shell emits controls and text" {
     }
     try std.testing.expect(has_slider_semantics);
     try std.testing.expect(has_text_field_semantics);
+    try std.testing.expect(has_required_valid_text_field);
+    try std.testing.expect(has_form_submit_button);
     try std.testing.expect(has_text_semantics);
     try std.testing.expect(has_progress_semantics);
     try std.testing.expect(has_list_semantics);
@@ -2006,6 +2048,85 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(previous_page_disabled);
     try std.testing.expect(has_performance_label_semantics);
     try std.testing.expect(has_crash_diagnostics_semantics);
+
+    const primary_scroll = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
+    try std.testing.expect(primary_scroll.found);
+    primary_scroll.scroll_position.y = -500;
+    const scrolled_bounds_frame = build(&model);
+    var compared_scrolled_bounds: usize = 0;
+    for (scrolled_bounds_frame.semantic_nodes) |node| {
+        if (node.scroll_ancestor_count == 0) continue;
+        var element_id = clay.ElementId.ID("");
+        element_id.id = node.element_id;
+        const data = clay.getElementData(element_id);
+        if (!data.found) continue;
+        var expected: ?semantics.Bounds = .{
+            .x = data.bounding_box.x,
+            .y = data.bounding_box.y,
+            .width = data.bounding_box.width,
+            .height = data.bounding_box.height,
+        };
+        for (node.scroll_ancestor_ids[0..node.scroll_ancestor_count]) |ancestor_value| {
+            var ancestor_id = clay.ElementId.ID("");
+            ancestor_id.id = ancestor_value;
+            const ancestor = clay.getElementData(ancestor_id);
+            if (!ancestor.found or expected == null) continue;
+            const current = expected.?;
+            const left = @max(current.x, ancestor.bounding_box.x);
+            const top = @max(current.y, ancestor.bounding_box.y);
+            const right = @min(current.x + current.width, ancestor.bounding_box.x + ancestor.bounding_box.width);
+            const bottom = @min(current.y + current.height, ancestor.bounding_box.y + ancestor.bounding_box.height);
+            expected = if (right > left and bottom > top)
+                .{ .x = left, .y = top, .width = right - left, .height = bottom - top }
+            else
+                null;
+        }
+        const expected_bounds = expected orelse semantics.Bounds{};
+        try std.testing.expectApproxEqAbs(expected_bounds.x, node.bounds.x, 0.01);
+        try std.testing.expectApproxEqAbs(expected_bounds.y, node.bounds.y, 0.01);
+        try std.testing.expectApproxEqAbs(expected_bounds.width, node.bounds.width, 0.01);
+        try std.testing.expectApproxEqAbs(expected_bounds.height, node.bounds.height, 0.01);
+        compared_scrolled_bounds += 1;
+    }
+    try std.testing.expect(compared_scrolled_bounds > 20);
+    primary_scroll.scroll_position.y = -500;
+    _ = build(&model);
+
+    state.focus_state.focus(clay.ElementId.ID("DemoTextField").id);
+    const revealed_form_frame = build(&model);
+    var revealed_form_bounds: ?semantics.Bounds = null;
+    var primary_card_bounds: ?semantics.Bounds = null;
+    for (revealed_form_frame.semantic_nodes) |node| {
+        if (node.element_id == clay.ElementId.ID("DemoTextField").id) revealed_form_bounds = node.bounds;
+        if (node.element_id == clay.ElementId.ID("PrimaryCard").id) primary_card_bounds = node.bounds;
+    }
+    try std.testing.expect(revealed_form_bounds != null and primary_card_bounds != null);
+    try std.testing.expect(revealed_form_bounds.?.width > 0 and revealed_form_bounds.?.height > 0);
+    try std.testing.expect(revealed_form_bounds.?.y >= primary_card_bounds.?.y);
+    try std.testing.expect(
+        revealed_form_bounds.?.y + revealed_form_bounds.?.height <=
+            primary_card_bounds.?.y + primary_card_bounds.?.height,
+    );
+
+    model.text_submission_count = 1;
+    const revealed_error_frame = build(&model);
+    var revealed_error_bounds: ?semantics.Bounds = null;
+    for (revealed_error_frame.semantic_nodes) |node| {
+        if (node.element_id == form_field.supportingId("DemoTextField").id) {
+            revealed_error_bounds = node.bounds;
+        }
+    }
+    try std.testing.expect(revealed_error_bounds != null);
+    try std.testing.expect(revealed_error_bounds.?.width > 0 and revealed_error_bounds.?.height > 0);
+    try std.testing.expect(revealed_error_bounds.?.y >= primary_card_bounds.?.y);
+    try std.testing.expect(
+        revealed_error_bounds.?.y + revealed_error_bounds.?.height <=
+            primary_card_bounds.?.y + primary_card_bounds.?.height,
+    );
+    model.text_submission_count = 0;
+    primary_scroll.scroll_position.y = 0;
+    state.focus_state.focused_id = null;
+    _ = build(&model);
 
     model.demo_accordion_expanded_mask = 0b100;
     const switched_accordion_frame = build(&model);
@@ -2203,6 +2324,8 @@ test "responsive shell emits controls and text" {
     const toast_frame = build(&model);
     var has_toast_command = false;
     var has_status_semantics = false;
+    var has_invalid_field_semantics = false;
+    var has_form_error_status = false;
     for (toast_frame.commands) |command| {
         if (command.z_index == 200 and command.command_type == .rectangle) {
             has_toast_command = true;
@@ -2211,9 +2334,21 @@ test "responsive shell emits controls and text" {
     }
     for (toast_frame.semantic_nodes) |node| {
         if (node.role == .status) has_status_semantics = true;
+        if (node.element_id == clay.ElementId.ID("DemoTextField").id and node.required and
+            node.invalid and std.mem.eql(u8, node.error_text, "应用名称至少需要 2 个字符"))
+        {
+            has_invalid_field_semantics = true;
+        }
+        if (node.element_id == form_field.supportingId("DemoTextField").id and
+            node.role == .status and std.mem.eql(u8, node.label, "应用名称至少需要 2 个字符"))
+        {
+            has_form_error_status = true;
+        }
     }
     try std.testing.expect(has_toast_command);
     try std.testing.expect(has_status_semantics);
+    try std.testing.expect(has_invalid_field_semantics);
+    try std.testing.expect(has_form_error_status);
 
     model.demo_dialog_open = true;
     model.back_requested = true;
@@ -2277,6 +2412,18 @@ test "semantic actions reuse reducer-facing UI actions" {
     try std.testing.expect(actions[0] == .text_field_focus_changed);
     try std.testing.expect(actions[1] == .text_select_all);
     try std.testing.expectEqualStrings("无障碍输入", actions[2].text_inserted);
+
+    model.text_field_focused = true;
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("SubmitDemoForm").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 2), actions.len);
+    try std.testing.expect(!actions[0].text_field_focus_changed);
+    try std.testing.expect(actions[1] == .text_submitted);
+    model.text_field_focused = false;
 
     actions = handleSemanticAction(
         &model,
@@ -2523,6 +2670,16 @@ test "file previews preserve UTF-8 text and format binary as hex" {
     @memcpy(model.file_preview_buffer[0..4], &[_]u8{ 0x89, 0x50, 0x4e, 0x47 });
     const binary_preview = formatFilePreview(&buffer, &model);
     try std.testing.expect(std.mem.indexOf(u8, binary_preview, "89 50 4E 47") != null);
+}
+
+test "demo form validation waits for submission and accepts two characters" {
+    var model: Model = .{};
+    try std.testing.expect(!demoTextInvalid(&model));
+    model.text_submission_count = 1;
+    try std.testing.expect(demoTextInvalid(&model));
+    @memcpy(model.text_buffer[0.."应用".len], "应用");
+    model.text_length = "应用".len;
+    try std.testing.expect(!demoTextInvalid(&model));
 }
 
 test "data table sorting preserves stable row identities" {

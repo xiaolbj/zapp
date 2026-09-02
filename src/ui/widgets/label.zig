@@ -7,6 +7,7 @@ pub const Config = struct {
     color: clay.Color = theme.controls.text,
     wrap_mode: clay.TextElementConfigWrapMode = .none,
     semantic_id: ?clay.ElementId = null,
+    semantic_role: semantics.Role = .text,
     semantic_registry: ?*semantics.Registry = null,
 };
 
@@ -14,7 +15,7 @@ pub fn draw(text: []const u8, config: Config) void {
     if (config.semantic_id) |id| {
         if (config.semantic_registry) |registry| _ = registry.add(.{
             .element_id = id.id,
-            .role = .text,
+            .role = config.semantic_role,
             .label = text,
         });
         clay.UI()(.{
