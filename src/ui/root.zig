@@ -41,6 +41,7 @@ const virtual_list = @import("widgets/virtual_list.zig");
 
 const max_actions = 8;
 const demo_virtual_list_item_count = 1000;
+const demo_virtual_list_height: f32 = 240;
 const demo_table_page_size = 6;
 const demo_hero_source: image_view.Source = .{
     .resource = .demo_hero,
@@ -168,6 +169,8 @@ const state = struct {
     var number_stepper_state: number_stepper.State = .{};
     var virtual_list_state: virtual_list.State = .{};
     var scroll_bar_state: scroll_bar.State = .{};
+    var nested_scroll_active = false;
+    var nested_scroll_pointer_y: f32 = 0;
     var last_text_submission_count: u32 = 0;
     var last_navigation_index: u8 = 0;
     var actions: [max_actions]Action = undefined;
@@ -231,6 +234,8 @@ pub fn setup(model: *const Model) bool {
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.scroll_bar_state = .{};
+    state.nested_scroll_active = false;
+    state.nested_scroll_pointer_y = 0;
     state.last_text_submission_count = model.application_name_input.submission_count;
     state.last_navigation_index = @min(model.demo_navigation_index, 2);
     state.action_count = 0;
@@ -260,6 +265,8 @@ pub fn shutdown() void {
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.scroll_bar_state = .{};
+    state.nested_scroll_active = false;
+    state.nested_scroll_pointer_y = 0;
     state.last_text_submission_count = 0;
     state.last_navigation_index = 0;
     state.action_count = 0;
@@ -278,11 +285,14 @@ pub fn build(model: *const Model) Frame {
 
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
+    const nested_scroll_before = beginNestedBoundaryScroll(model);
     applySemanticScroll(model);
     clay.updateScrollContainers(true, .{
         .x = model.scroll_delta_x * 36,
         .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
+    if (nested_scroll_before) |before| applyNestedBoundaryScroll(model, before);
+    if (model.pointer_released and !model.pointer_down) state.nested_scroll_active = false;
     if (model.application_name_input.submission_count != state.last_text_submission_count) {
         state.last_text_submission_count = model.application_name_input.submission_count;
         state.toast_state.show(
@@ -1296,7 +1306,7 @@ pub fn build(model: *const Model) Frame {
                                     .selected_index = model.demo_virtual_list_selected_index,
                                     .format_item = formatVirtualListItem,
                                     .width = control_width,
-                                    .height = 240,
+                                    .height = demo_virtual_list_height,
                                     .disabled = modal_open,
                                     .focused_id = state.focus_state.focused_id,
                                     .semantic_label = "数据记录",
@@ -2473,6 +2483,91 @@ fn applySemanticScroll(model: *const Model) void {
     scroll.scroll_position.y = @min(@max(scroll.scroll_position.y + delta, -max_scroll), 0);
 }
 
+const NestedScrollSnapshot = struct {
+    inner_y: f32,
+    outer_y: f32,
+};
+
+/// Clay routes a drag to the innermost scroll container. Once that container
+/// is actually at the requested endpoint, forward only the rejected part of
+/// the current pointer movement to its parent. Checking the endpoint avoids
+/// treating slow frames or Clay's drag-origin reset as a boundary.
+fn beginNestedBoundaryScroll(model: *const Model) ?NestedScrollSnapshot {
+    if (model.pointer_pressed) {
+        state.nested_scroll_active = model.demo_navigation_index == 0 and
+            clay.pointerOver(clay.ElementId.ID("RecordsVirtualList")) and
+            !pointerInVirtualListScrollBar(model);
+        state.nested_scroll_pointer_y = model.pointer_y;
+    }
+    if (!state.nested_scroll_active or !model.pointer_down or
+        model.demo_navigation_index != 0)
+    {
+        return null;
+    }
+    if (!clay.pointerOver(clay.ElementId.ID("RecordsVirtualList"))) {
+        state.nested_scroll_active = false;
+        return null;
+    }
+    const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
+    const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
+    if (!inner.found or !inner.config.vertical or !outer.found or !outer.config.vertical) return null;
+    return .{ .inner_y = inner.scroll_position.y, .outer_y = outer.scroll_position.y };
+}
+
+fn applyNestedBoundaryScroll(model: *const Model, before: NestedScrollSnapshot) void {
+    const pointer_delta = model.pointer_y - state.nested_scroll_pointer_y;
+    state.nested_scroll_pointer_y = model.pointer_y;
+    if (@abs(pointer_delta) < 0.01) return;
+
+    const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
+    const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
+    if (!inner.found or !outer.found) return;
+    const inner_max = @max(
+        inner.content_dimensions.h - demo_virtual_list_height,
+        0,
+    );
+    const at_requested_endpoint = if (pointer_delta < 0)
+        inner.scroll_position.y <= -inner_max + 0.01
+    else
+        inner.scroll_position.y >= -0.01;
+    if (!at_requested_endpoint) return;
+
+    const inner_consumed = inner.scroll_position.y - before.inner_y;
+    const outer_consumed = outer.scroll_position.y - before.outer_y;
+    const remaining = remainingScrollDelta(
+        remainingScrollDelta(pointer_delta, inner_consumed),
+        outer_consumed,
+    );
+    if (@abs(remaining) < 0.01) return;
+    const outer_max = @max(
+        outer.content_dimensions.h - outer.scroll_container_dimensions.h,
+        0,
+    );
+    outer.scroll_position.y = @min(@max(outer.scroll_position.y + remaining, -outer_max), 0);
+}
+
+fn pointerInVirtualListScrollBar(model: *const Model) bool {
+    const list = clay.getElementData(clay.ElementId.ID("RecordsVirtualList"));
+    if (!list.found) return false;
+    const right = list.bounding_box.x + list.bounding_box.width;
+    return model.pointer_x >= right - 24 and model.pointer_x <= right and
+        model.pointer_y >= list.bounding_box.y and
+        model.pointer_y <= list.bounding_box.y + list.bounding_box.height;
+}
+
+fn remainingScrollDelta(pointer_delta: f32, consumed_delta: f32) f32 {
+    if (pointer_delta > 0 and consumed_delta >= 0) return @max(pointer_delta - consumed_delta, 0);
+    if (pointer_delta < 0 and consumed_delta <= 0) return @min(pointer_delta - consumed_delta, 0);
+    return 0;
+}
+
+test "nested boundary forwarding preserves inner scrolling" {
+    try std.testing.expectEqual(@as(f32, 0), remainingScrollDelta(-20, -20));
+    try std.testing.expectEqual(@as(f32, -5), remainingScrollDelta(-20, -15));
+    try std.testing.expectEqual(@as(f32, 5), remainingScrollDelta(20, 15));
+    try std.testing.expectEqual(@as(f32, 0), remainingScrollDelta(-20, 2));
+}
+
 fn ensureElementVisibleInScrollContainer(element_value: u32, container_value: u32) void {
     var element_id = clay.ElementId.ID("");
     element_id.id = element_value;
@@ -3035,6 +3130,82 @@ test "responsive shell emits controls and text" {
             virtual_list_data.bounding_box.y + virtual_list_data.bounding_box.height);
     }
     try std.testing.expect(nested_item_count > 0);
+    model.pointer_x = 0;
+    model.pointer_y = 0;
+    for (0..120) |_| _ = build(&model);
+
+    // Slow movement must remain owned by the virtual list until it truly
+    // reaches an endpoint. This is the case the former delta-only heuristic
+    // got wrong on touch devices.
+    virtual_list_scroll.scroll_position.y = 0;
+    ensureElementVisibleInScrollContainer(
+        clay.ElementId.ID("RecordsVirtualList").id,
+        clay.ElementId.ID("PrimaryCard").id,
+    );
+    _ = build(&model);
+    const outer_before_slow_drag = primary_scroll.scroll_position.y;
+    const primary_content_height = primary_scroll.content_dimensions.h;
+    model.pointer_x = virtual_list_data.bounding_box.x + virtual_list_data.bounding_box.width * 0.5;
+    model.pointer_y = virtual_list_data.bounding_box.y + virtual_list_data.bounding_box.height * 0.7;
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    for (0..8) |_| {
+        model.pointer_y -= 8;
+        _ = build(&model);
+    }
+    try std.testing.expect(virtual_list_scroll.scroll_position.y < -50);
+    try std.testing.expectApproxEqAbs(
+        outer_before_slow_drag,
+        primary_scroll.scroll_position.y,
+        0.01,
+    );
+    try std.testing.expectApproxEqAbs(
+        primary_content_height,
+        primary_scroll.content_dimensions.h,
+        0.01,
+    );
+    model.pointer_down = false;
+    model.pointer_released = true;
+    _ = build(&model);
+    model.pointer_released = false;
+    model.pointer_x = 0;
+    model.pointer_y = 0;
+    for (0..120) |_| _ = build(&model);
+
+    // At the exact inner endpoint, only the unconsumed part reaches the card.
+    const virtual_max_scroll = @max(
+        virtual_list_scroll.content_dimensions.h - demo_virtual_list_height,
+        0,
+    );
+    virtual_list_scroll.scroll_position.y = -virtual_max_scroll + 30;
+    _ = build(&model);
+    const outer_before_boundary_drag = primary_scroll.scroll_position.y;
+    const boundary_list_data = clay.getElementData(clay.ElementId.ID("RecordsVirtualList"));
+    try std.testing.expect(boundary_list_data.found);
+    model.pointer_x = boundary_list_data.bounding_box.x + boundary_list_data.bounding_box.width * 0.5;
+    model.pointer_y = boundary_list_data.bounding_box.y + boundary_list_data.bounding_box.height * 0.7;
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    model.pointer_y -= 80;
+    _ = build(&model);
+    try std.testing.expectApproxEqAbs(
+        -virtual_max_scroll,
+        virtual_list_scroll.scroll_position.y,
+        0.01,
+    );
+    try std.testing.expectApproxEqAbs(
+        outer_before_boundary_drag - 50,
+        primary_scroll.scroll_position.y,
+        1,
+    );
+    model.pointer_down = false;
+    model.pointer_released = true;
+    _ = build(&model);
+    model.pointer_released = false;
     model.pointer_x = 0;
     model.pointer_y = 0;
     for (0..120) |_| _ = build(&model);

@@ -678,7 +678,7 @@ Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举�
 
 滚动裁切必须保持命令栈平衡。当前 Clay 版本的内部可见性剔除会在部分屏幕外 clip 元素上省略 `SCISSOR_START`，但仍发出 `SCISSOR_END`，使滚动卡片的外层裁切被提前关闭。项目因此关闭 Clay 的命令级 culling，保留完整成对命令；Sokol 渲染器维护 64 层 scissor 栈，子区域与父区域求交，结束后恢复父区域，并在 CPU 侧跳过与有效裁切区完全不相交的 draw command。VirtualList 继续负责大集合的行级虚拟化，因此不会因关闭 Clay culling 而生成千级列表项。Android 同位置截图已验证顶部 Slider/Stepper 和底部运行时图片不再越过 `PrimaryCard`。由于 Clay 的嵌套滚动容器会优先把触摸交给内层节点，项目还为所有实际溢出的 Card、ScrollView、页面和 VirtualList 添加浮动纵向滚动条：轨道点击与滑块拖动直接写回同一 `scroll_position`，并把轨道两端严格映射到 `0` 与 `-maxScroll`。自动测试覆盖连续触摸拖动到首尾以及滚动条端点换算；Android 实机路径已验证滑块从顶部拖到底部后最后一项完整可见，再拖回顶部后标题与首项恢复可见。
 
-VirtualList 内容拖动遵循 Clay 的内层优先规则，不再转发给 PrimaryCard。回归测试同时验证内层滚动量发生变化、外层位置保持不变、可见列表项仍被列表边界裁切，以及滚到末尾后全局 scissor 命令数量和嵌套深度保持平衡。
+VirtualList 内容拖动遵循内层优先规则：普通拖动和慢速小步拖动均只改变列表；只有列表确实到达手势方向上的真实布局端点时，未被内层消耗的剩余位移才转交给 PrimaryCard。端点计算固定使用 VirtualList 的布局高度，不使用可能被 PrimaryCard 裁切缩短的可见包围盒。回归测试覆盖内层持续滚动、边界剩余位移转交、外层内容高度稳定、可见列表项裁切，以及滚到末尾后全局 scissor 命令数量和嵌套深度平衡。
 
 ## 21. 当前实施状态
 
