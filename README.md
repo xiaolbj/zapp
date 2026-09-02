@@ -81,6 +81,8 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 
 `src/ui/focus_manager.zig` 保存当前焦点、模态焦点和打开弹窗前的焦点。Dialog 关闭后会恢复之前的焦点；Escape 和 Android 返回键统一转成 `back_requested` Action。
 
+应用壳已具备受控三页路由：首页保留完整控件与平台桥示例，活动页展示独立开发事件流，设置页组合 Accordion、Checkbox、Switch 和 RadioGroup。当前页仍由 AppModel/reducer 管理；换页会关闭页面级 Dialog、Select、Menu 与 IME 编辑状态，焦点迁移到新页面对应的导航项，已卸载页面的布局和语义节点不会残留。设置值离开页面后仍由 AppModel 保留。
+
 `src/ui/semantics.zig` 提供平台无关的帧级语义注册表。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、VirtualList、DataTable、Pagination、TreeView、Accordion、RadioGroup、ChipGroup、NumberStepper、Select、Tabs、Menu、FormField 会随 `ui.Frame.semantic_nodes` 输出稳定元素 ID、角色、标签、值与 min/max/step 范围、最终布局边界以及 focused/disabled/selected/checked/modal/expanded/required/invalid、错误文本、层级和行列位置等状态；Divider 被明确视为装饰元素，不进入语义树。Android 已通过 `AccessibilityNodeProvider` 将这些数据映射成原生虚拟节点，并把点击、增减、文本设置和展开/折叠动作送回现有 App Action/reducer。TreeView 获得焦点后可用上/下键移动到相邻可见节点、右键展开或进入首个子节点、左键折叠或返回父节点；Accordion 使用上/下/Home/End 在标题间移动、右键展开、左键收起，收起内容不进入布局与语义树；RadioGroup 使用方向键循环移动并选择互斥项；ChipGroup 使用方向键循环且跳过禁用项，以 Enter/Space 独立切换多个筛选值；NumberStepper 使用方向键按步长增减并以 Home/End 跳到边界；Select 关闭时方向键直接选择，展开时选项加入焦点和语义树；Tabs 使用与布局方向一致的方向键自动切换活动页；Menu 打开后用上下键或 Home/End 在可用项间导航；VirtualList 使用方向键/Home/End 选择并自动滚动；DataTable 的表头和行支持排序、稳定选择与集合位置语义；Pagination 使用原生按钮语义暴露当前页和禁用边界。
 
 Clay 滚动容器把 `Clay_GetScrollOffset()` 作为 clip 的 `childOffset` 应用到视觉布局；语义注册表直接读取 Clay 已计算完偏移的最终元素边界，再与最多四层祖先裁剪视口逐层求交，完全不可见的后代输出空边界。这样渲染、命中测试和 Android 虚拟节点保持同一坐标系。键盘焦点进入外层滚动区域下方的控件时，PrimaryCard 会自动滚动使焦点环可见；VirtualList 同时协调内层行滚动与外层容器显露，FormField 验证失败时还会把错误 supporting text 一并显露。

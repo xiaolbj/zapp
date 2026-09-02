@@ -34,6 +34,13 @@ pub const State = struct {
         @memcpy(self.ordered_ids[0..self.ordered_count], ids[0..self.ordered_count]);
     }
 
+    pub fn contains(self: *const State, id: u32) bool {
+        for (self.ordered_ids[0..self.ordered_count]) |ordered_id| {
+            if (ordered_id == id) return true;
+        }
+        return false;
+    }
+
     pub fn move(self: *State, direction: i8) ?u32 {
         if (self.ordered_count == 0) return null;
         var current_index: ?usize = null;
@@ -112,4 +119,13 @@ test "focus order preserves dense application screens beyond 48 controls" {
     state.focus(59);
     try std.testing.expectEqual(@as(?u32, 60), state.move(1));
     try std.testing.expectEqual(@as(?u32, 1), state.move(1));
+}
+
+test "focus order membership excludes controls from another page" {
+    const std = @import("std");
+    var state: State = .{};
+    state.setOrder(&.{ 3, 5, 8 });
+
+    try std.testing.expect(state.contains(5));
+    try std.testing.expect(!state.contains(7));
 }

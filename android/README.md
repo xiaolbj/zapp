@@ -191,6 +191,8 @@ adb logcat -s zapp sokol app
 
 Image RenderCommand 已在同一模拟器完成运行时验证：编译期 RGBA 封面通过 Sokol Image/View/Sampler 显示，cover UV 裁切与圆角纹理网格正确；UIAutomator 将其识别为 `android.widget.ImageView`，内容描述为“蓝色渐变应用封面”。冷启动后进程保持存活，AndroidRuntime、libc 和 crash buffer 均无异常。
 
+首页/活动/设置三页路由已在同一模拟器完成点击验证：活动页只暴露独立 `活动页面` 滚动容器与八条事件，首页 `Clay 应用框架` 节点退出语义树；设置页只暴露 `设置页面`、Accordion、CheckBox、Switch 和 RadioGroup。每次仅一个导航按钮 selected，切换离开设置页再返回后“启用离线缓存”仍保持 checked，证明状态由 AppModel 而非页面实例持有。全程进程存活，AndroidRuntime、libc 和 crash buffer 无异常。
+
 VirtualList 还在原始 `1920x1080` 窗口下完成了 UIAutomator 运行时验证：焦点进入列表时外层卡片自动显露列表，第 1 条可见且获得焦点；发送 End 后只暴露末尾第 995–1000 条，第 1000 条同时处于焦点与选中状态，预取行没有泄漏到系统无障碍节点树。
 
 DataTable 同样在 API 28 x86_64 模拟器的 `1920x1080` 窗口下完成运行时验证：UIAutomator 可发现 GridView、四个可点击表头及六个聚合行；编号表头从升序切换到降序后，稳定业务行 Z-104 从首行移动到第 5 行并继续保持 focused/selected，外层 PrimaryCard 自动滚动使该行可见。

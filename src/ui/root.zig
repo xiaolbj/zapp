@@ -93,6 +93,17 @@ const demo_tab_items = [_]tabs.Item{
     .{ .text = "日志" },
 };
 
+const demo_activity_items = [_][]const u8{
+    "中文字体已通过 Fontstash 接入 Sokol",
+    "Button 点击状态已接入 reducer",
+    "Checkbox 设置已保存到 AppModel",
+    "Switch 通知状态已更新",
+    "ProgressBar 使用受控数值",
+    "ScrollView 已启用垂直裁剪",
+    "鼠标滚轮事件由 Sokol 转发",
+    "触摸拖动由 Clay 管理",
+};
+
 const DemoTableRow = struct {
     code: []const u8,
     name: []const u8,
@@ -141,6 +152,7 @@ const state = struct {
     var number_stepper_state: number_stepper.State = .{};
     var virtual_list_state: virtual_list.State = .{};
     var last_text_submission_count: u32 = 0;
+    var last_navigation_index: u8 = 0;
     var actions: [max_actions]Action = undefined;
     var action_count: usize = 0;
     var counter_text: [96]u8 = undefined;
@@ -195,6 +207,7 @@ pub fn setup(model: *const Model) bool {
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = model.application_name_input.submission_count;
+    state.last_navigation_index = @min(model.demo_navigation_index, 2);
     state.action_count = 0;
 
     _ = clay.initialize(.init(memory), dimensions(model), .{
@@ -218,6 +231,7 @@ pub fn shutdown() void {
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
     state.last_text_submission_count = 0;
+    state.last_navigation_index = 0;
     state.action_count = 0;
 }
 
@@ -296,6 +310,11 @@ pub fn build(model: *const Model) Frame {
     const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_button_id = clay.ElementId.ID("StreamSelectedFile").id;
     const crash_export_button_id = clay.ElementId.ID("ExportCrashReport").id;
+    const active_navigation_index = @min(model.demo_navigation_index, 2);
+    if (active_navigation_index != state.last_navigation_index) {
+        state.last_navigation_index = active_navigation_index;
+        state.focus_state.focus(clay.ElementId.IDI("MainNavigation", active_navigation_index).id);
+    }
     if (model.demo_dialog_open) {
         state.focus_state.openModal(dialog_id, dialog_confirm_id);
         state.focus_state.setOrder(&.{ dialog_cancel_id, dialog_confirm_id });
@@ -309,141 +328,162 @@ pub fn build(model: *const Model) Frame {
         };
         @memcpy(focus_order[0..navigation_order.len], &navigation_order);
         var focus_order_count = navigation_order.len;
-        if (model.last_native_crash != null) {
-            focus_order[focus_order_count] = crash_export_button_id;
+        if (model.demo_navigation_index == 0) {
+            if (model.last_native_crash != null) {
+                focus_order[focus_order_count] = crash_export_button_id;
+                focus_order_count += 1;
+            }
+            const primary_order = [_]u32{
+                primary_action_id,
+                increment_progress_id,
+                open_dialog_id,
+            };
+            @memcpy(focus_order[focus_order_count..][0..primary_order.len], &primary_order);
+            focus_order_count += primary_order.len;
+            focus_order[focus_order_count] = active_tab_id;
             focus_order_count += 1;
-        }
-        const primary_order = [_]u32{
-            primary_action_id,
-            increment_progress_id,
-            open_dialog_id,
-        };
-        @memcpy(focus_order[focus_order_count..][0..primary_order.len], &primary_order);
-        focus_order_count += primary_order.len;
-        focus_order[focus_order_count] = active_tab_id;
-        focus_order_count += 1;
-        for (demo_tree_items, 0..) |_, tree_index| {
-            if (tree_view.isVisible(&demo_tree_items, tree_index, model.demo_tree_expanded_mask)) {
-                focus_order[focus_order_count] = tree_view.itemId("ProjectTree", tree_index).id;
-                focus_order_count += 1;
-            }
-        }
-        for (demo_accordion_items, 0..) |item, accordion_index| {
-            if (!item.disabled) {
-                focus_order[focus_order_count] = accordion.headerId("SettingsAccordion", accordion_index).id;
-                focus_order_count += 1;
-            }
-        }
-        const selection_order = [_]u32{ checkbox_id, switch_id };
-        @memcpy(focus_order[focus_order_count..][0..selection_order.len], &selection_order);
-        focus_order_count += selection_order.len;
-        for (demo_density_items, 0..) |_, density_index| {
-            focus_order[focus_order_count] = radio_group.itemId("DensityRadio", density_index).id;
-            focus_order_count += 1;
-        }
-        for (demo_filter_items, 0..) |item, filter_index| {
-            if (!item.disabled) {
-                focus_order[focus_order_count] = chip_group.itemId("StatusFilters", filter_index).id;
-                focus_order_count += 1;
-            }
-        }
-        focus_order[focus_order_count] = sort_select_id;
-        focus_order_count += 1;
-        if (model.demo_sort_expanded) {
-            for (demo_sort_items, 0..) |_, sort_index| {
-                focus_order[focus_order_count] = select.optionId("SortSelect", sort_index).id;
-                focus_order_count += 1;
-            }
-        } else if (state.focus_state.focused_id) |focused_id| {
-            if (selectOptionIndex(focused_id) != null) state.focus_state.focus(sort_select_id);
-        }
-        focus_order[focus_order_count] = actions_menu_id;
-        focus_order_count += 1;
-        if (model.demo_menu_expanded) {
-            for (demo_menu_items, 0..) |item, menu_index| {
-                if (!item.disabled) {
-                    focus_order[focus_order_count] = menu.itemId("ActionsMenu", menu_index).id;
+            for (demo_tree_items, 0..) |_, tree_index| {
+                if (tree_view.isVisible(&demo_tree_items, tree_index, model.demo_tree_expanded_mask)) {
+                    focus_order[focus_order_count] = tree_view.itemId("ProjectTree", tree_index).id;
                     focus_order_count += 1;
                 }
             }
-        } else if (state.focus_state.focused_id) |focused_id| {
-            if (menuItemIndex(focused_id) != null) state.focus_state.focus(actions_menu_id);
-        }
-        focus_order[focus_order_count] = search_field_id;
-        focus_order_count += 1;
-        if (model.searchText().len > 0) {
-            focus_order[focus_order_count] = search_clear_id;
-            focus_order_count += 1;
-        } else if (state.focus_state.isFocused(search_clear_id)) {
-            state.focus_state.focus(search_field_id);
-        }
-        for (0..4) |column_index| {
-            focus_order[focus_order_count] = data_table.headerId("RecordsDataTable", column_index).id;
-            focus_order_count += 1;
-        }
-        if (table_order.len > 0) {
-            focus_order[focus_order_count] = table_active_row_id;
-            focus_order_count += 1;
-            if (table_page > 0) {
-                focus_order[focus_order_count] = pagination.previousId("RecordsPagination").id;
+            for (demo_accordion_items, 0..) |item, accordion_index| {
+                if (!item.disabled) {
+                    focus_order[focus_order_count] = accordion.headerId("SettingsAccordion", accordion_index).id;
+                    focus_order_count += 1;
+                }
+            }
+            const selection_order = [_]u32{ checkbox_id, switch_id };
+            @memcpy(focus_order[focus_order_count..][0..selection_order.len], &selection_order);
+            focus_order_count += selection_order.len;
+            for (demo_density_items, 0..) |_, density_index| {
+                focus_order[focus_order_count] = radio_group.itemId("DensityRadio", density_index).id;
                 focus_order_count += 1;
             }
-            focus_order[focus_order_count] = pagination.pageId("RecordsPagination", table_page).id;
+            for (demo_filter_items, 0..) |item, filter_index| {
+                if (!item.disabled) {
+                    focus_order[focus_order_count] = chip_group.itemId("StatusFilters", filter_index).id;
+                    focus_order_count += 1;
+                }
+            }
+            focus_order[focus_order_count] = sort_select_id;
             focus_order_count += 1;
-            if (table_page + 1 < table_page_count) {
-                focus_order[focus_order_count] = pagination.nextId("RecordsPagination").id;
+            if (model.demo_sort_expanded) {
+                for (demo_sort_items, 0..) |_, sort_index| {
+                    focus_order[focus_order_count] = select.optionId("SortSelect", sort_index).id;
+                    focus_order_count += 1;
+                }
+            } else if (state.focus_state.focused_id) |focused_id| {
+                if (selectOptionIndex(focused_id) != null) state.focus_state.focus(sort_select_id);
+            }
+            focus_order[focus_order_count] = actions_menu_id;
+            focus_order_count += 1;
+            if (model.demo_menu_expanded) {
+                for (demo_menu_items, 0..) |item, menu_index| {
+                    if (!item.disabled) {
+                        focus_order[focus_order_count] = menu.itemId("ActionsMenu", menu_index).id;
+                        focus_order_count += 1;
+                    }
+                }
+            } else if (state.focus_state.focused_id) |focused_id| {
+                if (menuItemIndex(focused_id) != null) state.focus_state.focus(actions_menu_id);
+            }
+            focus_order[focus_order_count] = search_field_id;
+            focus_order_count += 1;
+            if (model.searchText().len > 0) {
+                focus_order[focus_order_count] = search_clear_id;
+                focus_order_count += 1;
+            } else if (state.focus_state.isFocused(search_clear_id)) {
+                state.focus_state.focus(search_field_id);
+            }
+            for (0..4) |column_index| {
+                focus_order[focus_order_count] = data_table.headerId("RecordsDataTable", column_index).id;
                 focus_order_count += 1;
             }
-        }
-        focus_order[focus_order_count] = virtual_list_active_id;
-        focus_order_count += 1;
-        const trailing_order = [_]u32{
-            slider_id,
-            retry_stepper_id,
-            text_field_id,
-            form_submit_id,
-            permission_button_id,
-            file_picker_button_id,
-            file_stream_button_id,
-        };
-        @memcpy(focus_order[focus_order_count..][0..trailing_order.len], &trailing_order);
-        focus_order_count += trailing_order.len;
-        if (state.focus_state.focused_id) |focused_id| {
-            if (tabIndex(focused_id)) |focused_tab_index| {
-                if (focused_tab_index != active_tab_index) state.focus_state.focus(active_tab_id);
-            }
-            if (treeIndex(focused_id)) |focused_tree_index| {
-                if (tree_view.nearestVisibleAncestor(
-                    &demo_tree_items,
-                    focused_tree_index,
-                    model.demo_tree_expanded_mask,
-                )) |visible_index| {
-                    state.focus_state.focus(tree_view.itemId("ProjectTree", visible_index).id);
+            if (table_order.len > 0) {
+                focus_order[focus_order_count] = table_active_row_id;
+                focus_order_count += 1;
+                if (table_page > 0) {
+                    focus_order[focus_order_count] = pagination.previousId("RecordsPagination").id;
+                    focus_order_count += 1;
+                }
+                focus_order[focus_order_count] = pagination.pageId("RecordsPagination", table_page).id;
+                focus_order_count += 1;
+                if (table_page + 1 < table_page_count) {
+                    focus_order[focus_order_count] = pagination.nextId("RecordsPagination").id;
+                    focus_order_count += 1;
                 }
             }
-            if (dataTableRowIndex(focused_id)) |focused_row_index| {
-                const page_start = table_page * demo_table_page_size;
-                const page_end = @min(page_start + demo_table_page_size, table_order.len);
-                if (demoTableDisplayIndex(table_order[page_start..page_end], focused_row_index) == null) {
-                    state.focus_state.focus(if (table_order.len > 0) table_active_row_id else search_field_id);
+            focus_order[focus_order_count] = virtual_list_active_id;
+            focus_order_count += 1;
+            const trailing_order = [_]u32{
+                slider_id,
+                retry_stepper_id,
+                text_field_id,
+                form_submit_id,
+                permission_button_id,
+                file_picker_button_id,
+                file_stream_button_id,
+            };
+            @memcpy(focus_order[focus_order_count..][0..trailing_order.len], &trailing_order);
+            focus_order_count += trailing_order.len;
+            if (state.focus_state.focused_id) |focused_id| {
+                if (tabIndex(focused_id)) |focused_tab_index| {
+                    if (focused_tab_index != active_tab_index) state.focus_state.focus(active_tab_id);
                 }
-            } else if (isPaginationElement(focused_id)) {
-                const pagination_focus_valid = table_order.len > 0 and
-                    (if (paginationPageIndex(focused_id)) |focused_page|
-                        focused_page < table_page_count
-                    else if (focused_id == pagination.previousId("RecordsPagination").id)
-                        table_page > 0
-                    else
-                        table_page + 1 < table_page_count);
-                if (!pagination_focus_valid) {
-                    state.focus_state.focus(if (table_order.len > 0)
-                        pagination.pageId("RecordsPagination", table_page).id
-                    else
-                        search_field_id);
+                if (treeIndex(focused_id)) |focused_tree_index| {
+                    if (tree_view.nearestVisibleAncestor(
+                        &demo_tree_items,
+                        focused_tree_index,
+                        model.demo_tree_expanded_mask,
+                    )) |visible_index| {
+                        state.focus_state.focus(tree_view.itemId("ProjectTree", visible_index).id);
+                    }
                 }
+                if (dataTableRowIndex(focused_id)) |focused_row_index| {
+                    const page_start = table_page * demo_table_page_size;
+                    const page_end = @min(page_start + demo_table_page_size, table_order.len);
+                    if (demoTableDisplayIndex(table_order[page_start..page_end], focused_row_index) == null) {
+                        state.focus_state.focus(if (table_order.len > 0) table_active_row_id else search_field_id);
+                    }
+                } else if (isPaginationElement(focused_id)) {
+                    const pagination_focus_valid = table_order.len > 0 and
+                        (if (paginationPageIndex(focused_id)) |focused_page|
+                            focused_page < table_page_count
+                        else if (focused_id == pagination.previousId("RecordsPagination").id)
+                            table_page > 0
+                        else
+                            table_page + 1 < table_page_count);
+                    if (!pagination_focus_valid) {
+                        state.focus_state.focus(if (table_order.len > 0)
+                            pagination.pageId("RecordsPagination", table_page).id
+                        else
+                            search_field_id);
+                    }
+                }
+            }
+        } else if (model.demo_navigation_index == 2) {
+            for (demo_accordion_items, 0..) |item, accordion_index| {
+                if (!item.disabled) {
+                    focus_order[focus_order_count] = accordion.headerId("SettingsAccordion", accordion_index).id;
+                    focus_order_count += 1;
+                }
+            }
+            const settings_order = [_]u32{ checkbox_id, switch_id };
+            @memcpy(focus_order[focus_order_count..][0..settings_order.len], &settings_order);
+            focus_order_count += settings_order.len;
+            for (demo_density_items, 0..) |_, density_index| {
+                focus_order[focus_order_count] = radio_group.itemId("DensityRadio", density_index).id;
+                focus_order_count += 1;
             }
         }
         state.focus_state.setOrder(focus_order[0..focus_order_count]);
+        if (state.focus_state.focused_id) |focused_id| {
+            if (!state.focus_state.contains(focused_id)) {
+                state.focus_state.focus(navigation_order[@min(@as(usize, model.demo_navigation_index), navigation_order.len - 1)]);
+            }
+        }
     }
     if (!model.demo_dialog_open) {
         if (table_page != @as(usize, model.demo_data_table_page)) {
@@ -460,13 +500,19 @@ pub fn build(model: *const Model) Frame {
     }
     if (!model.demo_dialog_open) {
         if (state.focus_state.focused_id) |focused_id| {
-            const reveal_id = if (virtualListIndex(focused_id) != null)
-                clay.ElementId.ID("RecordsVirtualList").id
-            else if (focused_id == text_field_id and demoTextInvalid(model))
-                form_field.containerId("DemoTextField").id
-            else
-                focused_id;
-            ensureElementVisibleInScrollContainer(reveal_id, clay.ElementId.ID("PrimaryCard").id);
+            if (navigationIndex(focused_id) == null) {
+                const reveal_id = if (virtualListIndex(focused_id) != null)
+                    clay.ElementId.ID("RecordsVirtualList").id
+                else if (focused_id == text_field_id and demoTextInvalid(model))
+                    form_field.containerId("DemoTextField").id
+                else
+                    focused_id;
+                const page_scroll_id = if (model.demo_navigation_index == 2)
+                    clay.ElementId.ID("SettingsPage").id
+                else
+                    clay.ElementId.ID("PrimaryCard").id;
+                ensureElementVisibleInScrollContainer(reveal_id, page_scroll_id);
+            }
         }
     }
     if (model.focus_next_requested or model.focus_previous_requested) {
@@ -717,746 +763,743 @@ pub fn build(model: *const Model) Frame {
                 .background_color = .{ 18, 27, 44, 255 },
                 .corner_radius = .all(12),
             })({
-                clay.UI()(card.declaration(.{
-                    .id = "PrimaryCard",
-                    .scroll_vertical = true,
-                    .semantic_label = "控件示例",
-                    .semantic_registry = &state.semantic_registry,
-                }))({
-                    _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("PrimaryCard").id);
-                    label.draw("Clay 应用框架", .{
-                        .font_size = 22,
-                        .semantic_id = .ID("PrimaryCardTitle"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    image_view.draw(.{
-                        .id = "DemoHeroImage",
-                        .source = &demo_hero_source,
-                        .width = control_width,
-                        .height = 120,
-                        .corner_radius = theme.controls.radius_medium,
-                        .semantic_label = "蓝色渐变应用封面",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw("性能基线", .{
-                        .font_size = 18,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("PerformanceMetricsLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw(performance_frame_text, .{
-                        .color = theme.controls.text_muted,
-                        .wrap_mode = .words,
-                    });
-                    label.draw(performance_cpu_text, .{
-                        .color = theme.controls.text_muted,
-                        .wrap_mode = .words,
-                    });
-                    label.draw(crash_diagnostic_text, .{
-                        .color = if (model.last_native_crash != null)
-                            .{ 255, 190, 120, 255 }
-                        else
-                            theme.controls.text_muted,
-                        .wrap_mode = .words,
-                        .semantic_id = .ID("CrashDiagnosticsStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (crash_build_id_text.len > 0) label.draw(crash_build_id_text, .{
-                        .color = .{ 255, 190, 120, 255 },
-                        .semantic_id = .ID("CrashBuildIdStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (model.last_native_crash != null) {
-                        if (button.draw(&state.interaction_state, input, .{
-                            .id = "ExportCrashReport",
-                            .text = if (model.crash_report_export_pending)
-                                "正在打开分享面板…"
-                            else
-                                "导出崩溃报告",
-                            .width = control_width,
-                            .disabled = modal_open or model.crash_report_export_pending,
-                            .focused = state.focus_state.isFocused(crash_export_button_id),
+                switch (@min(model.demo_navigation_index, 2)) {
+                    0 => {
+                        clay.UI()(card.declaration(.{
+                            .id = "PrimaryCard",
+                            .scroll_vertical = true,
+                            .semantic_label = "控件示例",
                             .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(crash_export_button_id);
-                            emit(.platform_crash_report_export_requested);
-                        }
-                        if (model.crash_report_export_pending) {
-                            label.draw("崩溃报告导出：正在打开系统分享面板…", .{
-                                .color = theme.controls.text_muted,
-                                .semantic_id = .ID("CrashReportExportStatus"),
+                        }))({
+                            _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("PrimaryCard").id);
+                            label.draw("Clay 应用框架", .{
+                                .font_size = 22,
+                                .semantic_id = .ID("PrimaryCardTitle"),
                                 .semantic_registry = &state.semantic_registry,
                             });
-                        } else if (model.crash_report_export_attempted) {
-                            label.draw(
-                                if (model.crash_report_export_chooser_opened)
-                                    "崩溃报告导出：已打开系统分享面板"
+                            image_view.draw(.{
+                                .id = "DemoHeroImage",
+                                .source = &demo_hero_source,
+                                .width = control_width,
+                                .height = 120,
+                                .corner_radius = theme.controls.radius_medium,
+                                .semantic_label = "蓝色渐变应用封面",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw("性能基线", .{
+                                .font_size = 18,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("PerformanceMetricsLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw(performance_frame_text, .{
+                                .color = theme.controls.text_muted,
+                                .wrap_mode = .words,
+                            });
+                            label.draw(performance_cpu_text, .{
+                                .color = theme.controls.text_muted,
+                                .wrap_mode = .words,
+                            });
+                            label.draw(crash_diagnostic_text, .{
+                                .color = if (model.last_native_crash != null)
+                                    .{ 255, 190, 120, 255 }
                                 else
-                                    "崩溃报告导出：打开失败",
-                                .{
-                                    .color = if (model.crash_report_export_chooser_opened)
-                                        .{ 145, 205, 170, 255 }
+                                    theme.controls.text_muted,
+                                .wrap_mode = .words,
+                                .semantic_id = .ID("CrashDiagnosticsStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (crash_build_id_text.len > 0) label.draw(crash_build_id_text, .{
+                                .color = .{ 255, 190, 120, 255 },
+                                .semantic_id = .ID("CrashBuildIdStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (model.last_native_crash != null) {
+                                if (button.draw(&state.interaction_state, input, .{
+                                    .id = "ExportCrashReport",
+                                    .text = if (model.crash_report_export_pending)
+                                        "正在打开分享面板…"
                                     else
-                                        .{ 255, 160, 145, 255 },
-                                    .semantic_id = .ID("CrashReportExportStatus"),
+                                        "导出崩溃报告",
+                                    .width = control_width,
+                                    .disabled = modal_open or model.crash_report_export_pending,
+                                    .focused = state.focus_state.isFocused(crash_export_button_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(crash_export_button_id);
+                                    emit(.platform_crash_report_export_requested);
+                                }
+                                if (model.crash_report_export_pending) {
+                                    label.draw("崩溃报告导出：正在打开系统分享面板…", .{
+                                        .color = theme.controls.text_muted,
+                                        .semantic_id = .ID("CrashReportExportStatus"),
+                                        .semantic_registry = &state.semantic_registry,
+                                    });
+                                } else if (model.crash_report_export_attempted) {
+                                    label.draw(
+                                        if (model.crash_report_export_chooser_opened)
+                                            "崩溃报告导出：已打开系统分享面板"
+                                        else
+                                            "崩溃报告导出：打开失败",
+                                        .{
+                                            .color = if (model.crash_report_export_chooser_opened)
+                                                .{ 145, 205, 170, 255 }
+                                            else
+                                                .{ 255, 160, 145, 255 },
+                                            .semantic_id = .ID("CrashReportExportStatus"),
+                                            .semantic_registry = &state.semantic_registry,
+                                        },
+                                    );
+                                }
+                            }
+                            label.draw(counter_text, .{
+                                .color = .{ 166, 187, 218, 255 },
+                                .semantic_id = .ID("ButtonPressCount"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            clay.UI()(.{ .layout = .{
+                                .sizing = .{ .w = .grow, .h = .fit },
+                                .child_gap = 12,
+                                .direction = control_direction,
+                            } })({
+                                if (button.draw(&state.interaction_state, input, .{
+                                    .id = "PrimaryAction",
+                                    .text = "点击测试",
+                                    .width = control_width,
+                                    .disabled = modal_open,
+                                    .focused = state.focus_state.isFocused(primary_action_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(primary_action_id);
+                                    emit(.primary_button_pressed);
+                                }
+                                if (icon_button.draw(&state.interaction_state, input, .{
+                                    .id = "IncrementProgress",
+                                    .icon = "+",
+                                    .disabled = modal_open,
+                                    .focused = state.focus_state.isFocused(increment_progress_id),
+                                    .semantic_label = "增加任务进度",
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(increment_progress_id);
+                                    emit(.demo_progress_incremented);
+                                }
+                                if (button.draw(&state.interaction_state, input, .{
+                                    .id = "OpenDemoDialog",
+                                    .text = "打开对话框",
+                                    .width = 168,
+                                    .disabled = modal_open,
+                                    .focused = state.focus_state.isFocused(open_dialog_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(open_dialog_id);
+                                    emit(.demo_dialog_opened);
+                                }
+                            });
+                            label.draw("数据视图", .{
+                                .font_size = 18,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("DataTabsLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const tabs_result = tabs.draw(&state.interaction_state, input, .{
+                                .id = "DataTabs",
+                                .items = &demo_tab_items,
+                                .selected_index = model.demo_tab_index,
+                                .item_width = if (narrow) control_width else 150,
+                                .direction = control_direction,
+                                .disabled = modal_open,
+                                .focused_id = state.focus_state.focused_id,
+                                .semantic_label = "数据视图",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (tabs_result.focus_index) |index| {
+                                state.focus_state.focus(tabs.itemId("DataTabs", index).id);
+                            }
+                            if (tabs_result.selected_index) |index| {
+                                state.focus_state.focus(tabs.itemId("DataTabs", index).id);
+                                emit(.{ .demo_tab_selected = @intCast(index) });
+                            }
+                            label.draw(switch (model.demo_tab_index) {
+                                1 => "当前页：明细",
+                                2 => "当前页：日志",
+                                else => "当前页：概览",
+                            }, .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("DataTabsStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw("项目结构", .{
+                                .font_size = 18,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("ProjectTreeLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const tree_result = tree_view.draw(&state.interaction_state, input, .{
+                                .id = "ProjectTree",
+                                .items = &demo_tree_items,
+                                .expanded_mask = model.demo_tree_expanded_mask,
+                                .selected_index = model.demo_tree_selected_index,
+                                .focused_id = state.focus_state.focused_id,
+                                .width = control_width,
+                                .disabled = modal_open,
+                                .semantic_label = "项目结构",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (tree_result.focus_index) |index| {
+                                state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                            }
+                            if (tree_result.toggled_index) |index| {
+                                state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                                emit(.{ .demo_tree_toggled = @intCast(index) });
+                            }
+                            if (tree_result.selected_index) |index| {
+                                state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
+                                emit(.{ .demo_tree_selected = @intCast(index) });
+                            }
+                            label.draw("设置分组", .{
+                                .font_size = 18,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("SettingsAccordionLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const accordion_result = accordion.draw(&state.interaction_state, input, .{
+                                .id = "SettingsAccordion",
+                                .items = &demo_accordion_items,
+                                .expanded_mask = model.demo_accordion_expanded_mask,
+                                .mode = .single,
+                                .width = control_width,
+                                .disabled = modal_open,
+                                .focused_id = state.focus_state.focused_id,
+                                .semantic_label = "应用设置分组",
+                                .semantic_registry = &state.semantic_registry,
+                                .draw_panel = drawDemoAccordionPanel,
+                                .panel_context = @ptrCast(&state.semantic_registry),
+                            });
+                            if (accordion_result.focus_index) |index| {
+                                state.focus_state.focus(accordion.headerId("SettingsAccordion", index).id);
+                            }
+                            if (accordion_result.expanded_mask) |mask| {
+                                emit(.{ .demo_accordion_expanded = mask });
+                            }
+                            divider.draw(.{});
+                            clay.UI()(.{ .layout = .{
+                                .sizing = .{ .w = .grow, .h = .fit },
+                                .child_gap = 24,
+                                .direction = control_direction,
+                            } })({
+                                if (checkbox.draw(&state.interaction_state, input, .{
+                                    .id = "DemoCheckbox",
+                                    .text = "启用离线缓存",
+                                    .checked = model.demo_checkbox_checked,
+                                    .width = control_width,
+                                    .disabled = modal_open,
+                                    .focused = state.focus_state.isFocused(checkbox_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(checkbox_id);
+                                    emit(.demo_checkbox_toggled);
+                                }
+                                if (toggle_switch.draw(&state.interaction_state, input, .{
+                                    .id = "DemoSwitch",
+                                    .text = "接收应用通知",
+                                    .checked = model.demo_switch_checked,
+                                    .width = control_width,
+                                    .disabled = modal_open,
+                                    .focused = state.focus_state.isFocused(switch_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(switch_id);
+                                    emit(.demo_switch_toggled);
+                                }
+                            });
+                            label.draw("界面密度", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("DensityRadioLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const radio_result = radio_group.draw(&state.interaction_state, input, .{
+                                .id = "DensityRadio",
+                                .items = &demo_density_items,
+                                .selected_index = model.demo_density_index,
+                                .item_width = if (narrow) control_width else 150,
+                                .direction = control_direction,
+                                .disabled = modal_open,
+                                .focused_id = state.focus_state.focused_id,
+                                .semantic_label = "界面密度",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (radio_result.focus_index) |index| {
+                                state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
+                            }
+                            if (radio_result.selected_index) |index| {
+                                state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
+                                emit(.{ .demo_density_selected = @intCast(index) });
+                            }
+                            label.draw("状态筛选", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("StatusFiltersLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const filter_result = chip_group.draw(&state.interaction_state, input, .{
+                                .id = "StatusFilters",
+                                .items = &demo_filter_items,
+                                .selected_mask = model.demo_filter_mask,
+                                .direction = control_direction,
+                                .focused_id = state.focus_state.focused_id,
+                                .disabled = modal_open,
+                                .semantic_label = "状态筛选",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (filter_result.focus_index) |index| {
+                                state.focus_state.focus(chip_group.itemId("StatusFilters", index).id);
+                            }
+                            if (filter_result.toggled_index) |index| {
+                                state.focus_state.focus(chip_group.itemId("StatusFilters", index).id);
+                                emit(.{ .demo_filter_toggled = @intCast(index) });
+                            }
+                            label.draw("内容排序", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("SortSelectLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const select_result = select.draw(&state.interaction_state, input, .{
+                                .id = "SortSelect",
+                                .items = &demo_sort_items,
+                                .selected_index = model.demo_sort_index,
+                                .expanded = model.demo_sort_expanded,
+                                .width = control_width,
+                                .disabled = modal_open,
+                                .focused_id = state.focus_state.focused_id,
+                                .semantic_label = "内容排序",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (select_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                            if (select_result.selected_index) |index| {
+                                emit(.{ .demo_sort_selected = @intCast(index) });
+                            }
+                            if (select_result.expanded) |expanded| {
+                                if (expanded != model.demo_sort_expanded) {
+                                    emit(.{ .demo_sort_expanded = expanded });
+                                }
+                            }
+                            label.draw("操作菜单", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("ActionsMenuLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const menu_result = menu.draw(&state.interaction_state, input, .{
+                                .id = "ActionsMenu",
+                                .text = "更多操作",
+                                .items = &demo_menu_items,
+                                .expanded = model.demo_menu_expanded,
+                                .width = control_width,
+                                .disabled = modal_open,
+                                .focused_id = state.focus_state.focused_id,
+                                .semantic_label = "更多操作",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (menu_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                            if (menu_result.activated_index) |index| {
+                                emit(.{ .demo_menu_item_activated = @intCast(index) });
+                            }
+                            if (menu_result.expanded) |expanded| {
+                                if (expanded != model.demo_menu_expanded) {
+                                    emit(.{ .demo_menu_expanded = expanded });
+                                }
+                            }
+                            label.draw(menu_status_text, .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("ActionsMenuStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw("项目搜索", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("ProjectSearchLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const search_result = search_field.draw(&state.interaction_state, input, .{
+                                .id = "ProjectSearch",
+                                .text = model.searchText(),
+                                .placeholder = "搜索项目、状态或日志",
+                                .cursor = model.search_input.cursor,
+                                .selection_anchor = model.search_input.selection_anchor,
+                                .composition = model.search_input.composition(),
+                                .width = control_width,
+                                .focused = model.isTextInputActive(.search),
+                                .clear_focused = state.focus_state.isFocused(search_clear_id),
+                                .disabled = modal_open,
+                                .semantic_label = "项目搜索",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (search_result.text.focus_requested) {
+                                state.focus_state.focus(search_field_id);
+                                text_focus_requested = true;
+                                if (!model.isTextInputActive(.search)) {
+                                    emit(.{ .text_input_focus_changed = .search });
+                                }
+                            }
+                            if (search_result.text.blur_requested) text_blur_requested = true;
+                            if (search_result.text.cursor_position) |position| {
+                                emit(.{ .text_cursor_set = .{
+                                    .position = position,
+                                    .selecting = search_result.text.selecting,
+                                } });
+                            }
+                            if (search_result.clear_requested) {
+                                state.focus_state.focus(search_field_id);
+                                text_focus_requested = true;
+                                if (!model.isTextInputActive(.search)) {
+                                    emit(.{ .text_input_focus_changed = .search });
+                                }
+                                emit(.{ .text_cleared = .search });
+                            }
+                            label.draw(search_status_text, .{
+                                .font_size = 13,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("ProjectSearchStatus"),
+                                .semantic_role = .status,
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw("数据表格", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("RecordsDataTableLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const table_columns = [_]data_table.Column{
+                                .{ .label = "编号", .width = control_width * 0.20 },
+                                .{ .label = "名称", .width = control_width * 0.34 },
+                                .{ .label = "状态", .width = control_width * 0.25 },
+                                .{ .label = "更新", .width = control_width * 0.21 },
+                            };
+                            const table_page_start = table_page * demo_table_page_size;
+                            const table_page_end = @min(table_page_start + demo_table_page_size, table_order.len);
+                            const table_page_order = table_order[table_page_start..table_page_end];
+                            const table_result = data_table.draw(
+                                &state.data_table_state,
+                                &state.interaction_state,
+                                input,
+                                .{
+                                    .id = "RecordsDataTable",
+                                    .columns = &table_columns,
+                                    .row_count = table_page_order.len,
+                                    .row_order = table_page_order,
+                                    .selected_row_index = model.demo_data_table_selected_row,
+                                    .sort_column_index = model.demo_data_table_sort_column,
+                                    .sort_direction = if (model.demo_data_table_sort_descending) .descending else .ascending,
+                                    .format_cell = formatDemoTableCell,
+                                    .width = control_width,
+                                    .disabled = modal_open,
+                                    .focused_id = state.focus_state.focused_id,
+                                    .semantic_label = "项目数据",
                                     .semantic_registry = &state.semantic_registry,
                                 },
                             );
-                        }
-                    }
-                    label.draw(counter_text, .{
-                        .color = .{ 166, 187, 218, 255 },
-                        .semantic_id = .ID("ButtonPressCount"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    clay.UI()(.{ .layout = .{
-                        .sizing = .{ .w = .grow, .h = .fit },
-                        .child_gap = 12,
-                        .direction = control_direction,
-                    } })({
-                        if (button.draw(&state.interaction_state, input, .{
-                            .id = "PrimaryAction",
-                            .text = "点击测试",
-                            .width = control_width,
-                            .disabled = modal_open,
-                            .focused = state.focus_state.isFocused(primary_action_id),
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(primary_action_id);
-                            emit(.primary_button_pressed);
-                        }
-                        if (icon_button.draw(&state.interaction_state, input, .{
-                            .id = "IncrementProgress",
-                            .icon = "+",
-                            .disabled = modal_open,
-                            .focused = state.focus_state.isFocused(increment_progress_id),
-                            .semantic_label = "增加任务进度",
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(increment_progress_id);
-                            emit(.demo_progress_incremented);
-                        }
-                        if (button.draw(&state.interaction_state, input, .{
-                            .id = "OpenDemoDialog",
-                            .text = "打开对话框",
-                            .width = 168,
-                            .disabled = modal_open,
-                            .focused = state.focus_state.isFocused(open_dialog_id),
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(open_dialog_id);
-                            emit(.demo_dialog_opened);
-                        }
-                    });
-                    label.draw("数据视图", .{
-                        .font_size = 18,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("DataTabsLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const tabs_result = tabs.draw(&state.interaction_state, input, .{
-                        .id = "DataTabs",
-                        .items = &demo_tab_items,
-                        .selected_index = model.demo_tab_index,
-                        .item_width = if (narrow) control_width else 150,
-                        .direction = control_direction,
-                        .disabled = modal_open,
-                        .focused_id = state.focus_state.focused_id,
-                        .semantic_label = "数据视图",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (tabs_result.focus_index) |index| {
-                        state.focus_state.focus(tabs.itemId("DataTabs", index).id);
-                    }
-                    if (tabs_result.selected_index) |index| {
-                        state.focus_state.focus(tabs.itemId("DataTabs", index).id);
-                        emit(.{ .demo_tab_selected = @intCast(index) });
-                    }
-                    label.draw(switch (model.demo_tab_index) {
-                        1 => "当前页：明细",
-                        2 => "当前页：日志",
-                        else => "当前页：概览",
-                    }, .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("DataTabsStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw("项目结构", .{
-                        .font_size = 18,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("ProjectTreeLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const tree_result = tree_view.draw(&state.interaction_state, input, .{
-                        .id = "ProjectTree",
-                        .items = &demo_tree_items,
-                        .expanded_mask = model.demo_tree_expanded_mask,
-                        .selected_index = model.demo_tree_selected_index,
-                        .focused_id = state.focus_state.focused_id,
-                        .width = control_width,
-                        .disabled = modal_open,
-                        .semantic_label = "项目结构",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (tree_result.focus_index) |index| {
-                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
-                    }
-                    if (tree_result.toggled_index) |index| {
-                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
-                        emit(.{ .demo_tree_toggled = @intCast(index) });
-                    }
-                    if (tree_result.selected_index) |index| {
-                        state.focus_state.focus(tree_view.itemId("ProjectTree", index).id);
-                        emit(.{ .demo_tree_selected = @intCast(index) });
-                    }
-                    label.draw("设置分组", .{
-                        .font_size = 18,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("SettingsAccordionLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const accordion_result = accordion.draw(&state.interaction_state, input, .{
-                        .id = "SettingsAccordion",
-                        .items = &demo_accordion_items,
-                        .expanded_mask = model.demo_accordion_expanded_mask,
-                        .mode = .single,
-                        .width = control_width,
-                        .disabled = modal_open,
-                        .focused_id = state.focus_state.focused_id,
-                        .semantic_label = "应用设置分组",
-                        .semantic_registry = &state.semantic_registry,
-                        .draw_panel = drawDemoAccordionPanel,
-                        .panel_context = @ptrCast(&state.semantic_registry),
-                    });
-                    if (accordion_result.focus_index) |index| {
-                        state.focus_state.focus(accordion.headerId("SettingsAccordion", index).id);
-                    }
-                    if (accordion_result.expanded_mask) |mask| {
-                        emit(.{ .demo_accordion_expanded = mask });
-                    }
-                    divider.draw(.{});
-                    clay.UI()(.{ .layout = .{
-                        .sizing = .{ .w = .grow, .h = .fit },
-                        .child_gap = 24,
-                        .direction = control_direction,
-                    } })({
-                        if (checkbox.draw(&state.interaction_state, input, .{
-                            .id = "DemoCheckbox",
-                            .text = "启用离线缓存",
-                            .checked = model.demo_checkbox_checked,
-                            .width = control_width,
-                            .disabled = modal_open,
-                            .focused = state.focus_state.isFocused(checkbox_id),
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(checkbox_id);
-                            emit(.demo_checkbox_toggled);
-                        }
-                        if (toggle_switch.draw(&state.interaction_state, input, .{
-                            .id = "DemoSwitch",
-                            .text = "接收应用通知",
-                            .checked = model.demo_switch_checked,
-                            .width = control_width,
-                            .disabled = modal_open,
-                            .focused = state.focus_state.isFocused(switch_id),
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(switch_id);
-                            emit(.demo_switch_toggled);
-                        }
-                    });
-                    label.draw("界面密度", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("DensityRadioLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const radio_result = radio_group.draw(&state.interaction_state, input, .{
-                        .id = "DensityRadio",
-                        .items = &demo_density_items,
-                        .selected_index = model.demo_density_index,
-                        .item_width = if (narrow) control_width else 150,
-                        .direction = control_direction,
-                        .disabled = modal_open,
-                        .focused_id = state.focus_state.focused_id,
-                        .semantic_label = "界面密度",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (radio_result.focus_index) |index| {
-                        state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
-                    }
-                    if (radio_result.selected_index) |index| {
-                        state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
-                        emit(.{ .demo_density_selected = @intCast(index) });
-                    }
-                    label.draw("状态筛选", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("StatusFiltersLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const filter_result = chip_group.draw(&state.interaction_state, input, .{
-                        .id = "StatusFilters",
-                        .items = &demo_filter_items,
-                        .selected_mask = model.demo_filter_mask,
-                        .direction = control_direction,
-                        .focused_id = state.focus_state.focused_id,
-                        .disabled = modal_open,
-                        .semantic_label = "状态筛选",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (filter_result.focus_index) |index| {
-                        state.focus_state.focus(chip_group.itemId("StatusFilters", index).id);
-                    }
-                    if (filter_result.toggled_index) |index| {
-                        state.focus_state.focus(chip_group.itemId("StatusFilters", index).id);
-                        emit(.{ .demo_filter_toggled = @intCast(index) });
-                    }
-                    label.draw("内容排序", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("SortSelectLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const select_result = select.draw(&state.interaction_state, input, .{
-                        .id = "SortSelect",
-                        .items = &demo_sort_items,
-                        .selected_index = model.demo_sort_index,
-                        .expanded = model.demo_sort_expanded,
-                        .width = control_width,
-                        .disabled = modal_open,
-                        .focused_id = state.focus_state.focused_id,
-                        .semantic_label = "内容排序",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (select_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
-                    if (select_result.selected_index) |index| {
-                        emit(.{ .demo_sort_selected = @intCast(index) });
-                    }
-                    if (select_result.expanded) |expanded| {
-                        if (expanded != model.demo_sort_expanded) {
-                            emit(.{ .demo_sort_expanded = expanded });
-                        }
-                    }
-                    label.draw("操作菜单", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("ActionsMenuLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const menu_result = menu.draw(&state.interaction_state, input, .{
-                        .id = "ActionsMenu",
-                        .text = "更多操作",
-                        .items = &demo_menu_items,
-                        .expanded = model.demo_menu_expanded,
-                        .width = control_width,
-                        .disabled = modal_open,
-                        .focused_id = state.focus_state.focused_id,
-                        .semantic_label = "更多操作",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (menu_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
-                    if (menu_result.activated_index) |index| {
-                        emit(.{ .demo_menu_item_activated = @intCast(index) });
-                    }
-                    if (menu_result.expanded) |expanded| {
-                        if (expanded != model.demo_menu_expanded) {
-                            emit(.{ .demo_menu_expanded = expanded });
-                        }
-                    }
-                    label.draw(menu_status_text, .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("ActionsMenuStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw("项目搜索", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("ProjectSearchLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const search_result = search_field.draw(&state.interaction_state, input, .{
-                        .id = "ProjectSearch",
-                        .text = model.searchText(),
-                        .placeholder = "搜索项目、状态或日志",
-                        .cursor = model.search_input.cursor,
-                        .selection_anchor = model.search_input.selection_anchor,
-                        .composition = model.search_input.composition(),
-                        .width = control_width,
-                        .focused = model.isTextInputActive(.search),
-                        .clear_focused = state.focus_state.isFocused(search_clear_id),
-                        .disabled = modal_open,
-                        .semantic_label = "项目搜索",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (search_result.text.focus_requested) {
-                        state.focus_state.focus(search_field_id);
-                        text_focus_requested = true;
-                        if (!model.isTextInputActive(.search)) {
-                            emit(.{ .text_input_focus_changed = .search });
-                        }
-                    }
-                    if (search_result.text.blur_requested) text_blur_requested = true;
-                    if (search_result.text.cursor_position) |position| {
-                        emit(.{ .text_cursor_set = .{
-                            .position = position,
-                            .selecting = search_result.text.selecting,
-                        } });
-                    }
-                    if (search_result.clear_requested) {
-                        state.focus_state.focus(search_field_id);
-                        text_focus_requested = true;
-                        if (!model.isTextInputActive(.search)) {
-                            emit(.{ .text_input_focus_changed = .search });
-                        }
-                        emit(.{ .text_cleared = .search });
-                    }
-                    label.draw(search_status_text, .{
-                        .font_size = 13,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("ProjectSearchStatus"),
-                        .semantic_role = .status,
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw("数据表格", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("RecordsDataTableLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const table_columns = [_]data_table.Column{
-                        .{ .label = "编号", .width = control_width * 0.20 },
-                        .{ .label = "名称", .width = control_width * 0.34 },
-                        .{ .label = "状态", .width = control_width * 0.25 },
-                        .{ .label = "更新", .width = control_width * 0.21 },
-                    };
-                    const table_page_start = table_page * demo_table_page_size;
-                    const table_page_end = @min(table_page_start + demo_table_page_size, table_order.len);
-                    const table_page_order = table_order[table_page_start..table_page_end];
-                    const table_result = data_table.draw(
-                        &state.data_table_state,
-                        &state.interaction_state,
-                        input,
-                        .{
-                            .id = "RecordsDataTable",
-                            .columns = &table_columns,
-                            .row_count = table_page_order.len,
-                            .row_order = table_page_order,
-                            .selected_row_index = model.demo_data_table_selected_row,
-                            .sort_column_index = model.demo_data_table_sort_column,
-                            .sort_direction = if (model.demo_data_table_sort_descending) .descending else .ascending,
-                            .format_cell = formatDemoTableCell,
-                            .width = control_width,
-                            .disabled = modal_open,
-                            .focused_id = state.focus_state.focused_id,
-                            .semantic_label = "项目数据",
-                            .semantic_registry = &state.semantic_registry,
-                        },
-                    );
-                    if (table_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
-                    if (table_result.selected_row_index) |row_index| {
-                        emit(.{ .demo_data_table_row_selected = @intCast(row_index) });
-                    }
-                    if (table_result.sort_request) |sort_request| {
-                        const descending = sort_request.direction == .descending;
-                        emit(.{ .demo_data_table_sorted = .{
-                            .column_index = @intCast(sort_request.column_index),
-                            .descending = descending,
-                        } });
-                        const sorted_filtered = demoTableFilteredOrder(
-                            sort_request.column_index,
-                            descending,
-                            model.searchText(),
-                        );
-                        const selected_page = demoTablePageForRow(sorted_filtered.items(), table_selected_row);
-                        if (selected_page != table_page) {
-                            emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
-                        }
-                    }
-                    if (table_order.len > 0) {
-                        const pagination_result = pagination.draw(
-                            &state.pagination_state,
-                            &state.interaction_state,
-                            input,
-                            .{
-                                .id = "RecordsPagination",
-                                .total_items = table_order.len,
-                                .page_size = demo_table_page_size,
-                                .current_page = table_page,
-                                .disabled = modal_open,
-                                .focused_id = state.focus_state.focused_id,
-                                .semantic_label = "项目数据分页",
-                                .semantic_registry = &state.semantic_registry,
-                            },
-                        );
-                        if (pagination_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
-                        if (pagination_result.selected_page) |selected_page| {
-                            emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
-                            const first_row = table_order[selected_page * demo_table_page_size];
-                            emit(.{ .demo_data_table_row_selected = @intCast(first_row) });
-                        }
-                    }
-                    label.draw("虚拟列表（1000 条）", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("RecordsVirtualListLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const virtual_list_result = virtual_list.draw(
-                        &state.virtual_list_state,
-                        &state.interaction_state,
-                        input,
-                        .{
-                            .id = "RecordsVirtualList",
-                            .item_count = demo_virtual_list_item_count,
-                            .selected_index = model.demo_virtual_list_selected_index,
-                            .format_item = formatVirtualListItem,
-                            .width = control_width,
-                            .height = 240,
-                            .disabled = modal_open,
-                            .focused_id = state.focus_state.focused_id,
-                            .semantic_label = "数据记录",
-                            .semantic_registry = &state.semantic_registry,
-                        },
-                    );
-                    if (virtual_list_result.focus_index) |index| {
-                        state.focus_state.focus(virtual_list.itemId("RecordsVirtualList", index).id);
-                    }
-                    if (virtual_list_result.selected_index) |index| {
-                        emit(.{ .demo_virtual_list_selected = @intCast(index) });
-                    }
-                    label.draw(virtual_list_status_text, .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("RecordsVirtualListStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw("任务进度（点击 + 增加）", .{
-                        .color = .{ 166, 187, 218, 255 },
-                        .semantic_id = .ID("ProgressLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    progress_bar.draw(.{
-                        .id = "TaskProgress",
-                        .value = model.demo_progress,
-                        .width = control_width,
-                        .semantic_label = "任务进度",
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw("媒体音量", .{
-                        .color = .{ 166, 187, 218, 255 },
-                        .semantic_id = .ID("VolumeLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (slider.draw(&state.interaction_state, input, .{
-                        .id = "VolumeSlider",
-                        .value = model.demo_volume,
-                        .width = control_width,
-                        .disabled = modal_open,
-                        .focused = state.focus_state.isFocused(slider_id),
-                        .semantic_label = "媒体音量",
-                        .semantic_registry = &state.semantic_registry,
-                    })) |value| {
-                        state.focus_state.focus(slider_id);
-                        emit(.{ .demo_volume_changed = value });
-                    }
-                    label.draw("重试次数", .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("RetryStepperLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (number_stepper.draw(
-                        &state.number_stepper_state,
-                        &state.interaction_state,
-                        input,
-                        .{
-                            .id = "RetryStepper",
-                            .value = model.demo_retry_count,
-                            .min = 0,
-                            .max = 10,
-                            .step = 1,
-                            .width = control_width,
-                            .disabled = modal_open,
-                            .focused = state.focus_state.isFocused(retry_stepper_id),
-                            .semantic_label = "重试次数",
-                            .semantic_registry = &state.semantic_registry,
-                        },
-                    )) |value| {
-                        state.focus_state.focus(retry_stepper_id);
-                        emit(.{ .demo_retry_count_changed = value });
-                    }
-                    label.draw("表单字段", .{
-                        .font_size = 18,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("FormFieldSectionLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    const text_result = form_field.draw(&state.interaction_state, input, .{
-                        .id = "DemoTextField",
-                        .label_text = "应用名称",
-                        .text = model.text(),
-                        .placeholder = "例如：我的 ZAPP",
-                        .cursor = model.application_name_input.cursor,
-                        .selection_anchor = model.application_name_input.selection_anchor,
-                        .composition = model.textComposition(),
-                        .helper_text = "至少输入 2 个字符，按 Enter 提交",
-                        .error_message = "应用名称至少需要 2 个字符",
-                        .width = control_width,
-                        .focused = model.isTextInputActive(.application_name),
-                        .disabled = modal_open,
-                        .required = true,
-                        .invalid = demoTextInvalid(model),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (text_result.focus_requested) {
-                        state.focus_state.focus(text_field_id);
-                        text_focus_requested = true;
-                        if (!model.isTextInputActive(.application_name)) {
-                            emit(.{ .text_input_focus_changed = .application_name });
-                        }
-                    }
-                    if (text_result.blur_requested) text_blur_requested = true;
-                    if (text_result.cursor_position) |position| {
-                        emit(.{ .text_cursor_set = .{
-                            .position = position,
-                            .selecting = text_result.selecting,
-                        } });
-                    }
-                    if (button.draw(&state.interaction_state, input, .{
-                        .id = "SubmitDemoForm",
-                        .text = "提交表单",
-                        .width = control_width,
-                        .disabled = modal_open,
-                        .focused = state.focus_state.isFocused(form_submit_id),
-                        .semantic_registry = &state.semantic_registry,
-                    })) {
-                        state.focus_state.focus(form_submit_id);
-                        emit(.text_submitted);
-                    }
-                    divider.draw(.{});
-                    label.draw("平台 API", .{
-                        .font_size = 18,
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("PlatformApiLabel"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    clay.UI()(.{ .layout = .{
-                        .sizing = .{ .w = .grow, .h = .fit },
-                        .child_gap = 12,
-                        .direction = control_direction,
-                    } })({
-                        if (button.draw(&state.interaction_state, input, .{
-                            .id = "RequestCameraPermission",
-                            .text = if (model.permission_request_pending) "请求中…" else "请求相机权限",
-                            .width = control_width,
-                            .disabled = modal_open or model.permission_request_pending,
-                            .focused = state.focus_state.isFocused(permission_button_id),
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(permission_button_id);
-                            emit(.{ .platform_permission_requested = .camera });
-                        }
-                        if (button.draw(&state.interaction_state, input, .{
-                            .id = "OpenFilePicker",
-                            .text = if (model.file_picker_pending) "选择中…" else "选择文件",
-                            .width = control_width,
-                            .disabled = modal_open or model.file_picker_pending or model.file_stream_pending,
-                            .focused = state.focus_state.isFocused(file_picker_button_id),
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(file_picker_button_id);
-                            emit(.platform_file_picker_requested);
-                        }
-                        if (button.draw(&state.interaction_state, input, .{
-                            .id = "StreamSelectedFile",
-                            .text = if (model.file_stream_cancel_pending)
-                                "取消中…"
-                            else if (model.file_stream_pending)
-                                "取消完整读取"
-                            else
-                                "读取完整文件",
-                            .width = control_width,
-                            .disabled = modal_open or model.selectedFileUri().len == 0 or
-                                model.file_read_pending or model.file_stream_cancel_pending,
-                            .focused = state.focus_state.isFocused(file_stream_button_id),
-                            .semantic_registry = &state.semantic_registry,
-                        })) {
-                            state.focus_state.focus(file_stream_button_id);
-                            emit(if (model.file_stream_pending)
-                                .platform_file_stream_cancel_requested
-                            else
-                                .platform_file_stream_requested);
-                        }
-                    });
-                    label.draw(permission_status_text, .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("PermissionStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw(file_status_text, .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("FileSelectionStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (file_metadata_text.len > 0) label.draw(file_metadata_text, .{
-                        .color = theme.controls.text_muted,
-                        .wrap_mode = .words,
-                        .semantic_id = .ID("FileMetadataStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (file_preview_text.len > 0) label.draw(file_preview_text, .{
-                        .color = theme.controls.text_muted,
-                        .semantic_id = .ID("FilePreviewStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    if (file_stream_status_text.len > 0) label.draw(file_stream_status_text, .{
-                        .color = theme.controls.text_muted,
-                        .wrap_mode = .words,
-                        .semantic_id = .ID("FileStreamStatus"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    label.draw(confirmation_text, .{
-                        .color = .{ 145, 171, 207, 255 },
-                        .semantic_id = .ID("DialogConfirmationCount"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    state.semantic_registry.popScrollAncestor();
-                });
-
-                clay.UI()(scroll_view.declaration(.{
-                    .id = "ActivityScrollView",
-                    .height = if (compact) 112 else 144,
-                    .background_color = .{ 24, 56, 70, 255 },
-                    .semantic_label = "最近活动",
-                    .semantic_registry = &state.semantic_registry,
-                }))({
-                    _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("ActivityScrollView").id);
-                    label.draw("最近活动", .{
-                        .font_size = 18,
-                        .color = .{ 155, 211, 207, 255 },
-                        .semantic_id = .ID("ActivityTitle"),
-                        .semantic_registry = &state.semantic_registry,
-                    });
-                    inline for ([_][]const u8{
-                        "中文字体已通过 Fontstash 接入 Sokol",
-                        "Button 点击状态已接入 reducer",
-                        "Checkbox 设置已保存到 AppModel",
-                        "Switch 通知状态已更新",
-                        "ProgressBar 使用受控数值",
-                        "ScrollView 已启用垂直裁剪",
-                        "鼠标滚轮事件由 Sokol 转发",
-                        "触摸拖动由 Clay 管理",
-                    }, 0..) |activity, activity_index| {
-                        clay.UI()(.{
-                            .layout = .{
-                                .sizing = .{ .w = .grow, .h = .fixed(36) },
-                                .padding = .axes(10, 8),
-                                .child_alignment = .{ .y = .center },
-                            },
-                            .background_color = .{ 28, 65, 79, 255 },
-                            .corner_radius = .all(7),
-                        })({
-                            label.draw(activity, .{
-                                .color = .{ 177, 220, 216, 255 },
-                                .semantic_id = .IDI("ActivityItem", @intCast(activity_index)),
+                            if (table_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                            if (table_result.selected_row_index) |row_index| {
+                                emit(.{ .demo_data_table_row_selected = @intCast(row_index) });
+                            }
+                            if (table_result.sort_request) |sort_request| {
+                                const descending = sort_request.direction == .descending;
+                                emit(.{ .demo_data_table_sorted = .{
+                                    .column_index = @intCast(sort_request.column_index),
+                                    .descending = descending,
+                                } });
+                                const sorted_filtered = demoTableFilteredOrder(
+                                    sort_request.column_index,
+                                    descending,
+                                    model.searchText(),
+                                );
+                                const selected_page = demoTablePageForRow(sorted_filtered.items(), table_selected_row);
+                                if (selected_page != table_page) {
+                                    emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
+                                }
+                            }
+                            if (table_order.len > 0) {
+                                const pagination_result = pagination.draw(
+                                    &state.pagination_state,
+                                    &state.interaction_state,
+                                    input,
+                                    .{
+                                        .id = "RecordsPagination",
+                                        .total_items = table_order.len,
+                                        .page_size = demo_table_page_size,
+                                        .current_page = table_page,
+                                        .disabled = modal_open,
+                                        .focused_id = state.focus_state.focused_id,
+                                        .semantic_label = "项目数据分页",
+                                        .semantic_registry = &state.semantic_registry,
+                                    },
+                                );
+                                if (pagination_result.focus_id) |focus_id| state.focus_state.focus(focus_id);
+                                if (pagination_result.selected_page) |selected_page| {
+                                    emit(.{ .demo_data_table_page_selected = @intCast(selected_page) });
+                                    const first_row = table_order[selected_page * demo_table_page_size];
+                                    emit(.{ .demo_data_table_row_selected = @intCast(first_row) });
+                                }
+                            }
+                            label.draw("虚拟列表（1000 条）", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("RecordsVirtualListLabel"),
                                 .semantic_registry = &state.semantic_registry,
                             });
+                            const virtual_list_result = virtual_list.draw(
+                                &state.virtual_list_state,
+                                &state.interaction_state,
+                                input,
+                                .{
+                                    .id = "RecordsVirtualList",
+                                    .item_count = demo_virtual_list_item_count,
+                                    .selected_index = model.demo_virtual_list_selected_index,
+                                    .format_item = formatVirtualListItem,
+                                    .width = control_width,
+                                    .height = 240,
+                                    .disabled = modal_open,
+                                    .focused_id = state.focus_state.focused_id,
+                                    .semantic_label = "数据记录",
+                                    .semantic_registry = &state.semantic_registry,
+                                },
+                            );
+                            if (virtual_list_result.focus_index) |index| {
+                                state.focus_state.focus(virtual_list.itemId("RecordsVirtualList", index).id);
+                            }
+                            if (virtual_list_result.selected_index) |index| {
+                                emit(.{ .demo_virtual_list_selected = @intCast(index) });
+                            }
+                            label.draw(virtual_list_status_text, .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("RecordsVirtualListStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw("任务进度（点击 + 增加）", .{
+                                .color = .{ 166, 187, 218, 255 },
+                                .semantic_id = .ID("ProgressLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            progress_bar.draw(.{
+                                .id = "TaskProgress",
+                                .value = model.demo_progress,
+                                .width = control_width,
+                                .semantic_label = "任务进度",
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw("媒体音量", .{
+                                .color = .{ 166, 187, 218, 255 },
+                                .semantic_id = .ID("VolumeLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (slider.draw(&state.interaction_state, input, .{
+                                .id = "VolumeSlider",
+                                .value = model.demo_volume,
+                                .width = control_width,
+                                .disabled = modal_open,
+                                .focused = state.focus_state.isFocused(slider_id),
+                                .semantic_label = "媒体音量",
+                                .semantic_registry = &state.semantic_registry,
+                            })) |value| {
+                                state.focus_state.focus(slider_id);
+                                emit(.{ .demo_volume_changed = value });
+                            }
+                            label.draw("重试次数", .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("RetryStepperLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (number_stepper.draw(
+                                &state.number_stepper_state,
+                                &state.interaction_state,
+                                input,
+                                .{
+                                    .id = "RetryStepper",
+                                    .value = model.demo_retry_count,
+                                    .min = 0,
+                                    .max = 10,
+                                    .step = 1,
+                                    .width = control_width,
+                                    .disabled = modal_open,
+                                    .focused = state.focus_state.isFocused(retry_stepper_id),
+                                    .semantic_label = "重试次数",
+                                    .semantic_registry = &state.semantic_registry,
+                                },
+                            )) |value| {
+                                state.focus_state.focus(retry_stepper_id);
+                                emit(.{ .demo_retry_count_changed = value });
+                            }
+                            label.draw("表单字段", .{
+                                .font_size = 18,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("FormFieldSectionLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            const text_result = form_field.draw(&state.interaction_state, input, .{
+                                .id = "DemoTextField",
+                                .label_text = "应用名称",
+                                .text = model.text(),
+                                .placeholder = "例如：我的 ZAPP",
+                                .cursor = model.application_name_input.cursor,
+                                .selection_anchor = model.application_name_input.selection_anchor,
+                                .composition = model.textComposition(),
+                                .helper_text = "至少输入 2 个字符，按 Enter 提交",
+                                .error_message = "应用名称至少需要 2 个字符",
+                                .width = control_width,
+                                .focused = model.isTextInputActive(.application_name),
+                                .disabled = modal_open,
+                                .required = true,
+                                .invalid = demoTextInvalid(model),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (text_result.focus_requested) {
+                                state.focus_state.focus(text_field_id);
+                                text_focus_requested = true;
+                                if (!model.isTextInputActive(.application_name)) {
+                                    emit(.{ .text_input_focus_changed = .application_name });
+                                }
+                            }
+                            if (text_result.blur_requested) text_blur_requested = true;
+                            if (text_result.cursor_position) |position| {
+                                emit(.{ .text_cursor_set = .{
+                                    .position = position,
+                                    .selecting = text_result.selecting,
+                                } });
+                            }
+                            if (button.draw(&state.interaction_state, input, .{
+                                .id = "SubmitDemoForm",
+                                .text = "提交表单",
+                                .width = control_width,
+                                .disabled = modal_open,
+                                .focused = state.focus_state.isFocused(form_submit_id),
+                                .semantic_registry = &state.semantic_registry,
+                            })) {
+                                state.focus_state.focus(form_submit_id);
+                                emit(.text_submitted);
+                            }
+                            divider.draw(.{});
+                            label.draw("平台 API", .{
+                                .font_size = 18,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("PlatformApiLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            clay.UI()(.{ .layout = .{
+                                .sizing = .{ .w = .grow, .h = .fit },
+                                .child_gap = 12,
+                                .direction = control_direction,
+                            } })({
+                                if (button.draw(&state.interaction_state, input, .{
+                                    .id = "RequestCameraPermission",
+                                    .text = if (model.permission_request_pending) "请求中…" else "请求相机权限",
+                                    .width = control_width,
+                                    .disabled = modal_open or model.permission_request_pending,
+                                    .focused = state.focus_state.isFocused(permission_button_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(permission_button_id);
+                                    emit(.{ .platform_permission_requested = .camera });
+                                }
+                                if (button.draw(&state.interaction_state, input, .{
+                                    .id = "OpenFilePicker",
+                                    .text = if (model.file_picker_pending) "选择中…" else "选择文件",
+                                    .width = control_width,
+                                    .disabled = modal_open or model.file_picker_pending or model.file_stream_pending,
+                                    .focused = state.focus_state.isFocused(file_picker_button_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(file_picker_button_id);
+                                    emit(.platform_file_picker_requested);
+                                }
+                                if (button.draw(&state.interaction_state, input, .{
+                                    .id = "StreamSelectedFile",
+                                    .text = if (model.file_stream_cancel_pending)
+                                        "取消中…"
+                                    else if (model.file_stream_pending)
+                                        "取消完整读取"
+                                    else
+                                        "读取完整文件",
+                                    .width = control_width,
+                                    .disabled = modal_open or model.selectedFileUri().len == 0 or
+                                        model.file_read_pending or model.file_stream_cancel_pending,
+                                    .focused = state.focus_state.isFocused(file_stream_button_id),
+                                    .semantic_registry = &state.semantic_registry,
+                                })) {
+                                    state.focus_state.focus(file_stream_button_id);
+                                    emit(if (model.file_stream_pending)
+                                        .platform_file_stream_cancel_requested
+                                    else
+                                        .platform_file_stream_requested);
+                                }
+                            });
+                            label.draw(permission_status_text, .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("PermissionStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw(file_status_text, .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("FileSelectionStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (file_metadata_text.len > 0) label.draw(file_metadata_text, .{
+                                .color = theme.controls.text_muted,
+                                .wrap_mode = .words,
+                                .semantic_id = .ID("FileMetadataStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (file_preview_text.len > 0) label.draw(file_preview_text, .{
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("FilePreviewStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            if (file_stream_status_text.len > 0) label.draw(file_stream_status_text, .{
+                                .color = theme.controls.text_muted,
+                                .wrap_mode = .words,
+                                .semantic_id = .ID("FileStreamStatus"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            label.draw(confirmation_text, .{
+                                .color = .{ 145, 171, 207, 255 },
+                                .semantic_id = .ID("DialogConfirmationCount"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            state.semantic_registry.popScrollAncestor();
                         });
-                    }
-                    state.semantic_registry.popScrollAncestor();
-                });
+
+                        clay.UI()(scroll_view.declaration(.{
+                            .id = "ActivityScrollView",
+                            .height = if (compact) 112 else 144,
+                            .background_color = .{ 24, 56, 70, 255 },
+                            .semantic_label = "最近活动",
+                            .semantic_registry = &state.semantic_registry,
+                        }))({
+                            _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("ActivityScrollView").id);
+                            label.draw("最近活动", .{
+                                .font_size = 18,
+                                .color = .{ 155, 211, 207, 255 },
+                                .semantic_id = .ID("ActivityTitle"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            inline for (demo_activity_items, 0..) |activity, activity_index| {
+                                clay.UI()(.{
+                                    .layout = .{
+                                        .sizing = .{ .w = .grow, .h = .fixed(36) },
+                                        .padding = .axes(10, 8),
+                                        .child_alignment = .{ .y = .center },
+                                    },
+                                    .background_color = .{ 28, 65, 79, 255 },
+                                    .corner_radius = .all(7),
+                                })({
+                                    label.draw(activity, .{
+                                        .color = .{ 177, 220, 216, 255 },
+                                        .semantic_id = .IDI("ActivityItem", @intCast(activity_index)),
+                                        .semantic_registry = &state.semantic_registry,
+                                    });
+                                });
+                            }
+                            state.semantic_registry.popScrollAncestor();
+                        });
+                    },
+                    1 => drawActivityPage(compact),
+                    else => drawSettingsPage(model, input, control_width, control_direction, narrow, modal_open),
+                }
             });
         });
     });
@@ -1695,6 +1738,13 @@ fn navigationIndex(element_id: u32) ?u8 {
     return null;
 }
 
+fn activityPageItemIndex(element_id: u32) ?u8 {
+    for (demo_activity_items, 0..) |_, index| {
+        if (element_id == clay.ElementId.IDI("ActivityPageItem", @intCast(index)).id) return @intCast(index);
+    }
+    return null;
+}
+
 fn textTargetForElement(element_id: u32) ?text_edit.Target {
     if (element_id == clay.ElementId.ID("DemoTextField").id) return .application_name;
     if (element_id == clay.ElementId.ID("ProjectSearch").id) return .search;
@@ -1850,6 +1900,8 @@ fn isInteractiveSemanticId(element_id: u32) bool {
 
 fn isScrollableSemanticId(element_id: u32) bool {
     return element_id == clay.ElementId.ID("PrimaryCard").id or
+        element_id == clay.ElementId.ID("ActivityPage").id or
+        element_id == clay.ElementId.ID("SettingsPage").id or
         element_id == clay.ElementId.ID("ActivityScrollView").id or
         element_id == clay.ElementId.ID("RecordsVirtualList").id;
 }
@@ -1860,6 +1912,177 @@ fn formatVirtualListItem(index: usize, buffer: []u8) []const u8 {
 
 fn demoTextInvalid(model: *const Model) bool {
     return model.application_name_input.submission_count > 0 and std.mem.trim(u8, model.text(), " \t").len < 2;
+}
+
+fn drawActivityPage(compact: bool) void {
+    clay.UI()(card.declaration(.{
+        .id = "ActivityPage",
+        .scroll_vertical = true,
+        .semantic_label = "活动页面",
+        .semantic_registry = &state.semantic_registry,
+    }))({
+        _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("ActivityPage").id);
+        label.draw("活动", .{
+            .font_size = 22,
+            .semantic_id = .ID("ActivityPageTitle"),
+            .semantic_registry = &state.semantic_registry,
+        });
+        label.draw("跨平台应用框架的最新开发记录", .{
+            .color = theme.controls.text_muted,
+            .semantic_id = .ID("ActivityPageDescription"),
+            .semantic_registry = &state.semantic_registry,
+        });
+        clay.UI()(.{
+            .id = .ID("ActivitySummary"),
+            .layout = .{
+                .sizing = .{ .w = .grow, .h = .fit },
+                .padding = .all(if (compact) 14 else 18),
+                .child_gap = theme.controls.gap_small,
+                .direction = .top_to_bottom,
+            },
+            .background_color = .{ 24, 56, 70, 255 },
+            .corner_radius = .all(theme.controls.radius_medium),
+        })({
+            label.draw("本周进展", .{
+                .font_size = 18,
+                .color = .{ 155, 211, 207, 255 },
+                .semantic_id = .ID("ActivitySummaryTitle"),
+                .semantic_registry = &state.semantic_registry,
+            });
+            label.draw("8 项能力已接入同一 AppModel / Action / reducer 数据流", .{
+                .color = .{ 177, 220, 216, 255 },
+                .semantic_id = .ID("ActivitySummaryBody"),
+                .semantic_registry = &state.semantic_registry,
+            });
+        });
+        for (demo_activity_items, 0..) |activity, activity_index| {
+            clay.UI()(.{
+                .id = .IDI("ActivityPageItemContainer", @intCast(activity_index)),
+                .layout = .{
+                    .sizing = .{ .w = .grow, .h = .fixed(if (compact) 48 else 54) },
+                    .padding = .axes(14, 10),
+                    .child_gap = theme.controls.gap_small,
+                    .direction = .top_to_bottom,
+                    .child_alignment = .{ .y = .center },
+                },
+                .background_color = theme.controls.surface,
+                .corner_radius = .all(theme.controls.radius_small),
+            })({
+                label.draw(activity, .{
+                    .color = theme.controls.text,
+                    .semantic_id = .IDI("ActivityPageItem", @intCast(activity_index)),
+                    .semantic_registry = &state.semantic_registry,
+                });
+                label.draw(if (activity_index < 2) "刚刚" else "本周", .{
+                    .font_size = 12,
+                    .color = theme.controls.text_muted,
+                });
+            });
+        }
+        state.semantic_registry.popScrollAncestor();
+    });
+}
+
+fn drawSettingsPage(
+    model: *const Model,
+    input: interaction.Input,
+    control_width: f32,
+    control_direction: clay.LayoutDirection,
+    narrow: bool,
+    modal_open: bool,
+) void {
+    const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
+    const switch_id = clay.ElementId.ID("DemoSwitch").id;
+    clay.UI()(card.declaration(.{
+        .id = "SettingsPage",
+        .scroll_vertical = true,
+        .semantic_label = "设置页面",
+        .semantic_registry = &state.semantic_registry,
+    }))({
+        _ = state.semantic_registry.pushScrollAncestor(clay.ElementId.ID("SettingsPage").id);
+        label.draw("设置", .{
+            .font_size = 22,
+            .semantic_id = .ID("SettingsPageTitle"),
+            .semantic_registry = &state.semantic_registry,
+        });
+        label.draw("偏好由 AppModel 持有，切换页面不会丢失", .{
+            .color = theme.controls.text_muted,
+            .semantic_id = .ID("SettingsPageDescription"),
+            .semantic_registry = &state.semantic_registry,
+        });
+        const accordion_result = accordion.draw(&state.interaction_state, input, .{
+            .id = "SettingsAccordion",
+            .items = &demo_accordion_items,
+            .expanded_mask = model.demo_accordion_expanded_mask,
+            .mode = .single,
+            .width = control_width,
+            .disabled = modal_open,
+            .focused_id = state.focus_state.focused_id,
+            .semantic_label = "应用设置分组",
+            .semantic_registry = &state.semantic_registry,
+            .draw_panel = drawDemoAccordionPanel,
+            .panel_context = @ptrCast(&state.semantic_registry),
+        });
+        if (accordion_result.focus_index) |index| {
+            state.focus_state.focus(accordion.headerId("SettingsAccordion", index).id);
+        }
+        if (accordion_result.expanded_mask) |mask| emit(.{ .demo_accordion_expanded = mask });
+        divider.draw(.{});
+        clay.UI()(.{ .layout = .{
+            .sizing = .{ .w = .grow, .h = .fit },
+            .child_gap = 24,
+            .direction = control_direction,
+        } })({
+            if (checkbox.draw(&state.interaction_state, input, .{
+                .id = "DemoCheckbox",
+                .text = "启用离线缓存",
+                .checked = model.demo_checkbox_checked,
+                .width = control_width,
+                .disabled = modal_open,
+                .focused = state.focus_state.isFocused(checkbox_id),
+                .semantic_registry = &state.semantic_registry,
+            })) {
+                state.focus_state.focus(checkbox_id);
+                emit(.demo_checkbox_toggled);
+            }
+            if (toggle_switch.draw(&state.interaction_state, input, .{
+                .id = "DemoSwitch",
+                .text = "接收应用通知",
+                .checked = model.demo_switch_checked,
+                .width = control_width,
+                .disabled = modal_open,
+                .focused = state.focus_state.isFocused(switch_id),
+                .semantic_registry = &state.semantic_registry,
+            })) {
+                state.focus_state.focus(switch_id);
+                emit(.demo_switch_toggled);
+            }
+        });
+        label.draw("界面密度", .{
+            .color = theme.controls.text_muted,
+            .semantic_id = .ID("DensityRadioLabel"),
+            .semantic_registry = &state.semantic_registry,
+        });
+        const radio_result = radio_group.draw(&state.interaction_state, input, .{
+            .id = "DensityRadio",
+            .items = &demo_density_items,
+            .selected_index = model.demo_density_index,
+            .item_width = if (narrow) control_width else 150,
+            .direction = control_direction,
+            .disabled = modal_open,
+            .focused_id = state.focus_state.focused_id,
+            .semantic_label = "界面密度",
+            .semantic_registry = &state.semantic_registry,
+        });
+        if (radio_result.focus_index) |index| {
+            state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
+        }
+        if (radio_result.selected_index) |index| {
+            state.focus_state.focus(radio_group.itemId("DensityRadio", index).id);
+            emit(.{ .demo_density_selected = @intCast(index) });
+        }
+        state.semantic_registry.popScrollAncestor();
+    });
 }
 
 fn drawDemoAccordionPanel(context: ?*anyopaque, index: usize) void {
@@ -2776,6 +2999,58 @@ test "responsive shell emits controls and text" {
     try std.testing.expect(requested_close);
     try std.testing.expect(has_modal_semantics);
     try std.testing.expect(state.focus_state.modalOpen());
+
+    model.demo_dialog_open = false;
+    model.back_requested = false;
+    model.demo_navigation_index = 1;
+    const activity_page_frame = build(&model);
+    var has_activity_page = false;
+    var activity_item_count: usize = 0;
+    var activity_has_home_content = false;
+    var activity_selected_navigation_count: usize = 0;
+    for (activity_page_frame.semantic_nodes) |node| {
+        if (node.element_id == clay.ElementId.ID("ActivityPage").id and node.scrollable) {
+            has_activity_page = true;
+        }
+        if (activityPageItemIndex(node.element_id) != null) activity_item_count += 1;
+        if (node.element_id == clay.ElementId.ID("PrimaryCardTitle").id) activity_has_home_content = true;
+        if (node.role == .navigation_item and node.selected) {
+            activity_selected_navigation_count += 1;
+            try std.testing.expectEqual(clay.ElementId.IDI("MainNavigation", 1).id, node.element_id);
+        }
+    }
+    try std.testing.expect(has_activity_page);
+    try std.testing.expectEqual(demo_activity_items.len, activity_item_count);
+    try std.testing.expect(!activity_has_home_content);
+    try std.testing.expectEqual(@as(usize, 1), activity_selected_navigation_count);
+    try std.testing.expect(state.focus_state.isFocused(clay.ElementId.IDI("MainNavigation", 1).id));
+
+    model.demo_navigation_index = 2;
+    const settings_page_frame = build(&model);
+    var has_settings_page = false;
+    var settings_has_activity_content = false;
+    var settings_has_checkbox = false;
+    var settings_has_switch = false;
+    var settings_radio_count: usize = 0;
+    for (settings_page_frame.semantic_nodes) |node| {
+        if (node.element_id == clay.ElementId.ID("SettingsPage").id and node.scrollable) {
+            has_settings_page = true;
+        }
+        if (node.element_id == clay.ElementId.ID("ActivityPageTitle").id) settings_has_activity_content = true;
+        if (node.element_id == clay.ElementId.ID("DemoCheckbox").id and node.role == .checkbox) {
+            settings_has_checkbox = true;
+        }
+        if (node.element_id == clay.ElementId.ID("DemoSwitch").id and node.role == .switch_control) {
+            settings_has_switch = true;
+        }
+        if (node.role == .radio_button) settings_radio_count += 1;
+    }
+    try std.testing.expect(has_settings_page);
+    try std.testing.expect(!settings_has_activity_content);
+    try std.testing.expect(settings_has_checkbox);
+    try std.testing.expect(settings_has_switch);
+    try std.testing.expectEqual(demo_density_items.len, settings_radio_count);
+    try std.testing.expect(state.focus_state.isFocused(clay.ElementId.IDI("MainNavigation", 2).id));
 }
 
 test "semantic actions reuse reducer-facing UI actions" {

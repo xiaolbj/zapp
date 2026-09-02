@@ -1,5 +1,6 @@
 const Action = @import("action.zig").Action;
 const Model = @import("model.zig").Model;
+const text_edit = @import("text_edit.zig");
 
 pub fn update(model: *Model, action: Action) void {
     switch (action) {
@@ -217,7 +218,17 @@ pub fn update(model: *Model, action: Action) void {
             model.file_stream_cancelled = result.total_bytes == model.file_stream_bytes_consumed;
             model.file_stream_error = if (model.file_stream_cancelled) null else .io;
         },
-        .demo_navigation_selected => |index| model.demo_navigation_index = index,
+        .demo_navigation_selected => |index| {
+            const next_index = @min(index, 2);
+            if (next_index != model.demo_navigation_index) {
+                model.demo_navigation_index = next_index;
+                model.demo_dialog_open = false;
+                model.demo_sort_expanded = false;
+                model.demo_menu_expanded = false;
+                if (model.activeTextInput()) |input| input.blur();
+                model.active_text_input = null;
+            }
+        },
         .demo_tree_toggled => |index| {
             if (index < 64) model.demo_tree_expanded_mask ^= @as(u64, 1) << @intCast(index);
         },
@@ -400,7 +411,7 @@ test "text input never splits a UTF-8 sequence at capacity" {
     try std.testing.expect(std.unicode.utf8ValidateSlice(model.text()));
 }
 
-test "text submission and navigation remain controlled by the model" {
+test "text submission remains controlled and page navigation ends editing" {
     const std = @import("std");
     var model: Model = .{};
 
@@ -408,9 +419,27 @@ test "text submission and navigation remain controlled by the model" {
     update(&model, .text_submitted);
     update(&model, .{ .demo_navigation_selected = 2 });
 
-    try std.testing.expect(model.isTextInputActive(.application_name));
+    try std.testing.expectEqual(@as(?text_edit.Target, null), model.active_text_input);
     try std.testing.expectEqual(@as(u32, 1), model.application_name_input.submission_count);
     try std.testing.expectEqual(@as(u8, 2), model.demo_navigation_index);
+}
+
+test "page navigation is bounded and closes page-local interaction state" {
+    const std = @import("std");
+    var model: Model = .{
+        .demo_dialog_open = true,
+        .demo_sort_expanded = true,
+        .demo_menu_expanded = true,
+    };
+    update(&model, .{ .text_input_focus_changed = .search });
+
+    update(&model, .{ .demo_navigation_selected = 99 });
+
+    try std.testing.expectEqual(@as(u8, 2), model.demo_navigation_index);
+    try std.testing.expect(!model.demo_dialog_open);
+    try std.testing.expect(!model.demo_sort_expanded);
+    try std.testing.expect(!model.demo_menu_expanded);
+    try std.testing.expectEqual(@as(?text_edit.Target, null), model.active_text_input);
 }
 
 test "tree expansion and selection remain controlled by the model" {

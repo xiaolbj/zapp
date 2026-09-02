@@ -532,6 +532,8 @@ zig build -Dtarget=wasm32-emscripten
 
 完成标准：能够实现真实的首页、设置页和弹窗流程。
 
+实施状态：首页、活动、设置三页现已通过受控 NavigationBar 路由。每页只生成自己的 Clay 布局和语义节点；切换时 reducer 关闭 Dialog、Select、Menu 和 IME 页面局部状态，FocusManager 将焦点迁移到目标导航项。设置页复用 Accordion、Checkbox、Switch 与 RadioGroup，值在离开并返回页面后继续由 AppModel 保持。该闭环已通过单元测试及 Android 模拟器点击/UIAutomator 验证。
+
 ### P2：Android APK
 
 - Zig 输出 Android `.so`。
@@ -591,9 +593,9 @@ zig build -Dtarget=wasm32-emscripten
 P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。后续仍按单线推进，不同时展开 Android、控件和 ImGui：
 
 1. 扩展图片资源注册表与文件解码器（圆角、边框、图片命令及首个编译期 RGBA 资源已完成）。
-2. 建立 Button 等第一批正式交互控件。
-3. 补充布局和渲染回归测试。
-4. 桌面 UI 基线稳定后，再建立 Android APK 壳与 JNI 桥。
+2. 建立 Button 等第一批正式交互控件（已完成并持续扩展）。
+3. 补充布局和渲染回归测试（已覆盖三页互斥布局、页面语义与焦点迁移）。
+4. 桌面 UI 基线稳定后，再建立 Android APK 壳与 JNI 桥（已完成 Debug/Release 工程与运行时验证）。
 5. 发布优化阶段再处理中文字体子集或按语言分包。
 
 任何改变“Clay 作为正式 UI、ImGui 仅作调试、平台能力走薄桥接层”这三个核心决策的变更，都应先更新本文档并记录理由。
@@ -664,6 +666,8 @@ Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举�
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
 平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/up/down/left/right/first/last/back，并复用键盘的 FocusManager 和一帧请求状态。Android Activity 已显式捕获普通 UI 焦点下的 DPAD、Tab、Enter/Space、Home/End 与手柄 A 键，经 JNI 事件队列进入同一 reducer；IME 编辑视图持有焦点时不截获方向键。Sokol 本身不提供统一 gamepad 事件，Windows XInput 与 Apple GameController 的原生采集仍属于各平台壳实现。
+
+应用级页面路由已形成真实闭环：NavigationBar 的首页、活动、设置选中项由 AppModel 控制，页面切换后旧页不再生成 Clay 命令或语义节点；ActivityPage 提供独立可滚动事件流，SettingsPage 组合受控设置控件。Reducer 在页面改变时关闭页面局部浮层并结束文本编辑，UI 状态记录上次页面并把焦点移到对应导航项。Android 模拟器已验证点击三页切换、选中语义、设置值跨页保留和无崩溃日志。
 
 控件语义元数据已接入：`ui.Frame.semantic_nodes` 每帧输出稳定 Clay 元素 ID、角色、标签、值/勾选值、范围 min/max/step、最终布局边界以及 disabled、focused、selected、modal、expanded、required、invalid、error text、行列位置和集合尺寸状态。交互控件以及 Label、ProgressBar、Toast、Card、ScrollView/List、DataTable、TreeView、Accordion、FormField、ChipGroup 和 NumberStepper 均通过同一注册表写入；Divider 作为纯装饰元素不进入语义树。Android 已用 `AccessibilityNodeProvider` 映射虚拟节点与动作回传，Card/ScrollView 还会根据 Clay 的实际滚动位置暴露可用方向并执行 80% 视口高度的系统翻页动作，DataTable 映射为 CollectionInfo/CollectionItemInfo，FormField 映射必填和验证错误状态，ChipGroup 映射为一组可勾选 ToggleButton，NumberStepper 映射为 NumberPicker；iOS 原生无障碍桥仍负责将同一份数据映射到 UIAccessibility。
 
