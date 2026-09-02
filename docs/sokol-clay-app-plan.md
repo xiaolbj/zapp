@@ -666,7 +666,7 @@ Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举�
 
 远程图片已经建立独立的平台请求/事件协议。Android transport 使用 `HttpURLConnection` 异步读取 HTTPS，拒绝明文 URL 和重定向降级；Windows、Linux、macOS transport 使用 Zig 0.16 `std.http.Client` 在后台线程执行请求，允许最多 5 次重定向并检查最终 URI 仍为 HTTPS。两者都只接受 2xx 的 PNG/JPEG，并在 Content-Length 与实际读取两个层面执行 16 MiB 上限。网络数据沿用 4096 字节有序分块、主线程累加器、内存解码和 Registry/LRU；文件与网络请求共享最终图片状态，但使用不同取消通道。Android 使用原子活动请求 ID 与主动断开连接保证单一终态；桌面 Loader 在互斥状态机中发布 ready/failed/cancelled，再由渲染主线程逐帧消费，不让网络 I/O 阻塞 UI。Android 模拟器已验证公开 HTTPS PNG 的 9,784 字节内容成功解码为 `288 × 288`、写入缓存并显示；Windows 桌面 transport 也已对同一资源完成 9,784 字节真实 HTTPS 冒烟测试。
 
-键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
+键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容在焦点变化时执行一次自动显露，焦点保持不变时不会每帧拉回用户滚动，FormField 验证状态变化可单独再次触发。VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
 平台层已定义统一 `NavigationCommand`，手柄、电视遥控器或辅助输入设备可以投递 next/previous/activate/decrement/increment/up/down/left/right/first/last/back，并复用键盘的 FocusManager 和一帧请求状态。Android Activity 已显式捕获普通 UI 焦点下的 DPAD、Tab、Enter/Space、Home/End 与手柄 A 键，经 JNI 事件队列进入同一 reducer；IME 编辑视图持有焦点时不截获方向键。Sokol 本身不提供统一 gamepad 事件，Windows XInput 与 Apple GameController 的原生采集仍属于各平台壳实现。
 

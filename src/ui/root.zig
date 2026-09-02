@@ -172,6 +172,7 @@ const state = struct {
     var nested_scroll_active = false;
     var nested_scroll_pointer_y: f32 = 0;
     var last_text_submission_count: u32 = 0;
+    var last_auto_reveal_focus_id: ?u32 = null;
     var last_navigation_index: u8 = 0;
     var actions: [max_actions]Action = undefined;
     var action_count: usize = 0;
@@ -237,6 +238,7 @@ pub fn setup(model: *const Model) bool {
     state.nested_scroll_active = false;
     state.nested_scroll_pointer_y = 0;
     state.last_text_submission_count = model.application_name_input.submission_count;
+    state.last_auto_reveal_focus_id = null;
     state.last_navigation_index = @min(model.demo_navigation_index, 2);
     state.action_count = 0;
 
@@ -268,6 +270,7 @@ pub fn shutdown() void {
     state.nested_scroll_active = false;
     state.nested_scroll_pointer_y = 0;
     state.last_text_submission_count = 0;
+    state.last_auto_reveal_focus_id = null;
     state.last_navigation_index = 0;
     state.action_count = 0;
 }
@@ -295,7 +298,9 @@ pub fn build(model: *const Model) Frame {
     if (nested_wheel_target) |target| restoreNestedWheelTarget(target);
     if (nested_scroll_before) |before| applyNestedBoundaryScroll(model, before);
     if (model.pointer_released and !model.pointer_down) state.nested_scroll_active = false;
-    if (model.application_name_input.submission_count != state.last_text_submission_count) {
+    const text_submission_changed =
+        model.application_name_input.submission_count != state.last_text_submission_count;
+    if (text_submission_changed) {
         state.last_text_submission_count = model.application_name_input.submission_count;
         state.toast_state.show(
             if (demoTextInvalid(model)) "请修正表单错误" else "表单已提交",
@@ -554,7 +559,9 @@ pub fn build(model: *const Model) Frame {
     }
     if (!model.demo_dialog_open) {
         if (state.focus_state.focused_id) |focused_id| {
-            if (navigationIndex(focused_id) == null) {
+            const reveal_requested = state.last_auto_reveal_focus_id != focused_id or
+                (focused_id == text_field_id and text_submission_changed);
+            if (navigationIndex(focused_id) == null and reveal_requested) {
                 const reveal_id = if (virtualListIndex(focused_id) != null)
                     clay.ElementId.ID("RecordsVirtualList").id
                 else if (focused_id == text_field_id and demoTextInvalid(model))
@@ -567,6 +574,9 @@ pub fn build(model: *const Model) Frame {
                     clay.ElementId.ID("PrimaryCard").id;
                 ensureElementVisibleInScrollContainer(reveal_id, page_scroll_id);
             }
+            state.last_auto_reveal_focus_id = focused_id;
+        } else {
+            state.last_auto_reveal_focus_id = null;
         }
     }
     if (model.focus_next_requested or model.focus_previous_requested) {
@@ -3142,6 +3152,18 @@ test "responsive shell emits controls and text" {
         _ = build(&model);
     }
     try std.testing.expectApproxEqAbs(@as(f32, 0), primary_scroll.scroll_position.y, 1);
+
+    // A pointer-clicked control may keep focus, but focus reveal is a one-shot
+    // event. Subsequent user scrolling must not pull the card back to it.
+    state.focus_state.focus(clay.ElementId.ID("PrimaryAction").id);
+    _ = build(&model);
+    _ = build(&model);
+    primary_scroll.scroll_position.y = -500;
+    _ = build(&model);
+    try std.testing.expectApproxEqAbs(@as(f32, -500), primary_scroll.scroll_position.y, 0.01);
+    state.focus_state.focused_id = null;
+    _ = build(&model);
+
     ensureElementVisibleInScrollContainer(
         clay.ElementId.ID("RecordsVirtualList").id,
         clay.ElementId.ID("PrimaryCard").id,
