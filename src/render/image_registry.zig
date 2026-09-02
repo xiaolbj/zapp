@@ -1,22 +1,29 @@
 const std = @import("std");
 const sokol = @import("sokol");
 const catalog = @import("../assets/image_catalog.zig");
+const image_cache = @import("image_cache.zig");
 const image_decode = @import("image_decode.zig");
 
 const sg = sokol.gfx;
+
+comptime {
+    std.debug.assert(image_cache.capacity == catalog.runtime_resource_count);
+}
 
 pub const Texture = struct {
     view: sg.View,
     sampler: sg.Sampler,
 };
 
-pub const Dimensions = struct {
+pub const CacheResult = struct {
+    resource: catalog.Resource,
     width: u32,
     height: u32,
+    cache_hit: bool,
+    cached_count: u8,
 };
 
-pub const ReplaceError = error{
-    ImmutableResource,
+pub const CacheError = error{
     InvalidData,
     LimitExceeded,
     GpuUploadFailed,
@@ -30,6 +37,7 @@ const Entry = struct {
 pub const Registry = struct {
     entries: [catalog.resource_count]Entry = @splat(.{}),
     sampler: sg.Sampler = .{},
+    cache: image_cache.Index = .{},
 
     pub fn setup(self: *Registry) bool {
         self.shutdown();
@@ -62,6 +70,7 @@ pub const Registry = struct {
         }
         if (self.sampler.id != 0) sg.destroySampler(self.sampler);
         self.sampler = .{};
+        self.cache.reset();
     }
 
     pub fn resolve(self: *const Registry, resource: catalog.Resource) ?Texture {
@@ -72,12 +81,21 @@ pub const Registry = struct {
 
     /// Replaces a dynamic slot only after decode and both GPU objects succeed.
     /// A failed update leaves the previously visible texture untouched.
-    pub fn replaceEncoded(
+    pub fn cacheEncoded(
         self: *Registry,
-        resource: catalog.Resource,
         encoded_bytes: []const u8,
-    ) ReplaceError!Dimensions {
-        if (catalog.descriptor(resource) != null) return error.ImmutableResource;
+    ) CacheError!CacheResult {
+        const digest = image_cache.contentDigest(encoded_bytes);
+        if (self.cache.lookup(digest)) |hit| return .{
+            .resource = catalog.runtimeResource(hit.slot),
+            .width = hit.width,
+            .height = hit.height,
+            .cache_hit = true,
+            .cached_count = @intCast(self.cache.count()),
+        };
+
+        const slot = self.cache.victim();
+        const resource = catalog.runtimeResource(slot);
         var decoded = image_decode.decode(encoded_bytes) catch |decode_error| return switch (decode_error) {
             error.LimitExceeded => error.LimitExceeded,
             else => error.InvalidData,
@@ -91,8 +109,15 @@ pub const Registry = struct {
         const entry = &self.entries[index(resource)];
         const previous = entry.*;
         entry.* = replacement;
+        self.cache.commit(slot, digest, decoded.width, decoded.height);
         destroyEntry(previous);
-        return .{ .width = decoded.width, .height = decoded.height };
+        return .{
+            .resource = resource,
+            .width = decoded.width,
+            .height = decoded.height,
+            .cache_hit = false,
+            .cached_count = @intCast(self.cache.count()),
+        };
     }
 
     fn load(self: *Registry, item: catalog.Descriptor) bool {
@@ -139,5 +164,7 @@ fn index(resource: catalog.Resource) usize {
 test "empty registry does not resolve GPU textures" {
     const registry: Registry = .{};
     try std.testing.expect(registry.resolve(.demo_hero) == null);
-    try std.testing.expect(registry.resolve(.runtime_preview) == null);
+    inline for (0..catalog.runtime_resource_count) |slot| {
+        try std.testing.expect(registry.resolve(catalog.runtimeResource(slot)) == null);
+    }
 }

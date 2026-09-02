@@ -20,6 +20,7 @@ test {
     _ = text;
     _ = ui;
     _ = @import("src/render/image_decode.zig");
+    _ = @import("src/render/image_cache.zig");
     _ = @import("src/render/image_registry.zig");
     _ = @import("src/ui/focus_manager.zig");
     _ = @import("src/ui/widgets/button.zig");

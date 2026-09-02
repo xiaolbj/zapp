@@ -38,8 +38,11 @@ pub const RuntimeImageProgress = struct {
 pub const RuntimeImageResult = struct {
     request_id: platform.RequestId,
     encoded_bytes: u64,
+    resource: image_catalog.Resource,
     width: u32,
     height: u32,
+    cache_hit: bool,
+    cached_count: u8,
 };
 
 pub const RuntimeImageFailure = struct {
@@ -135,6 +138,7 @@ pub const Action = union(enum) {
     resumed,
 };
 const frame_metrics = @import("../performance/frame_metrics.zig");
+const image_catalog = @import("../assets/image_catalog.zig");
 const platform = @import("../platform/platform.zig");
 const runtime_image = @import("../assets/runtime_image.zig");
 const text_edit = @import("text_edit.zig");

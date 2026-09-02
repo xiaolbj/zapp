@@ -593,7 +593,7 @@ zig build -Dtarget=wasm32-emscripten
 
 P0 骨架、Rectangle Renderer 与 Unicode/中文 Text 数据流已经完成。后续仍按单线推进，不同时展开 Android、控件和 ImGui：
 
-1. 扩展多动态槽缓存与淘汰策略（内嵌 Catalog、PNG/JPEG 内存解码、GPU Registry、Android 异步文件图片、原子替换、圆角/边框/fit 已完成）。
+1. 扩展可配置缓存预算、显式释放和远程来源（内嵌 Catalog、PNG/JPEG 内存解码、GPU Registry、Android 异步文件图片、4 槽 SHA-256/LRU 缓存、原子替换、圆角/边框/fit 已完成）。
 2. 建立 Button 等第一批正式交互控件（已完成并持续扩展）。
 3. 补充布局和渲染回归测试（已覆盖三页互斥布局、页面语义与焦点迁移）。
 4. 桌面 UI 基线稳定后，再建立 Android APK 壳与 JNI 桥（已完成 Debug/Release 工程与运行时验证）。
@@ -662,7 +662,7 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 补充控件 NumberStepper 已实现：整数值由 AppModel 控制，减号、数值和加号组成单一范围控件；指针点击与四向键按配置步长增减，Home/End 跳到最小/最大值，边界按钮自动禁用。语义节点新增 value_min/value_max/value_step，Slider 也显式写入自身 `0...1` 与 `0.05` 步长；Android Zig/C 节点 ABI 扩展为 448 字节、JNI geometry 扩展为 8 个 float，并把 spin_button 映射为带 RangeInfo 与双向系统滚动动作的 NumberPicker。
 
-Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举、固有像素尺寸和 fit 策略，不让业务 UI 持有 `sg.Image`。资源 Catalog 内嵌实际 PNG/JPEG 编码字节和受校验的尺寸元数据；Registry 在渲染器初始化时通过固定版本 `stb_image` 解码一次，限制最大维度 4096 和最大 RGBA 数据 64 MiB，再统一创建、解析并销毁 Image/View 及共享 Sampler。渲染支持 stretch、contain、cover 的边界/UV 计算、可选颜色 tint 和几何圆角，普通帧不执行文件 I/O、图片解码或堆分配。Android 运行时图片加载复用既有带背压和取消的 4096 字节文件流，主线程累加器限制编码数据为 16 MiB；完整数据通过相同解码器后先创建新的 Image/View，全部成功才替换动态槽并销毁旧对象，因此无效文件、解码超限或 GPU 失败不会清空上一张有效图片。首页 PNG、活动页 JPEG 及 `content://` 动态 PNG 均已在 Android GLES 模拟器验证，图片节点进入平台语义树并映射为原生 `android.widget.ImageView` 类名。
+Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举、固有像素尺寸和 fit 策略，不让业务 UI 持有 `sg.Image`。资源 Catalog 内嵌实际 PNG/JPEG 编码字节和受校验的尺寸元数据；Registry 在渲染器初始化时通过固定版本 `stb_image` 解码一次，限制最大维度 4096 和最大 RGBA 数据 64 MiB，再统一创建、解析并销毁 Image/View 及共享 Sampler。渲染支持 stretch、contain、cover 的边界/UV 计算、可选颜色 tint 和几何圆角，普通帧不执行文件 I/O、图片解码或堆分配。Android 运行时图片加载复用既有带背压和取消的 4096 字节文件流，主线程累加器限制编码数据为 16 MiB。动态资源使用 4 个固定 GPU 槽，SHA-256 编码内容键命中时只更新 LRU 时钟，不重复解码或上传；未命中时优先空槽，否则选择最久未访问槽，完整数据通过相同解码器后先创建新的 Image/View，全部成功才提交缓存索引、替换 victim 并销毁旧对象。因此无效文件、解码超限或 GPU 失败不会清空上一张有效图片。首页 PNG、活动页 JPEG 及 `content://` 动态 PNG 均已在 Android GLES 模拟器验证，图片节点进入平台语义树并映射为原生 `android.widget.ImageView` 类名。
 
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 

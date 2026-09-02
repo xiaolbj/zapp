@@ -378,12 +378,12 @@ fn finishRuntimeImage(native_event: *const zapp.platform.android.Event) void {
         } });
         return;
     };
-    const dimensions = state.renderer.images.replaceEncoded(.runtime_preview, encoded) catch |replace_error| {
+    const cache_result = state.renderer.images.cacheEncoded(encoded) catch |replace_error| {
         state.runtime_image_accumulator.reset(std.heap.c_allocator);
         state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
             .request_id = native_event.request_id,
             .error_kind = switch (replace_error) {
-                error.InvalidData, error.ImmutableResource => .invalid_data,
+                error.InvalidData => .invalid_data,
                 error.LimitExceeded => .decoded_limit_exceeded,
                 error.GpuUploadFailed => .gpu_upload_failed,
             },
@@ -395,8 +395,11 @@ fn finishRuntimeImage(native_event: *const zapp.platform.android.Event) void {
     state.app.dispatch(.{ .platform_runtime_image_load_succeeded = .{
         .request_id = native_event.request_id,
         .encoded_bytes = encoded_bytes,
-        .width = dimensions.width,
-        .height = dimensions.height,
+        .resource = cache_result.resource,
+        .width = cache_result.width,
+        .height = cache_result.height,
+        .cache_hit = cache_result.cache_hit,
+        .cached_count = cache_result.cached_count,
     } });
 }
 

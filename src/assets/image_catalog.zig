@@ -3,7 +3,10 @@ const std = @import("std");
 pub const Resource = enum(u8) {
     demo_hero,
     activity_thumbnail,
-    runtime_preview,
+    runtime_0,
+    runtime_1,
+    runtime_2,
+    runtime_3,
 };
 
 pub const Descriptor = struct {
@@ -15,6 +18,7 @@ pub const Descriptor = struct {
 };
 
 pub const resource_count = std.meta.fields(Resource).len;
+pub const runtime_resource_count: usize = 4;
 
 const demo_hero_bytes = @embedFile("../../assets/images/app-hero.png");
 const activity_thumbnail_bytes = @embedFile("../../assets/images/activity-card.jpg");
@@ -35,8 +39,20 @@ pub fn descriptor(resource: Resource) ?Descriptor {
             .pixel_height = 64,
             .label = "zapp-activity-thumbnail",
         },
-        .runtime_preview => null,
+        .runtime_0, .runtime_1, .runtime_2, .runtime_3 => null,
     };
+}
+
+pub fn runtimeResource(slot: usize) Resource {
+    std.debug.assert(slot < runtime_resource_count);
+    return @enumFromInt(@intFromEnum(Resource.runtime_0) + slot);
+}
+
+pub fn runtimeSlot(resource: Resource) ?usize {
+    const value = @intFromEnum(resource);
+    const first = @intFromEnum(Resource.runtime_0);
+    if (value < first or value >= first + runtime_resource_count) return null;
+    return value - first;
 }
 
 test "catalog owns stable encoded image metadata" {
@@ -51,5 +67,10 @@ test "catalog owns stable encoded image metadata" {
     try std.testing.expectEqual(@as(u32, 96), thumbnail.pixel_width);
     try std.testing.expectEqual(@as(u32, 64), thumbnail.pixel_height);
     try std.testing.expectEqualSlices(u8, "\xff\xd8", thumbnail.encoded_bytes[0..2]);
-    try std.testing.expect(descriptor(.runtime_preview) == null);
+    inline for (0..runtime_resource_count) |slot| {
+        const resource = runtimeResource(slot);
+        try std.testing.expectEqual(slot, runtimeSlot(resource).?);
+        try std.testing.expect(descriptor(resource) == null);
+    }
+    try std.testing.expect(runtimeSlot(.demo_hero) == null);
 }

@@ -243,8 +243,11 @@ pub fn update(model: *Model, action: Action) void {
             model.runtime_image_cancel_pending = false;
             model.runtime_image_loaded = true;
             model.runtime_image_bytes_received = result.encoded_bytes;
+            model.runtime_image_resource = result.resource;
             model.runtime_image_width = result.width;
             model.runtime_image_height = result.height;
+            model.runtime_image_cache_hit = result.cache_hit;
+            model.runtime_image_cached_count = result.cached_count;
             model.runtime_image_error = null;
         },
         .platform_runtime_image_load_failed => |failure| {
@@ -880,15 +883,32 @@ test "runtime image loading preserves the last success across failures" {
     update(&model, .{ .platform_runtime_image_load_succeeded = .{
         .request_id = 31,
         .encoded_bytes = 12_266,
+        .resource = .runtime_2,
         .width = 128,
         .height = 64,
+        .cache_hit = false,
+        .cached_count = 3,
     } });
     try std.testing.expect(model.runtime_image_loaded);
     try std.testing.expectEqual(@as(u32, 128), model.runtime_image_width);
+    try std.testing.expectEqual(@import("../assets/image_catalog.zig").Resource.runtime_2, model.runtime_image_resource);
+    try std.testing.expectEqual(@as(u8, 3), model.runtime_image_cached_count);
 
     update(&model, .{ .platform_runtime_image_load_started = 32 });
-    update(&model, .{ .platform_runtime_image_load_failed = .{
+    update(&model, .{ .platform_runtime_image_load_succeeded = .{
         .request_id = 32,
+        .encoded_bytes = 12_266,
+        .resource = .runtime_2,
+        .width = 128,
+        .height = 64,
+        .cache_hit = true,
+        .cached_count = 3,
+    } });
+    try std.testing.expect(model.runtime_image_cache_hit);
+
+    update(&model, .{ .platform_runtime_image_load_started = 33 });
+    update(&model, .{ .platform_runtime_image_load_failed = .{
+        .request_id = 33,
         .error_kind = .invalid_data,
     } });
     try std.testing.expect(!model.runtime_image_load_pending);

@@ -1,4 +1,5 @@
 const frame_metrics = @import("../performance/frame_metrics.zig");
+const image_catalog = @import("../assets/image_catalog.zig");
 const platform = @import("../platform/platform.zig");
 const runtime_image = @import("../assets/runtime_image.zig");
 const text_edit = @import("text_edit.zig");
@@ -81,8 +82,11 @@ pub const Model = struct {
     runtime_image_loaded: bool = false,
     last_runtime_image_request_id: platform.RequestId = 0,
     runtime_image_bytes_received: u64 = 0,
+    runtime_image_resource: image_catalog.Resource = .runtime_0,
     runtime_image_width: u32 = 0,
     runtime_image_height: u32 = 0,
+    runtime_image_cache_hit: bool = false,
+    runtime_image_cached_count: u8 = 0,
     runtime_image_error: ?runtime_image.LoadFailure = null,
     demo_navigation_index: u8 = 0,
     demo_tree_expanded_mask: u64 = 0b11,

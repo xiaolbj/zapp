@@ -3,6 +3,7 @@ const clay = @import("zclay");
 const Action = @import("../app/action.zig").Action;
 const Model = @import("../app/model.zig").Model;
 const runtime_image = @import("../assets/runtime_image.zig");
+const image_catalog = @import("../assets/image_catalog.zig");
 const text_edit = @import("../app/text_edit.zig");
 const font = @import("../text/font.zig");
 const focus_manager = @import("focus_manager.zig");
@@ -174,7 +175,7 @@ const state = struct {
     var file_stream_status_text: [320]u8 = undefined;
     var runtime_image_status_text: [320]u8 = undefined;
     var runtime_image_source: image_view.Source = .{
-        .resource = .runtime_preview,
+        .resource = .runtime_0,
         .pixel_width = 1,
         .pixel_height = 1,
         .fit = .contain,
@@ -1504,6 +1505,7 @@ pub fn build(model: *const Model) Frame {
                                 .semantic_registry = &state.semantic_registry,
                             });
                             if (model.runtime_image_loaded) {
+                                state.runtime_image_source.resource = model.runtime_image_resource;
                                 state.runtime_image_source.pixel_width = @floatFromInt(model.runtime_image_width);
                                 state.runtime_image_source.pixel_height = @floatFromInt(model.runtime_image_height);
                                 image_view.draw(.{
@@ -2548,8 +2550,15 @@ fn formatRuntimeImageStatus(buffer: []u8, model: *const Model) []const u8 {
     }
     if (model.runtime_image_loaded) return std.fmt.bufPrint(
         buffer,
-        "运行时图片：{d} × {d}，编码数据 {d} 字节",
-        .{ model.runtime_image_width, model.runtime_image_height, model.runtime_image_bytes_received },
+        "运行时图片：{d} × {d}，编码数据 {d} 字节｜缓存{s}（{d}/{d}）",
+        .{
+            model.runtime_image_width,
+            model.runtime_image_height,
+            model.runtime_image_bytes_received,
+            if (model.runtime_image_cache_hit) "命中" else "新增",
+            model.runtime_image_cached_count,
+            image_catalog.runtime_resource_count,
+        },
     ) catch "图片状态不可用";
     return "";
 }
@@ -3638,6 +3647,7 @@ test "runtime image status reports bounds progress and dimensions" {
         .file_size_known = true,
         .runtime_image_load_pending = true,
         .runtime_image_bytes_received = 4096,
+        .runtime_image_cached_count = 1,
     };
     var buffer: [320]u8 = undefined;
     const progress = formatRuntimeImageStatus(&buffer, &model);
@@ -3650,6 +3660,11 @@ test "runtime image status reports bounds progress and dimensions" {
     model.runtime_image_bytes_received = 12_266;
     const loaded = formatRuntimeImageStatus(&buffer, &model);
     try std.testing.expect(std.mem.indexOf(u8, loaded, "128 × 64") != null);
+    try std.testing.expect(std.mem.indexOf(u8, loaded, "缓存新增（1/4）") != null);
+
+    model.runtime_image_cache_hit = true;
+    const cache_hit = formatRuntimeImageStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, cache_hit, "缓存命中（1/4）") != null);
 
     model.runtime_image_loaded = false;
     model.file_size = runtime_image.max_encoded_bytes + 1;
