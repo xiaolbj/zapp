@@ -5,6 +5,7 @@ pub const assets = struct {
 };
 pub const performance = @import("src/performance/frame_metrics.zig");
 pub const platform = @import("src/platform/platform.zig");
+pub const desktop_remote_image = @import("src/platform/desktop_remote_image.zig");
 pub const render = @import("src/render/clay_renderer.zig");
 pub const semantics = @import("src/ui/semantics.zig");
 pub const text = @import("src/text/font.zig");
@@ -16,6 +17,7 @@ test {
     _ = app;
     _ = performance;
     _ = platform;
+    _ = desktop_remote_image;
     _ = semantics;
     _ = text;
     _ = ui;
@@ -35,6 +37,7 @@ test {
     _ = @import("src/ui/widgets/navigation_bar.zig");
     _ = @import("src/ui/widgets/progress_bar.zig");
     _ = @import("src/ui/widgets/scroll_view.zig");
+    _ = @import("src/ui/widgets/scroll_bar.zig");
     _ = @import("src/ui/widgets/slider.zig");
     _ = @import("src/ui/widgets/switch.zig");
     _ = @import("src/ui/widgets/text_field.zig");

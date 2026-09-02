@@ -29,6 +29,7 @@ const pagination = @import("widgets/pagination.zig");
 const progress_bar = @import("widgets/progress_bar.zig");
 const radio_group = @import("widgets/radio_group.zig");
 const scroll_view = @import("widgets/scroll_view.zig");
+const scroll_bar = @import("widgets/scroll_bar.zig");
 const search_field = @import("widgets/search_field.zig");
 const select = @import("widgets/select.zig");
 const slider = @import("widgets/slider.zig");
@@ -166,6 +167,7 @@ const state = struct {
     var pagination_state: pagination.State = .{};
     var number_stepper_state: number_stepper.State = .{};
     var virtual_list_state: virtual_list.State = .{};
+    var scroll_bar_state: scroll_bar.State = .{};
     var last_text_submission_count: u32 = 0;
     var last_navigation_index: u8 = 0;
     var actions: [max_actions]Action = undefined;
@@ -228,6 +230,7 @@ pub fn setup(model: *const Model) bool {
     state.pagination_state = .{};
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
+    state.scroll_bar_state = .{};
     state.last_text_submission_count = model.application_name_input.submission_count;
     state.last_navigation_index = @min(model.demo_navigation_index, 2);
     state.action_count = 0;
@@ -256,6 +259,7 @@ pub fn shutdown() void {
     state.pagination_state = .{};
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
+    state.scroll_bar_state = .{};
     state.last_text_submission_count = 0;
     state.last_navigation_index = 0;
     state.action_count = 0;
@@ -1611,6 +1615,10 @@ pub fn build(model: *const Model) Frame {
                                 .semantic_registry = &state.semantic_registry,
                             });
                             state.semantic_registry.popScrollAncestor();
+                            scroll_bar.draw(&state.scroll_bar_state, input, .{
+                                .id = "PrimaryCardScrollBar",
+                                .scroll_id = "PrimaryCard",
+                            });
                         });
 
                         clay.UI()(scroll_view.declaration(.{
@@ -1645,9 +1653,15 @@ pub fn build(model: *const Model) Frame {
                                 });
                             }
                             state.semantic_registry.popScrollAncestor();
+                            scroll_bar.draw(&state.scroll_bar_state, input, .{
+                                .id = "ActivityScrollBar",
+                                .scroll_id = "ActivityScrollView",
+                                .width = 10,
+                                .min_thumb_height = 24,
+                            });
                         });
                     },
-                    1 => drawActivityPage(compact),
+                    1 => drawActivityPage(compact, input),
                     else => drawSettingsPage(model, input, control_width, control_direction, narrow, modal_open),
                 }
             });
@@ -2115,7 +2129,7 @@ fn demoTextInvalid(model: *const Model) bool {
     return model.application_name_input.submission_count > 0 and std.mem.trim(u8, model.text(), " \t").len < 2;
 }
 
-fn drawActivityPage(compact: bool) void {
+fn drawActivityPage(compact: bool, input: interaction.Input) void {
     clay.UI()(card.declaration(.{
         .id = "ActivityPage",
         .scroll_vertical = true,
@@ -2190,6 +2204,10 @@ fn drawActivityPage(compact: bool) void {
             });
         }
         state.semantic_registry.popScrollAncestor();
+        scroll_bar.draw(&state.scroll_bar_state, input, .{
+            .id = "ActivityPageScrollBar",
+            .scroll_id = "ActivityPage",
+        });
     });
 }
 
@@ -2323,6 +2341,10 @@ fn drawSettingsPage(
             .semantic_registry = &state.semantic_registry,
         });
         state.semantic_registry.popScrollAncestor();
+        scroll_bar.draw(&state.scroll_bar_state, input, .{
+            .id = "SettingsPageScrollBar",
+            .scroll_id = "SettingsPage",
+        });
     });
 }
 
@@ -2928,6 +2950,54 @@ test "responsive shell emits controls and text" {
 
     const primary_scroll = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
     try std.testing.expect(primary_scroll.found);
+    const primary_data = clay.getElementData(clay.ElementId.ID("PrimaryCard"));
+    try std.testing.expect(primary_data.found);
+    const primary_max_scroll = @max(
+        primary_scroll.content_dimensions.h - primary_scroll.scroll_container_dimensions.h,
+        0,
+    );
+    try std.testing.expect(primary_max_scroll > 0);
+    primary_scroll.scroll_position.y = 0;
+    _ = build(&model);
+    const first_primary_content = clay.getElementData(clay.ElementId.ID("PrimaryCardTitle"));
+    try std.testing.expect(first_primary_content.found);
+    try std.testing.expect(first_primary_content.bounding_box.y >= primary_data.bounding_box.y);
+    primary_scroll.scroll_position.y = -primary_max_scroll;
+    _ = build(&model);
+    const last_primary_content = clay.getElementData(clay.ElementId.ID("DialogConfirmationCount"));
+    try std.testing.expect(last_primary_content.found);
+    try std.testing.expect(last_primary_content.bounding_box.y + last_primary_content.bounding_box.height <=
+        primary_data.bounding_box.y + primary_data.bounding_box.height);
+    try std.testing.expect(last_primary_content.bounding_box.y + last_primary_content.bounding_box.height >
+        primary_data.bounding_box.y);
+    primary_scroll.scroll_position.y = 0;
+    model.pointer_x = primary_data.bounding_box.x + primary_data.bounding_box.width * 0.75;
+    for (0..6) |_| {
+        model.pointer_y = primary_data.bounding_box.y + primary_data.bounding_box.height - 40;
+        model.pointer_down = false;
+        _ = build(&model);
+        model.pointer_down = true;
+        _ = build(&model);
+        model.pointer_y = primary_data.bounding_box.y + 40;
+        _ = build(&model);
+        model.pointer_down = false;
+        _ = build(&model);
+    }
+    try std.testing.expectApproxEqAbs(-primary_max_scroll, primary_scroll.scroll_position.y, 1);
+    for (0..6) |_| {
+        model.pointer_y = primary_data.bounding_box.y + 40;
+        model.pointer_down = false;
+        _ = build(&model);
+        model.pointer_down = true;
+        _ = build(&model);
+        model.pointer_y = primary_data.bounding_box.y + primary_data.bounding_box.height - 40;
+        _ = build(&model);
+        model.pointer_down = false;
+        _ = build(&model);
+    }
+    try std.testing.expectApproxEqAbs(@as(f32, 0), primary_scroll.scroll_position.y, 1);
+    model.pointer_x = 0;
+    model.pointer_y = 0;
     primary_scroll.scroll_position.y = -500;
     const scrolled_bounds_frame = build(&model);
     var compared_scrolled_bounds: usize = 0;

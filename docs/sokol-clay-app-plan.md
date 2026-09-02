@@ -664,7 +664,7 @@ Clay 0.14 context 按应用生命周期单次初始化：启动时 `setup()`，�
 
 Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举、固有像素尺寸和 fit 策略，不让业务 UI 持有 `sg.Image`。资源 Catalog 内嵌实际 PNG/JPEG 编码字节和受校验的尺寸元数据；Registry 在渲染器初始化时通过固定版本 `stb_image` 解码一次，限制最大维度 4096 和最大 RGBA 数据 64 MiB，再统一创建、解析并销毁 Image/View 及共享 Sampler。渲染支持 stretch、contain、cover 的边界/UV 计算、可选颜色 tint 和几何圆角，普通帧不执行文件 I/O、图片解码或堆分配。Android 运行时图片加载复用既有带背压和取消的 4096 字节文件流，主线程累加器限制编码数据为 16 MiB。动态资源提供 4 个固定 GPU 槽，设置页通过受控 RadioGroup 配置 1–4 槽实际预算；SHA-256 编码内容键命中时只更新 LRU 时钟，不重复解码或上传，缩减预算时立即从最旧条目开始销毁超额 Image/View，若当前预览仍在幸存集合中则保持可见。未命中时优先空槽，否则选择最久未访问槽，完整数据通过相同解码器后先创建新的 Image/View，全部成功才提交缓存索引、替换 victim 并销毁旧对象。因此无效文件、解码超限或 GPU 失败不会清空上一张有效图片。用户可显式清空动态槽；Android `onTrimMemory`/`onLowMemory` 经固定尺寸事件队列进入主线程，必要时先取消未完成的文件流，再释放动态 Image/View。策略响应 `RUNNING_LOW`、`RUNNING_CRITICAL` 和后台级别，忽略单独的 `UI_HIDDEN`，并始终保留内嵌资源与共享 Sampler。首页 PNG、活动页 JPEG、两张 `content://` 动态 PNG、2→1 槽 LRU 缩容及 `RUNNING_LOW` 回收均已在 Android GLES 模拟器验证，图片节点进入平台语义树并映射为原生 `android.widget.ImageView` 类名。
 
-远程图片已经建立独立的平台请求/事件协议。Android transport 使用 `HttpURLConnection` 异步读取 HTTPS，拒绝明文 URL 和重定向降级，只接受 2xx 的 PNG/JPEG，并在 Content-Length 与实际读取两个层面执行 16 MiB 上限。网络数据沿用 4096 字节有序分块、主线程累加器、内存解码和 Registry/LRU；文件与网络请求共享最终图片状态，但使用不同取消通道。原子活动请求 ID 与主动断开连接确保每次请求至多产生一个终态事件。模拟器已验证公开 HTTPS PNG 的 9,784 字节内容成功解码为 `288 × 288`、写入缓存并显示。桌面 transport 尚未实现，不应把 Android 网络实现描述为全平台 HTTP 支持；后续 transport 可直接复用现有协议、解码器和 UI/reducer 状态。
+远程图片已经建立独立的平台请求/事件协议。Android transport 使用 `HttpURLConnection` 异步读取 HTTPS，拒绝明文 URL 和重定向降级；Windows、Linux、macOS transport 使用 Zig 0.16 `std.http.Client` 在后台线程执行请求，允许最多 5 次重定向并检查最终 URI 仍为 HTTPS。两者都只接受 2xx 的 PNG/JPEG，并在 Content-Length 与实际读取两个层面执行 16 MiB 上限。网络数据沿用 4096 字节有序分块、主线程累加器、内存解码和 Registry/LRU；文件与网络请求共享最终图片状态，但使用不同取消通道。Android 使用原子活动请求 ID 与主动断开连接保证单一终态；桌面 Loader 在互斥状态机中发布 ready/failed/cancelled，再由渲染主线程逐帧消费，不让网络 I/O 阻塞 UI。Android 模拟器已验证公开 HTTPS PNG 的 9,784 字节内容成功解码为 `288 × 288`、写入缓存并显示；Windows 桌面 transport 也已对同一资源完成 9,784 字节真实 HTTPS 冒烟测试。
 
 键盘基础导航已接入：普通页面和 Dialog 分别维护焦点顺序，`Tab`/`Shift+Tab` 循环移动，`Enter`/`Space` 激活当前控件，Slider 支持左右键步进；普通滚动内容会随焦点自动显露，VirtualList 还协调内外两层滚动，DataTable 提供表头和活动行导航，Pagination 提供左右/Home/End 切页，Accordion 提供标题间导航及展开/收起。可见焦点环已经使用 Theme 令牌统一接入 Button、IconButton、Checkbox、Switch、Slider、TextField、NavigationBar、TreeView、Accordion、Menu、VirtualList、DataTable 和 Pagination，并由 Border RenderCommand 渲染。
 
@@ -676,7 +676,7 @@ Image RenderCommand 已接入：`ImageView.Source` 只保存稳定资源枚举�
 
 控件主题一致性已完成：widgets 的状态颜色、文字颜色、常用圆角和间距统一引用 Theme 令牌，不再在各控件内维护独立调色板。
 
-滚动裁切必须保持命令栈平衡。当前 Clay 版本的内部可见性剔除会在部分屏幕外 clip 元素上省略 `SCISSOR_START`，但仍发出 `SCISSOR_END`，使滚动卡片的外层裁切被提前关闭。项目因此关闭 Clay 的命令级 culling，保留完整成对命令；Sokol 渲染器维护 64 层 scissor 栈，子区域与父区域求交，结束后恢复父区域，并在 CPU 侧跳过与有效裁切区完全不相交的 draw command。VirtualList 继续负责大集合的行级虚拟化，因此不会因关闭 Clay culling 而生成千级列表项。Android 同位置截图已验证顶部 Slider/Stepper 和底部运行时图片不再越过 `PrimaryCard`。
+滚动裁切必须保持命令栈平衡。当前 Clay 版本的内部可见性剔除会在部分屏幕外 clip 元素上省略 `SCISSOR_START`，但仍发出 `SCISSOR_END`，使滚动卡片的外层裁切被提前关闭。项目因此关闭 Clay 的命令级 culling，保留完整成对命令；Sokol 渲染器维护 64 层 scissor 栈，子区域与父区域求交，结束后恢复父区域，并在 CPU 侧跳过与有效裁切区完全不相交的 draw command。VirtualList 继续负责大集合的行级虚拟化，因此不会因关闭 Clay culling 而生成千级列表项。Android 同位置截图已验证顶部 Slider/Stepper 和底部运行时图片不再越过 `PrimaryCard`。由于 Clay 的嵌套滚动容器会优先把触摸交给内层节点，项目还为所有实际溢出的 Card、ScrollView、页面和 VirtualList 添加浮动纵向滚动条：轨道点击与滑块拖动直接写回同一 `scroll_position`，并把轨道两端严格映射到 `0` 与 `-maxScroll`。自动测试覆盖连续触摸拖动到首尾以及滚动条端点换算；Android 实机路径已验证滑块从顶部拖到底部后最后一项完整可见，再拖回顶部后标题与首项恢复可见。
 
 ## 21. 当前实施状态
 

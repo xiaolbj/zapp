@@ -3,6 +3,7 @@ const clay = @import("zclay");
 const interaction = @import("interaction.zig");
 const label = @import("label.zig");
 const semantics = @import("../semantics.zig");
+const scroll_bar = @import("scroll_bar.zig");
 const theme = @import("../theme.zig");
 
 pub const max_visible_rows = 32;
@@ -10,6 +11,7 @@ pub const max_label_bytes = 96;
 
 pub const State = struct {
     labels: [max_visible_rows][max_label_bytes]u8 = undefined,
+    scroll_bar_state: scroll_bar.State = .{},
 };
 
 pub const FormatItemFn = *const fn (index: usize, buffer: []u8) []const u8;
@@ -174,6 +176,13 @@ pub fn draw(
         const remaining = config.item_count - range.end;
         const bottom_height = @as(f32, @floatFromInt(remaining)) * config.row_height;
         if (bottom_height > 0) spacer(config.id, std.math.maxInt(u32) - 2, bottom_height);
+        scroll_bar.draw(&widget_state.scroll_bar_state, input, .{
+            .id = "VirtualListScrollBar",
+            .scroll_id = config.id,
+            .width = 10,
+            .inset = 6,
+            .min_thumb_height = 24,
+        });
     });
     if (pushed_scroll_ancestor) config.semantic_registry.?.popScrollAncestor();
     return output;
