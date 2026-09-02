@@ -46,6 +46,7 @@ export fn frame() void {
         zapp.platform.android.updateAccessibility(ui_frame.semantic_nodes);
     }
     for (ui_frame.actions) |action| state.app.dispatch(action);
+    processRendererRequests();
     processPlatformRequests();
     const keyboard_is_visible = state.app.model.active_text_input != null;
     if (keyboard_was_visible != keyboard_is_visible) {
@@ -210,8 +211,34 @@ fn drainPlatformEvents() void {
                 };
                 state.app.dispatchPlatformEvent(.{ .navigation_requested = command });
             },
+            .memory_pressure => {
+                const level: u32 = @intCast(@max(native_event.detail_value, 0));
+                state.app.dispatchPlatformEvent(.{ .memory_pressure = level });
+                if (zapp.assets.runtime_image.shouldReleaseForAndroidTrimLevel(level)) {
+                    state.app.dispatch(.{ .runtime_image_cache_clear_requested = .memory_pressure });
+                }
+            },
         }
     }
+}
+
+fn processRendererRequests() void {
+    if (!state.app.model.runtime_image_cache_clear_requested) return;
+    const reason = state.app.model.runtime_image_cache_clear_reason;
+    if (state.app.model.runtime_image_load_pending) {
+        const request_id = state.app.model.last_runtime_image_request_id;
+        state.app.dispatch(.platform_runtime_image_load_cancel_requested);
+        state.runtime_image_accumulator.reset(std.heap.c_allocator);
+        state.app.dispatch(.{ .platform_runtime_image_load_failed = .{
+            .request_id = request_id,
+            .error_kind = .interrupted,
+        } });
+    }
+    const released_count = state.renderer.images.clearRuntime();
+    state.app.dispatch(.{ .runtime_image_cache_cleared = .{
+        .reason = reason,
+        .released_count = released_count,
+    } });
 }
 
 fn processPlatformRequests() void {

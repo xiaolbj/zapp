@@ -3,6 +3,18 @@ const std = @import("std");
 pub const max_encoded_bytes: usize = 16 * 1024 * 1024;
 const initial_capacity: usize = 64 * 1024;
 
+pub const ClearReason = enum(u8) {
+    manual,
+    memory_pressure,
+};
+
+pub fn shouldReleaseForAndroidTrimLevel(level: u32) bool {
+    // RUNNING_LOW / RUNNING_CRITICAL and all background-or-stronger levels.
+    // UI_HIDDEN (20) alone is not memory pressure, so it deliberately keeps
+    // the cache warm for a quick foreground resume.
+    return level == 10 or level == 15 or level >= 40;
+}
+
 pub const LoadFailure = enum(u8) {
     invalid_data,
     encoded_limit_exceeded,
@@ -120,4 +132,13 @@ test "runtime image accumulator rejects stale gaps and oversized metadata" {
         accumulator.append(std.testing.allocator, 2, 1, "x"),
     );
     try std.testing.expectError(error.InvalidRequest, accumulator.finish(3, 0));
+}
+
+test "Android trim levels distinguish UI hiding from memory pressure" {
+    try std.testing.expect(!shouldReleaseForAndroidTrimLevel(5));
+    try std.testing.expect(shouldReleaseForAndroidTrimLevel(10));
+    try std.testing.expect(shouldReleaseForAndroidTrimLevel(15));
+    try std.testing.expect(!shouldReleaseForAndroidTrimLevel(20));
+    try std.testing.expect(shouldReleaseForAndroidTrimLevel(40));
+    try std.testing.expect(shouldReleaseForAndroidTrimLevel(80));
 }

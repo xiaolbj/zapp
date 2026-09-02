@@ -37,6 +37,7 @@ enum zapp_android_event_kind {
     ZAPP_ANDROID_NATIVE_CRASH_RECOVERED = 16,
     ZAPP_ANDROID_CRASH_REPORT_EXPORT_RESULT = 17,
     ZAPP_ANDROID_NAVIGATION_REQUESTED = 18,
+    ZAPP_ANDROID_MEMORY_PRESSURE = 19,
 };
 
 typedef struct zapp_android_event {
@@ -343,6 +344,23 @@ Java_com_xiaolbj_zapp_ZappActivity_nativeNavigationRequested(JNIEnv *env, jclass
     (void)env;
     (void)clazz;
     zapp_push_event(ZAPP_ANDROID_NAVIGATION_REQUESTED, (int32_t)command, 0, 0, 0, 0, false, NULL, NULL);
+}
+
+JNIEXPORT void JNICALL
+Java_com_xiaolbj_zapp_ZappActivity_nativeMemoryPressure(JNIEnv *env, jclass clazz, jint level) {
+    (void)env;
+    (void)clazz;
+    zapp_push_event(
+        ZAPP_ANDROID_MEMORY_PRESSURE,
+        level >= 0 ? (int32_t)level : 0,
+        0,
+        0,
+        0,
+        0,
+        false,
+        NULL,
+        NULL
+    );
 }
 
 JNIEXPORT void JNICALL

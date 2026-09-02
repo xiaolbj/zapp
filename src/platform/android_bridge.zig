@@ -88,6 +88,7 @@ pub const EventKind = enum(c_int) {
     native_crash_recovered = 16,
     crash_report_export_result = 17,
     navigation_requested = 18,
+    memory_pressure = 19,
 };
 
 pub const Event = extern struct {
@@ -139,6 +140,7 @@ pub const Event = extern struct {
             @intFromEnum(EventKind.native_crash_recovered) => .native_crash_recovered,
             @intFromEnum(EventKind.crash_report_export_result) => .crash_report_export_result,
             @intFromEnum(EventKind.navigation_requested) => .navigation_requested,
+            @intFromEnum(EventKind.memory_pressure) => .memory_pressure,
             else => null,
         };
     }
@@ -364,6 +366,15 @@ test "native navigation event kind remains ABI-stable" {
     try std.testing.expectEqual(EventKind.navigation_requested, event.kind().?);
     try std.testing.expectEqual(@as(c_int, 8), event.detail_value);
     try std.testing.expectEqual(@as(c_int, 11), @intFromEnum(@import("platform.zig").NavigationCommand.last));
+}
+
+test "memory pressure event kind remains ABI-stable" {
+    var event: Event = std.mem.zeroes(Event);
+    event.kind_value = @intFromEnum(EventKind.memory_pressure);
+    event.detail_value = 10;
+    try std.testing.expectEqual(EventKind.memory_pressure, event.kind().?);
+    try std.testing.expectEqual(@as(c_int, 19), @intFromEnum(EventKind.memory_pressure));
+    try std.testing.expectEqual(@as(c_int, 10), event.detail_value);
 }
 
 test "extended accessibility roles remain ABI-stable" {

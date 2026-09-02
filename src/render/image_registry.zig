@@ -79,6 +79,17 @@ pub const Registry = struct {
         return .{ .view = entry.view, .sampler = self.sampler };
     }
 
+    pub fn clearRuntime(self: *Registry) u8 {
+        const released_count: u8 = @intCast(self.cache.count());
+        inline for (0..catalog.runtime_resource_count) |slot| {
+            const entry = &self.entries[index(catalog.runtimeResource(slot))];
+            destroyEntry(entry.*);
+            entry.* = .{};
+        }
+        self.cache.reset();
+        return released_count;
+    }
+
     /// Replaces a dynamic slot only after decode and both GPU objects succeed.
     /// A failed update leaves the previously visible texture untouched.
     pub fn cacheEncoded(
@@ -162,9 +173,10 @@ fn index(resource: catalog.Resource) usize {
 }
 
 test "empty registry does not resolve GPU textures" {
-    const registry: Registry = .{};
+    var registry: Registry = .{};
     try std.testing.expect(registry.resolve(.demo_hero) == null);
     inline for (0..catalog.runtime_resource_count) |slot| {
         try std.testing.expect(registry.resolve(catalog.runtimeResource(slot)) == null);
     }
+    try std.testing.expectEqual(@as(u8, 0), registry.clearRuntime());
 }

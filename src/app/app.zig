@@ -163,6 +163,7 @@ pub const App = struct {
                 .first => self.dispatch(.focused_control_home_requested),
                 .last => self.dispatch(.focused_control_end_requested),
             },
+            .memory_pressure => |level| self.dispatch(.{ .platform_memory_pressure_received = level }),
             .native_crash_recovered => |report| self.dispatch(.{ .platform_native_crash_recovered = report }),
             .crash_report_export_result => |result| self.dispatch(.{
                 .platform_crash_report_export_result = result,
@@ -222,6 +223,14 @@ test "platform navigation commands share frame-latched focus actions" {
     try std.testing.expect(!app.model.focused_control_home_requested);
     try std.testing.expect(!app.model.focused_control_end_requested);
     try std.testing.expect(!app.model.back_requested);
+}
+
+test "platform memory pressure enters the reducer synchronously" {
+    const std = @import("std");
+    var app: App = .{};
+    app.dispatchPlatformEvent(.{ .memory_pressure = 40 });
+    try std.testing.expectEqual(@as(u32, 1), app.model.memory_pressure_event_count);
+    try std.testing.expectEqual(@as(u32, 40), app.model.last_memory_pressure_level);
 }
 
 test "IME editing commands use the same reducer actions as desktop input" {

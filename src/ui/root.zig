@@ -325,6 +325,7 @@ pub fn build(model: *const Model) Frame {
     const file_picker_button_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_button_id = clay.ElementId.ID("StreamSelectedFile").id;
     const runtime_image_button_id = clay.ElementId.ID("LoadRuntimeImage").id;
+    const image_cache_clear_button_id = clay.ElementId.ID("ClearRuntimeImageCache").id;
     const crash_export_button_id = clay.ElementId.ID("ExportCrashReport").id;
     const active_navigation_index = @min(model.demo_navigation_index, 2);
     if (active_navigation_index != state.last_navigation_index) {
@@ -442,6 +443,7 @@ pub fn build(model: *const Model) Frame {
                 file_picker_button_id,
                 file_stream_button_id,
                 runtime_image_button_id,
+                image_cache_clear_button_id,
             };
             @memcpy(focus_order[focus_order_count..][0..trailing_order.len], &trailing_order);
             focus_order_count += trailing_order.len;
@@ -1471,6 +1473,22 @@ pub fn build(model: *const Model) Frame {
                                 else
                                     .platform_runtime_image_load_requested);
                             }
+                            if (button.draw(&state.interaction_state, input, .{
+                                .id = "ClearRuntimeImageCache",
+                                .text = if (model.runtime_image_cache_clear_requested)
+                                    "正在清空图片缓存…"
+                                else
+                                    "清空图片缓存",
+                                .width = control_width,
+                                .disabled = modal_open or model.runtime_image_cached_count == 0 or
+                                    model.runtime_image_load_pending or
+                                    model.runtime_image_cache_clear_requested,
+                                .focused = state.focus_state.isFocused(image_cache_clear_button_id),
+                                .semantic_registry = &state.semantic_registry,
+                            })) {
+                                state.focus_state.focus(image_cache_clear_button_id);
+                                emit(.{ .runtime_image_cache_clear_requested = .manual });
+                            }
                             label.draw(permission_status_text, .{
                                 .color = theme.controls.text_muted,
                                 .semantic_id = .ID("PermissionStatus"),
@@ -1634,6 +1652,7 @@ pub fn handleSemanticAction(
     const file_picker_id = clay.ElementId.ID("OpenFilePicker").id;
     const file_stream_id = clay.ElementId.ID("StreamSelectedFile").id;
     const runtime_image_id = clay.ElementId.ID("LoadRuntimeImage").id;
+    const image_cache_clear_id = clay.ElementId.ID("ClearRuntimeImageCache").id;
     const crash_export_id = clay.ElementId.ID("ExportCrashReport").id;
     const dialog_cancel_id = clay.ElementId.ID("DemoDialogCancel").id;
     const dialog_confirm_id = clay.ElementId.ID("DemoDialogConfirm").id;
@@ -1690,6 +1709,12 @@ pub fn handleSemanticAction(
                     !runtimeImageTooLarge(model))
                 {
                     emit(.platform_runtime_image_load_requested);
+                }
+            } else if (element_id == image_cache_clear_id) {
+                if (model.runtime_image_cached_count > 0 and !model.runtime_image_load_pending and
+                    !model.runtime_image_cache_clear_requested)
+                {
+                    emit(.{ .runtime_image_cache_clear_requested = .manual });
                 }
             } else if (element_id == crash_export_id) {
                 if (model.last_native_crash != null and !model.crash_report_export_pending) {
@@ -1966,6 +1991,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "OpenFilePicker",
         "StreamSelectedFile",
         "LoadRuntimeImage",
+        "ClearRuntimeImageCache",
         "ExportCrashReport",
         "DemoDialogCancel",
         "DemoDialogConfirm",
@@ -2558,6 +2584,14 @@ fn formatRuntimeImageStatus(buffer: []u8, model: *const Model) []const u8 {
             if (model.runtime_image_cache_hit) "命中" else "新增",
             model.runtime_image_cached_count,
             image_catalog.runtime_resource_count,
+        },
+    ) catch "图片状态不可用";
+    if (model.last_runtime_image_cache_clear_reason) |reason| return std.fmt.bufPrint(
+        buffer,
+        "图片缓存已释放：{s}，共 {d} 个动态槽",
+        .{
+            if (reason == .manual) "用户操作" else "系统内存压力",
+            model.last_runtime_image_cache_released_count,
         },
     ) catch "图片状态不可用";
     return "";
@@ -3531,6 +3565,19 @@ test "semantic actions reuse reducer-facing UI actions" {
     try std.testing.expect(actions[0] == .platform_runtime_image_load_cancel_requested);
     model.runtime_image_load_pending = false;
 
+    model.runtime_image_cached_count = 1;
+    actions = handleSemanticAction(
+        &model,
+        clay.ElementId.ID("ClearRuntimeImageCache").id,
+        .activate,
+        "",
+    );
+    try std.testing.expectEqual(@as(usize, 1), actions.len);
+    try std.testing.expectEqual(
+        runtime_image.ClearReason.manual,
+        actions[0].runtime_image_cache_clear_requested,
+    );
+
     model.file_stream_pending = true;
     actions = handleSemanticAction(
         &model,
@@ -3670,4 +3717,12 @@ test "runtime image status reports bounds progress and dimensions" {
     model.file_size = runtime_image.max_encoded_bytes + 1;
     const oversized = formatRuntimeImageStatus(&buffer, &model);
     try std.testing.expect(std.mem.indexOf(u8, oversized, "16 MiB") != null);
+
+    model.file_size = 0;
+    model.file_size_known = false;
+    model.last_runtime_image_cache_clear_reason = .memory_pressure;
+    model.last_runtime_image_cache_released_count = 1;
+    const released = formatRuntimeImageStatus(&buffer, &model);
+    try std.testing.expect(std.mem.indexOf(u8, released, "系统内存压力") != null);
+    try std.testing.expect(std.mem.indexOf(u8, released, "1 个动态槽") != null);
 }

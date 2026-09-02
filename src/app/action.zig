@@ -50,6 +50,11 @@ pub const RuntimeImageFailure = struct {
     error_kind: runtime_image.LoadFailure,
 };
 
+pub const RuntimeImageCacheCleared = struct {
+    reason: runtime_image.ClearReason,
+    released_count: u8,
+};
+
 pub const Action = union(enum) {
     tick: f64,
     performance_updated: frame_metrics.Snapshot,
@@ -116,6 +121,9 @@ pub const Action = union(enum) {
     platform_runtime_image_load_succeeded: RuntimeImageResult,
     platform_runtime_image_load_failed: RuntimeImageFailure,
     platform_runtime_image_load_cancelled: platform.FileStreamTerminal,
+    platform_memory_pressure_received: u32,
+    runtime_image_cache_clear_requested: runtime_image.ClearReason,
+    runtime_image_cache_cleared: RuntimeImageCacheCleared,
     demo_navigation_selected: u8,
     demo_tree_toggled: u8,
     demo_tree_selected: u8,

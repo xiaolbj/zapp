@@ -263,6 +263,23 @@ pub fn update(model: *Model, action: Action) void {
             model.runtime_image_bytes_received = result.total_bytes;
             model.runtime_image_error = .interrupted;
         },
+        .platform_memory_pressure_received => |level| {
+            model.memory_pressure_event_count +%= 1;
+            model.last_memory_pressure_level = level;
+        },
+        .runtime_image_cache_clear_requested => |reason| {
+            model.runtime_image_cache_clear_requested = true;
+            model.runtime_image_cache_clear_reason = reason;
+        },
+        .runtime_image_cache_cleared => |result| {
+            model.runtime_image_cache_clear_requested = false;
+            model.runtime_image_loaded = false;
+            model.runtime_image_cache_hit = false;
+            model.runtime_image_cached_count = 0;
+            model.runtime_image_error = null;
+            model.last_runtime_image_cache_clear_reason = result.reason;
+            model.last_runtime_image_cache_released_count = result.released_count;
+        },
         .demo_navigation_selected => |index| {
             const next_index = @min(index, 2);
             if (next_index != model.demo_navigation_index) {
@@ -915,4 +932,24 @@ test "runtime image loading preserves the last success across failures" {
     try std.testing.expect(model.runtime_image_loaded);
     try std.testing.expectEqual(@as(u32, 128), model.runtime_image_width);
     try std.testing.expect(model.runtime_image_error == .invalid_data);
+}
+
+test "runtime image cache clearing records reason and releases visible state" {
+    const std = @import("std");
+    var model: Model = .{
+        .runtime_image_loaded = true,
+        .runtime_image_cached_count = 3,
+        .runtime_image_cache_hit = true,
+    };
+    update(&model, .{ .runtime_image_cache_clear_requested = .memory_pressure });
+    try std.testing.expect(model.runtime_image_cache_clear_requested);
+    update(&model, .{ .runtime_image_cache_cleared = .{
+        .reason = .memory_pressure,
+        .released_count = 3,
+    } });
+    try std.testing.expect(!model.runtime_image_cache_clear_requested);
+    try std.testing.expect(!model.runtime_image_loaded);
+    try std.testing.expectEqual(@as(u8, 0), model.runtime_image_cached_count);
+    try std.testing.expectEqual(@as(u8, 3), model.last_runtime_image_cache_released_count);
+    try std.testing.expect(model.last_runtime_image_cache_clear_reason == .memory_pressure);
 }

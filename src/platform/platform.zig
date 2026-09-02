@@ -253,6 +253,7 @@ pub const PlatformEvent = union(enum) {
     ime_backspace_requested: u32,
     ime_submit_requested,
     navigation_requested: NavigationCommand,
+    memory_pressure: u32,
     native_crash_recovered: NativeCrashReport,
     crash_report_export_result: CrashReportExportResult,
 };

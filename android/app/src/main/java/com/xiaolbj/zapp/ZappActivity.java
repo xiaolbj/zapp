@@ -3,6 +3,7 @@ package com.xiaolbj.zapp;
 import android.Manifest;
 import android.app.NativeActivity;
 import android.content.Intent;
+import android.content.ComponentCallbacks2;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
@@ -116,6 +117,7 @@ public final class ZappActivity extends NativeActivity {
     );
     private static native void nativeAccessibilityAction(int elementId, int action, String text);
     private static native void nativeNavigationRequested(int command);
+    private static native void nativeMemoryPressure(int level);
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
@@ -171,6 +173,18 @@ public final class ZappActivity extends NativeActivity {
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(1, 1);
         params.gravity = Gravity.TOP | Gravity.START;
         addContentView(imeBridgeView, params);
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (!destroyed) nativeMemoryPressure(level);
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+        if (!destroyed) nativeMemoryPressure(ComponentCallbacks2.TRIM_MEMORY_COMPLETE);
     }
 
     @SuppressWarnings("unused") // Called through JNI from android_bridge.c.
