@@ -18,10 +18,12 @@ const checkbox = @import("widgets/checkbox.zig");
 const data_table = @import("widgets/data_table.zig");
 const divider = @import("widgets/divider.zig");
 const dialog = @import("widgets/dialog.zig");
+const floating_window = @import("widgets/floating_window.zig");
 const icon_button = @import("widgets/icon_button.zig");
 const image_view = @import("widgets/image_view.zig");
 const interaction = @import("widgets/interaction.zig");
 const label = @import("widgets/label.zig");
+const layer_layout = @import("widgets/layer_layout.zig");
 const menu = @import("widgets/menu.zig");
 const navigation_bar = @import("widgets/navigation_bar.zig");
 const number_stepper = @import("widgets/number_stepper.zig");
@@ -110,6 +112,11 @@ const demo_tab_items = [_]tabs.Item{
     .{ .text = "日志" },
 };
 
+const demo_layers = [_]layer_layout.Layer{
+    .{ .id = 0, .title = "Scene Layer" },
+    .{ .id = 1, .title = "Inspector Layer" },
+};
+
 const demo_activity_items = [_][]const u8{
     "中文字体已通过 Fontstash 接入 Sokol",
     "Button 点击状态已接入 reducer",
@@ -168,6 +175,10 @@ const state = struct {
     var pagination_state: pagination.State = .{};
     var number_stepper_state: number_stepper.State = .{};
     var virtual_list_state: virtual_list.State = .{};
+    var floating_window_state: floating_window.State = .{
+        .rect = .{ .x = 180, .y = 110, .width = 430, .height = 290 },
+    };
+    var layer_layout_state: layer_layout.State = .{};
     var scroll_bar_state: scroll_bar.State = .{};
     var nested_scroll_active = false;
     var nested_scroll_pointer_y: f32 = 0;
@@ -234,6 +245,10 @@ pub fn setup(model: *const Model) bool {
     state.pagination_state = .{};
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
+    state.floating_window_state = .{
+        .rect = .{ .x = 180, .y = 110, .width = 430, .height = 290 },
+    };
+    state.layer_layout_state = .{};
     state.scroll_bar_state = .{};
     state.nested_scroll_active = false;
     state.nested_scroll_pointer_y = 0;
@@ -266,6 +281,10 @@ pub fn shutdown() void {
     state.pagination_state = .{};
     state.number_stepper_state = .{};
     state.virtual_list_state = .{};
+    state.floating_window_state = .{
+        .rect = .{ .x = 180, .y = 110, .width = 430, .height = 290 },
+    };
+    state.layer_layout_state = .{};
     state.scroll_bar_state = .{};
     state.nested_scroll_active = false;
     state.nested_scroll_pointer_y = 0;
@@ -288,11 +307,36 @@ pub fn build(model: *const Model) Frame {
 
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
+    const pointer_input: interaction.Input = .{
+        .x = model.pointer_x,
+        .y = model.pointer_y,
+        .down = model.pointer_down,
+        .pressed = model.pointer_pressed,
+        .released = model.pointer_released,
+    };
+    const floating_window_claims_pointer = model.demo_navigation_index == 0 and
+        model.demo_floating_window_open and !model.demo_dialog_open and
+        floating_window.claimsPointer(
+            &state.floating_window_state,
+            pointer_input,
+            "DemoFloatingWindow",
+        );
+    const layer_layout_claims_pointer = model.demo_navigation_index == 0 and
+        !model.demo_dialog_open and layer_layout.claimsPointer(
+        &state.layer_layout_state,
+        pointer_input,
+        .{
+            .id = "DemoLayerLayout",
+            .layers = &demo_layers,
+            .width = demoLayerLayoutWidth(model.viewport_width),
+        },
+    );
+    const custom_drag_claimed = floating_window_claims_pointer or layer_layout_claims_pointer;
     const nested_scroll_before = beginNestedBoundaryScroll(model);
     const nested_wheel_target = applyNestedWheelScroll(model);
     const scroll_bar_outer_target = virtualListScrollBarOuterTarget(model);
     applySemanticScroll(model);
-    clay.updateScrollContainers(scroll_bar_outer_target == null, .{
+    clay.updateScrollContainers(scroll_bar_outer_target == null and !custom_drag_claimed, .{
         .x = model.scroll_delta_x * 36,
         .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
@@ -318,6 +362,7 @@ pub fn build(model: *const Model) Frame {
     const primary_action_id = clay.ElementId.ID("PrimaryAction").id;
     const increment_progress_id = clay.ElementId.ID("IncrementProgress").id;
     const open_dialog_id = clay.ElementId.ID("OpenDemoDialog").id;
+    const open_floating_window_id = clay.ElementId.ID("OpenFloatingWindow").id;
     const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
     const sort_select_id = select.triggerId("SortSelect").id;
@@ -390,9 +435,14 @@ pub fn build(model: *const Model) Frame {
                 primary_action_id,
                 increment_progress_id,
                 open_dialog_id,
+                open_floating_window_id,
             };
             @memcpy(focus_order[focus_order_count..][0..primary_order.len], &primary_order);
             focus_order_count += primary_order.len;
+            if (model.demo_floating_window_open) {
+                focus_order[focus_order_count] = floating_window.closeId("DemoFloatingWindow").id;
+                focus_order_count += 1;
+            }
             focus_order[focus_order_count] = active_tab_id;
             focus_order_count += 1;
             for (demo_tree_items, 0..) |_, tree_index| {
@@ -962,6 +1012,35 @@ pub fn build(model: *const Model) Frame {
                                     state.focus_state.focus(open_dialog_id);
                                     emit(.demo_dialog_opened);
                                 }
+                            });
+                            if (button.draw(&state.interaction_state, input, .{
+                                .id = "OpenFloatingWindow",
+                                .text = if (model.demo_floating_window_open)
+                                    "浮动窗口已打开"
+                                else
+                                    "打开浮动窗口",
+                                .width = 200,
+                                .disabled = modal_open or model.demo_floating_window_open,
+                                .focused = state.focus_state.isFocused(open_floating_window_id),
+                                .semantic_registry = &state.semantic_registry,
+                            })) {
+                                state.focus_state.focus(open_floating_window_id);
+                                emit(.demo_floating_window_opened);
+                            }
+                            label.draw("可拖拽 Layer 布局", .{
+                                .font_size = 18,
+                                .color = theme.controls.text_muted,
+                                .semantic_id = .ID("LayerLayoutLabel"),
+                                .semantic_registry = &state.semantic_registry,
+                            });
+                            _ = layer_layout.draw(&state.layer_layout_state, input, .{
+                                .id = "DemoLayerLayout",
+                                .layers = &demo_layers,
+                                .width = demoLayerLayoutWidth(model.viewport_width),
+                                .height = 220,
+                                .input_enabled = !modal_open,
+                                .draw_layer = drawDemoLayer,
+                                .semantic_registry = &state.semantic_registry,
                             });
                             label.draw("数据视图", .{
                                 .font_size = 18,
@@ -1692,6 +1771,23 @@ pub fn build(model: *const Model) Frame {
         });
     });
 
+    if (model.demo_floating_window_open) {
+        const floating_result = floating_window.draw(&state.floating_window_state, input, .{
+            .id = "DemoFloatingWindow",
+            .title = "Floating Window",
+            .viewport_width = @floatFromInt(@max(model.viewport_width, 1)),
+            .viewport_height = @floatFromInt(@max(model.viewport_height, 1)),
+            .input_enabled = !model.demo_dialog_open,
+            .focused_id = state.focus_state.focused_id,
+            .draw_content = drawDemoFloatingWindowContent,
+            .semantic_registry = &state.semantic_registry,
+        });
+        if (floating_result.close_focus_requested) {
+            state.focus_state.focus(floating_window.closeId("DemoFloatingWindow").id);
+        }
+        if (floating_result.close_requested) emit(.demo_floating_window_closed);
+    }
+
     if (model.demo_dialog_open) {
         const dialog_width: f32 = @min(420, @as(f32, @floatFromInt(@max(model.viewport_width - 48, 240))));
         const dialog_result = dialog.draw(&state.interaction_state, input, .{
@@ -1745,6 +1841,8 @@ pub fn handleSemanticAction(
     const primary_id = clay.ElementId.ID("PrimaryAction").id;
     const progress_id = clay.ElementId.ID("IncrementProgress").id;
     const dialog_open_id = clay.ElementId.ID("OpenDemoDialog").id;
+    const floating_window_open_id = clay.ElementId.ID("OpenFloatingWindow").id;
+    const floating_window_close_id = floating_window.closeId("DemoFloatingWindow").id;
     const checkbox_id = clay.ElementId.ID("DemoCheckbox").id;
     const switch_id = clay.ElementId.ID("DemoSwitch").id;
     const sort_select_id = select.triggerId("SortSelect").id;
@@ -1790,7 +1888,7 @@ pub fn handleSemanticAction(
             {
                 emit(.{ .text_input_focus_changed = null });
             }
-            if (element_id == primary_id) emit(.primary_button_pressed) else if (element_id == progress_id) emit(.demo_progress_incremented) else if (element_id == dialog_open_id) emit(.demo_dialog_opened) else if (element_id == checkbox_id) emit(.demo_checkbox_toggled) else if (element_id == switch_id) emit(.demo_switch_toggled) else if (element_id == text_field_id) {
+            if (element_id == primary_id) emit(.primary_button_pressed) else if (element_id == progress_id) emit(.demo_progress_incremented) else if (element_id == dialog_open_id) emit(.demo_dialog_opened) else if (element_id == floating_window_open_id) emit(.demo_floating_window_opened) else if (element_id == floating_window_close_id) emit(.demo_floating_window_closed) else if (element_id == checkbox_id) emit(.demo_checkbox_toggled) else if (element_id == switch_id) emit(.demo_switch_toggled) else if (element_id == text_field_id) {
                 if (!model.isTextInputActive(.application_name)) emit(.{ .text_input_focus_changed = .application_name });
             } else if (element_id == search_field_id) {
                 if (!model.isTextInputActive(.search)) emit(.{ .text_input_focus_changed = .search });
@@ -2097,6 +2195,7 @@ fn paginationTargetPage(model: *const Model, element_id: u32) ?usize {
 }
 
 fn isInteractiveSemanticId(element_id: u32) bool {
+    if (element_id == floating_window.closeId("DemoFloatingWindow").id) return true;
     if (navigationIndex(element_id) != null or tabIndex(element_id) != null or
         treeIndex(element_id) != null or
         accordionIndex(element_id) != null or
@@ -2115,6 +2214,7 @@ fn isInteractiveSemanticId(element_id: u32) bool {
         "PrimaryAction",
         "IncrementProgress",
         "OpenDemoDialog",
+        "OpenFloatingWindow",
         "DemoCheckbox",
         "DemoSwitch",
         "VolumeSlider",
@@ -2369,6 +2469,46 @@ fn drawSettingsPage(
             .id = "SettingsPageScrollBar",
             .scroll_id = "SettingsPage",
         });
+    });
+}
+
+fn demoLayerLayoutWidth(viewport_width: i32) f32 {
+    const horizontal_margin: i32 = if (viewport_width < 900) 96 else 360;
+    return @min(@max(@as(f32, @floatFromInt(viewport_width - horizontal_margin)), 280), 680);
+}
+
+fn drawDemoLayer(context: ?*anyopaque, layer_id: u32) void {
+    _ = context;
+    switch (layer_id) {
+        0 => {
+            label.draw("Scene", .{ .font_size = 18, .color = theme.controls.text });
+            label.draw("拖动标题可交换 Layer；拖动中间分隔条可调整宽度。", .{
+                .font_size = 14,
+                .color = theme.controls.text_muted,
+                .wrap_mode = .words,
+            });
+        },
+        else => {
+            label.draw("Inspector", .{ .font_size = 18, .color = theme.controls.text });
+            label.draw("布局顺序和分栏比例由 LayerLayout.State 保存。", .{
+                .font_size = 14,
+                .color = theme.controls.text_muted,
+                .wrap_mode = .words,
+            });
+        },
+    }
+}
+
+fn drawDemoFloatingWindowContent(context: ?*anyopaque) void {
+    _ = context;
+    label.draw("这是应用内部的可拖动子窗体。", .{
+        .font_size = 16,
+        .color = theme.controls.text,
+    });
+    label.draw("拖动标题栏移动，拖动右下角改变尺寸；窗口会保持在应用视口内。", .{
+        .font_size = 14,
+        .color = theme.controls.text_muted,
+        .wrap_mode = .words,
     });
 }
 
@@ -3868,6 +4008,99 @@ test "responsive shell emits controls and text" {
     try std.testing.expectEqual(image_cache_budget_items.len, settings_budget_radio_count);
     try std.testing.expectEqual(@as(usize, 1), selected_budget_radio_count);
     try std.testing.expect(state.focus_state.isFocused(clay.ElementId.IDI("MainNavigation", 2).id));
+
+    // Clay stores one global current context, so keep gesture integration in
+    // this single initialized UI test instead of rebuilding a freed context.
+    model.demo_navigation_index = 0;
+    model.demo_floating_window_open = true;
+    _ = build(&model);
+    const title_data = clay.getElementData(floating_window.titleId("DemoFloatingWindow"));
+    try std.testing.expect(title_data.found);
+    const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
+    try std.testing.expect(outer.found);
+    const outer_before_window_drag = outer.scroll_position.y;
+    const window_before_drag = state.floating_window_state.rect;
+    model.pointer_x = title_data.bounding_box.x + 40;
+    model.pointer_y = title_data.bounding_box.y + title_data.bounding_box.height * 0.5;
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    model.pointer_x += 70;
+    model.pointer_y += 45;
+    _ = build(&model);
+    try std.testing.expectApproxEqAbs(window_before_drag.x + 70, state.floating_window_state.rect.x, 0.01);
+    try std.testing.expectApproxEqAbs(window_before_drag.y + 45, state.floating_window_state.rect.y, 0.01);
+    try std.testing.expectApproxEqAbs(outer_before_window_drag, outer.scroll_position.y, 0.01);
+    model.pointer_down = false;
+    model.pointer_released = true;
+    _ = build(&model);
+    model.pointer_released = false;
+
+    const resize_data = clay.getElementData(floating_window.resizeId("DemoFloatingWindow"));
+    try std.testing.expect(resize_data.found);
+    const window_before_resize = state.floating_window_state.rect;
+    model.pointer_x = resize_data.bounding_box.x + resize_data.bounding_box.width * 0.5;
+    model.pointer_y = resize_data.bounding_box.y + resize_data.bounding_box.height * 0.5;
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    model.pointer_x += 50;
+    model.pointer_y += 35;
+    _ = build(&model);
+    try std.testing.expect(state.floating_window_state.rect.width > window_before_resize.width + 40);
+    try std.testing.expect(state.floating_window_state.rect.height > window_before_resize.height + 25);
+    model.pointer_down = false;
+    model.pointer_released = true;
+    _ = build(&model);
+    model.pointer_released = false;
+
+    model.demo_floating_window_open = false;
+    model.pointer_x = 0;
+    model.pointer_y = 0;
+    _ = build(&model);
+    ensureElementVisibleInScrollContainer(
+        layer_layout.containerId("DemoLayerLayout").id,
+        clay.ElementId.ID("PrimaryCard").id,
+    );
+    _ = build(&model);
+    const first_header = clay.getElementData(layer_layout.headerId("DemoLayerLayout", 0));
+    const second_panel = clay.getElementData(layer_layout.panelId("DemoLayerLayout", 1));
+    try std.testing.expect(first_header.found and second_panel.found);
+    const outer_before_layer_drag = outer.scroll_position.y;
+    model.pointer_x = first_header.bounding_box.x + first_header.bounding_box.width * 0.5;
+    model.pointer_y = first_header.bounding_box.y + first_header.bounding_box.height * 0.5;
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    model.pointer_x = second_panel.bounding_box.x + second_panel.bounding_box.width * 0.5;
+    model.pointer_y = second_panel.bounding_box.y + 60;
+    _ = build(&model);
+    try std.testing.expectEqual(@as(u32, 1), state.layer_layout_state.order[0]);
+    try std.testing.expectApproxEqAbs(outer_before_layer_drag, outer.scroll_position.y, 0.01);
+    model.pointer_down = false;
+    model.pointer_released = true;
+    _ = build(&model);
+    model.pointer_released = false;
+
+    const splitter = clay.getElementData(layer_layout.splitterId("DemoLayerLayout"));
+    try std.testing.expect(splitter.found);
+    const ratio_before = state.layer_layout_state.split_ratio;
+    model.pointer_x = splitter.bounding_box.x + splitter.bounding_box.width * 0.5;
+    model.pointer_y = splitter.bounding_box.y + splitter.bounding_box.height * 0.5;
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    model.pointer_x += 55;
+    _ = build(&model);
+    try std.testing.expect(state.layer_layout_state.split_ratio > ratio_before);
+    try std.testing.expectApproxEqAbs(outer_before_layer_drag, outer.scroll_position.y, 0.01);
+    model.pointer_down = false;
+    model.pointer_released = true;
+    _ = build(&model);
 }
 
 test "semantic actions reuse reducer-facing UI actions" {

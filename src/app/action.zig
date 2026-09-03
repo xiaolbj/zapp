@@ -83,6 +83,8 @@ pub const Action = union(enum) {
     demo_dialog_opened,
     demo_dialog_closed,
     demo_dialog_confirmed,
+    demo_floating_window_opened,
+    demo_floating_window_closed,
     back_requested,
     focus_next_requested,
     focus_previous_requested,

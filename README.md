@@ -70,6 +70,8 @@ Gradle 会自动调用 `zig build android-lib` 构建 `arm64-v8a` 与 `x86_64`�
 - `slider.zig`：受控拖拽滑块，将指针位置映射为 `0...1` 数值。
 - `number_stepper.zig`：受控整数步进器，支持可配置范围/步长、边界按钮禁用、方向键与 Home/End，以及原生 NumberPicker 语义。
 - `dialog.zig`：带输入拦截遮罩、取消和确认操作的模态对话框。
+- `floating_window.zig`：应用内可拖动、可缩放子窗体，支持关闭、视口约束、调用方内容组合和显式指针捕获。
+- `layer_layout.zig`：可拖拽 Layer 布局，支持标题拖动交换面板、分隔条调整双栏比例和稳定 Layer ID。
 - `navigation_bar.zig`：受控导航项选择，支持横向和纵向布局。
 - `text_field.zig`：基础受控单行 UTF-8 输入框，支持字符、退格、提交和粘贴。
 - `search_field.zig`：在 TextField 上组合可访问的清除操作，保持独立文本、光标、选区和 IME 组合态；示例实时筛选 DataTable，并同步修复分页、选中项与焦点顺序。
@@ -111,6 +113,8 @@ if (button.draw(&state.button_state, input, .{
 滚动容器的渲染裁切使用显式 scissor 栈：嵌套裁切先与父区域求交，结束时恢复父区域。由于当前 Clay 版本在可见性剔除时可能保留屏幕外 clip 的结束命令却省略开始命令，项目关闭 Clay 的命令级剔除以保持裁切对完整，并在渲染器中按当前有效裁切区域跳过完全不可见的几何、文字和图片；长列表仍由 VirtualList 控制可见行数量。所有内容超出视口的 Card、ScrollView 和页面容器都会显示可拖拽纵向滚动条；轨道点击可跳转，滑块位置与 Clay 的 `0…-maxScroll` 精确双向映射，因此即使手势落在嵌套 VirtualList 上，也可以通过外层滚动条直接到达页面首尾。普通容器的浮动轨道使用 Clay 的父级裁切；VirtualList 的轨道和滑块则是列表包装器内的普通布局兄弟节点，不创建独立 floating 根，因此能够继承 PrimaryCard 的完整嵌套 scissor 栈。
 
 嵌套滚动优先归属 VirtualList。内容触摸拖动只有在列表到达输入方向上的真实布局端点时，才把当前帧未被内层消耗的位移转交给外层 Card；鼠标滚轮在列表包装器内则由列表严格独占，即使到达端点也丢弃剩余增量，避免静止指针下外层意外跟随。滚轮通过列表包装器与 PrimaryCard 的实际矩形交集命中内容、嵌入式轨道及两者间隙，不依赖真实滚轮事件下可能不稳定的 Clay `pointerOver`。拖动嵌入式滑块时会关闭 Clay 的容器拖动并锁定 PrimaryCard，轨道命中使用上一帧真实边界；Clay 更新后还会恢复计算好的内外目标位置。端点计算使用列表固定布局高度，不使用可能被外层裁切缩短的可见包围盒。
+
+应用内浮动窗口通过 Clay floating 根节点实现：标题栏移动、右下角缩放和关闭手势由 `FloatingWindow.State` 持有，位置与尺寸始终约束在当前视口内。LayerLayout 使用稳定业务 ID 保存显示顺序，拖动标题可交换 Layer，拖动中间分隔条可调整双栏比例。两类拖拽都会在 Clay 更新滚动容器之前声明指针所有权，因此手势不会同时移动底层 Card；浮层命中仍遵守 Clay 的 pointer capture 和 z-index。这里的浮动窗口属于单一 Sokol 窗口内部 UI，不等同于操作系统原生多窗口或 Android 跨应用悬浮窗。
 
 ## 核心约定
 

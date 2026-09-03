@@ -33,6 +33,7 @@ pub const Model = struct {
     demo_volume: f32 = 0.65,
     demo_retry_count: i32 = 3,
     demo_dialog_open: bool = false,
+    demo_floating_window_open: bool = false,
     demo_dialog_confirmations: u32 = 0,
     back_requested: bool = false,
     focus_next_requested: bool = false,

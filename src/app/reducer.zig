@@ -83,6 +83,8 @@ pub fn update(model: *Model, action: Action) void {
             model.demo_dialog_confirmations += 1;
             model.demo_dialog_open = false;
         },
+        .demo_floating_window_opened => model.demo_floating_window_open = true,
+        .demo_floating_window_closed => model.demo_floating_window_open = false,
         .back_requested => model.back_requested = true,
         .focus_next_requested => model.focus_next_requested = true,
         .focus_previous_requested => model.focus_previous_requested = true,
@@ -480,6 +482,16 @@ test "dialog actions update modal state and confirmation count" {
     try std.testing.expect(model.back_requested);
     update(&model, .input_consumed);
     try std.testing.expect(!model.back_requested);
+}
+
+test "floating window actions update controlled visibility" {
+    const std = @import("std");
+    var model: Model = .{};
+
+    update(&model, .demo_floating_window_opened);
+    try std.testing.expect(model.demo_floating_window_open);
+    update(&model, .demo_floating_window_closed);
+    try std.testing.expect(!model.demo_floating_window_open);
 }
 
 test "text input appends UTF-8 and deletes a complete codepoint" {

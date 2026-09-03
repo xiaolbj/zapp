@@ -27,7 +27,6 @@ pub fn draw(config: Config) void {
         .layout = .{ .sizing = .{ .w = .fixed(config.width), .h = .fixed(config.height) } },
         .background_color = config.track_color,
         .corner_radius = .all(config.height * 0.5),
-        .clip = .{ .horizontal = true },
     })({
         clay.UI()(.{
             .layout = .{ .sizing = .{
