@@ -338,14 +338,14 @@ pub fn build(model: *const Model) Frame {
     const custom_drag_claimed = floating_window_claims_pointer or
         layer_layout_claims_pointer or semantic_control_claims_pointer or
         nested_scroll_before != null;
-    const nested_wheel_target = applyNestedWheelScroll(model);
+    const wheel_route = beginWheelScrollRoute(model);
     const scroll_bar_outer_target = virtualListScrollBarOuterTarget(model);
     applySemanticScroll(model);
     clay.updateScrollContainers(scroll_bar_outer_target == null and !custom_drag_claimed, .{
         .x = model.scroll_delta_x * 36,
         .y = model.scroll_delta_y * 36,
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
-    if (nested_wheel_target) |target| restoreNestedWheelTarget(target);
+    if (wheel_route) |route| restoreWheelScrollRoute(route);
     if (scroll_bar_outer_target) |outer_y| restorePrimaryScrollPosition(outer_y);
     if (nested_scroll_before) |before| applyNestedCapturedScroll(before);
     if (model.pointer_released and !model.pointer_down) state.nested_scroll_active = false;
@@ -2649,37 +2649,103 @@ const NestedScrollSnapshot = struct {
     pointer_delta: f32 = 0,
 };
 
-/// Clay only associates wheel input with the clipped content element. The
-/// embedded scrollbar is its sibling, so route wheel input from the complete
-/// VirtualList wrapper explicitly and keep it strictly owned by the list.
-fn applyNestedWheelScroll(model: *const Model) ?NestedScrollSnapshot {
-    if (model.demo_navigation_index != 0 or @abs(model.scroll_delta_y) < 0.0001) return null;
-    const wrapper = clay.getElementData(virtual_list.containerId("RecordsVirtualList"));
-    const outer_element = clay.getElementData(clay.ElementId.ID("PrimaryCard"));
-    if (!wrapper.found or !outer_element.found or
-        !pointInsideBounds(model.pointer_x, model.pointer_y, wrapper.bounding_box) or
-        !pointInsideBounds(model.pointer_x, model.pointer_y, outer_element.bounding_box))
-    {
-        return null;
-    }
-    const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
-    const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
-    if (!inner.found or !outer.found) return null;
+const WheelScrollPosition = struct {
+    element_id: u32,
+    y: f32,
+};
 
-    // root passes wheel input to Clay at *36 and Clay applies its own *10.
-    const requested_delta = model.scroll_delta_y * 360;
-    const inner_before = inner.scroll_position.y;
-    const outer_before = outer.scroll_position.y;
-    const inner_max = @max(inner.content_dimensions.h - demo_virtual_list_height, 0);
-    inner.scroll_position.y = @min(@max(inner_before + requested_delta, -inner_max), 0);
-    return .{ .inner_y = inner.scroll_position.y, .outer_y = outer_before };
+const WheelScrollRoute = struct {
+    positions: [semantics.max_nodes]WheelScrollPosition = undefined,
+    position_count: usize = 0,
+    target_id: u32,
+    target_y: f32,
+};
+
+/// Resolve one explicit wheel owner from the previous frame's clipped semantic
+/// regions. Clay still receives the wheel event so it can clear momentum, but
+/// all positions are restored afterwards and only this owner gets the delta.
+fn beginWheelScrollRoute(model: *const Model) ?WheelScrollRoute {
+    if (@abs(model.scroll_delta_y) < 0.0001) return null;
+
+    var route: WheelScrollRoute = .{ .target_id = 0, .target_y = 0 };
+    var target_area = std.math.inf(f32);
+    for (state.semantic_registry.items()) |node| {
+        if (!node.scrollable) continue;
+        var element_id = clay.ElementId.ID("");
+        element_id.id = node.element_id;
+        const scroll = clay.getScrollContainerData(element_id);
+        if (!scroll.found or !scroll.config.vertical) continue;
+
+        var already_saved = false;
+        for (route.positions[0..route.position_count]) |position| {
+            if (position.element_id == node.element_id) {
+                already_saved = true;
+                break;
+            }
+        }
+        if (!already_saved and route.position_count < route.positions.len) {
+            route.positions[route.position_count] = .{
+                .element_id = node.element_id,
+                .y = scroll.scroll_position.y,
+            };
+            route.position_count += 1;
+        }
+
+        if (node.bounds.width <= 0 or node.bounds.height <= 0 or
+            model.pointer_x < node.bounds.x or
+            model.pointer_x > node.bounds.x + node.bounds.width or
+            model.pointer_y < node.bounds.y or
+            model.pointer_y > node.bounds.y + node.bounds.height)
+        {
+            continue;
+        }
+        const area = node.bounds.width * node.bounds.height;
+        if (area <= target_area) {
+            target_area = area;
+            route.target_id = node.element_id;
+        }
+    }
+
+    // The embedded scrollbar is a sibling of the clipped VirtualList content,
+    // so include the complete visible wrapper in the inner wheel target.
+    if (model.demo_navigation_index == 0) {
+        const wrapper = clay.getElementData(virtual_list.containerId("RecordsVirtualList"));
+        const outer = clay.getElementData(clay.ElementId.ID("PrimaryCard"));
+        if (wrapper.found and outer.found and
+            pointInsideBounds(model.pointer_x, model.pointer_y, wrapper.bounding_box) and
+            pointInsideBounds(model.pointer_x, model.pointer_y, outer.bounding_box))
+        {
+            route.target_id = clay.ElementId.ID("RecordsVirtualList").id;
+        }
+    }
+
+    if (route.target_id == 0) return null;
+    var target_element_id = clay.ElementId.ID("");
+    target_element_id.id = route.target_id;
+    const target = clay.getScrollContainerData(target_element_id);
+    if (!target.found) return null;
+    const max_scroll = @max(
+        target.content_dimensions.h - target.scroll_container_dimensions.h,
+        0,
+    );
+    route.target_y = @min(@max(
+        target.scroll_position.y + model.scroll_delta_y * 360,
+        -max_scroll,
+    ), 0);
+    return route;
 }
 
-fn restoreNestedWheelTarget(target: NestedScrollSnapshot) void {
-    const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
-    const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
-    if (inner.found) inner.scroll_position.y = target.inner_y;
-    if (outer.found) outer.scroll_position.y = target.outer_y;
+fn restoreWheelScrollRoute(route: WheelScrollRoute) void {
+    for (route.positions[0..route.position_count]) |position| {
+        var element_id = clay.ElementId.ID("");
+        element_id.id = position.element_id;
+        const scroll = clay.getScrollContainerData(element_id);
+        if (scroll.found) scroll.scroll_position.y = position.y;
+    }
+    var target_element_id = clay.ElementId.ID("");
+    target_element_id.id = route.target_id;
+    const target = clay.getScrollContainerData(target_element_id);
+    if (target.found) target.scroll_position.y = route.target_y;
 }
 
 fn pointInsideBounds(x: f32, y: f32, bounds: clay.BoundingBox) bool {
@@ -3394,12 +3460,15 @@ test "responsive shell emits controls and text" {
     try std.testing.expectApproxEqAbs(outer_before_wheel, primary_scroll.scroll_position.y, 0.01);
     const inner_after_list_wheel = virtual_list_scroll.scroll_position.y;
     const outer_before_followup_wheel = primary_scroll.scroll_position.y;
+    // Real input has idle render frames between distinct wheel events. The
+    // inner target must not survive that gap and capture the outer event.
+    _ = build(&model);
     model.pointer_x = primary_data.bounding_box.x + 12;
     model.pointer_y = primary_data.bounding_box.y + 12;
-    model.scroll_delta_y = 1;
+    model.scroll_delta_y = -1;
     _ = build(&model);
     model.scroll_delta_y = 0;
-    try std.testing.expect(primary_scroll.scroll_position.y > outer_before_followup_wheel + 100);
+    try std.testing.expect(primary_scroll.scroll_position.y < outer_before_followup_wheel - 100);
     try std.testing.expectApproxEqAbs(
         inner_after_list_wheel,
         virtual_list_scroll.scroll_position.y,
