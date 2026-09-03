@@ -70,7 +70,7 @@ pub fn resizeId(id: []const u8) clay.ElementId {
 }
 
 pub fn claimsPointer(state: *const State, input: interaction.Input, id: []const u8) bool {
-    if (state.mode != .none or state.close_active) return true;
+    if (input.down and (state.mode != .none or state.close_active)) return true;
     if (!input.pressed) return false;
     return pointerInsideElement(input, titleId(id)) or
         pointerInsideElement(input, resizeId(id)) or

@@ -57,7 +57,7 @@ pub fn splitterId(id: []const u8) clay.ElementId {
 }
 
 pub fn claimsPointer(state: *const State, input: interaction.Input, config: Config) bool {
-    if (state.active_layer_id != null or state.splitter_active) return true;
+    if (input.down and (state.active_layer_id != null or state.splitter_active)) return true;
     if (!input.pressed) return false;
     if (pointerInsideElement(input, splitterId(config.id))) return true;
     for (config.layers) |layer| {

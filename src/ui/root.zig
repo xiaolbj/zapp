@@ -2688,7 +2688,7 @@ fn pointInsideBounds(x: f32, y: f32, bounds: clay.BoundingBox) bool {
 }
 
 fn previousSemanticControlClaimsPointer(model: *const Model) bool {
-    if (state.interaction_state.active_id != null) return true;
+    if (model.pointer_down and state.interaction_state.active_id != null) return true;
     if (!model.pointer_pressed) return false;
     for (state.semantic_registry.items()) |node| {
         if (node.disabled or !semanticRoleCapturesPointer(node.role) or
@@ -3392,6 +3392,20 @@ test "responsive shell emits controls and text" {
     model.scroll_delta_y = 0;
     try std.testing.expect(virtual_list_scroll.scroll_position.y < -100);
     try std.testing.expectApproxEqAbs(outer_before_wheel, primary_scroll.scroll_position.y, 0.01);
+    const inner_after_list_wheel = virtual_list_scroll.scroll_position.y;
+    const outer_before_followup_wheel = primary_scroll.scroll_position.y;
+    model.pointer_x = primary_data.bounding_box.x + 12;
+    model.pointer_y = primary_data.bounding_box.y + 12;
+    model.scroll_delta_y = 1;
+    _ = build(&model);
+    model.scroll_delta_y = 0;
+    try std.testing.expect(primary_scroll.scroll_position.y > outer_before_followup_wheel + 100);
+    try std.testing.expectApproxEqAbs(
+        inner_after_list_wheel,
+        virtual_list_scroll.scroll_position.y,
+        0.01,
+    );
+    primary_scroll.scroll_position.y = outer_before_followup_wheel;
     try std.testing.expectApproxEqAbs(
         primary_height_before_wheel,
         primary_scroll.content_dimensions.h,
