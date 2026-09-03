@@ -297,13 +297,15 @@ pub fn shutdown() void {
 /// Builds the responsive product shell and reports semantic UI actions.
 pub fn build(model: *const Model) Frame {
     state.action_count = 0;
-    state.semantic_registry.reset();
-    if (state.memory == null) return .{
-        .clear_color = theme.dark.background,
-        .commands = &.{},
-        .actions = &.{},
-        .semantic_nodes = &.{},
-    };
+    if (state.memory == null) {
+        state.semantic_registry.reset();
+        return .{
+            .clear_color = theme.dark.background,
+            .commands = &.{},
+            .actions = &.{},
+            .semantic_nodes = &.{},
+        };
+    }
 
     clay.setLayoutDimensions(dimensions(model));
     clay.setPointerState(.{ .x = model.pointer_x, .y = model.pointer_y }, model.pointer_down);
@@ -331,8 +333,11 @@ pub fn build(model: *const Model) Frame {
             .width = demoLayerLayoutWidth(model.viewport_width),
         },
     );
-    const custom_drag_claimed = floating_window_claims_pointer or layer_layout_claims_pointer;
+    const semantic_control_claims_pointer = previousSemanticControlClaimsPointer(model);
     const nested_scroll_before = beginNestedBoundaryScroll(model);
+    const custom_drag_claimed = floating_window_claims_pointer or
+        layer_layout_claims_pointer or semantic_control_claims_pointer or
+        nested_scroll_before != null;
     const nested_wheel_target = applyNestedWheelScroll(model);
     const scroll_bar_outer_target = virtualListScrollBarOuterTarget(model);
     applySemanticScroll(model);
@@ -342,7 +347,7 @@ pub fn build(model: *const Model) Frame {
     }, @max(model.frame_delta_seconds, 1.0 / 240.0));
     if (nested_wheel_target) |target| restoreNestedWheelTarget(target);
     if (scroll_bar_outer_target) |outer_y| restorePrimaryScrollPosition(outer_y);
-    if (nested_scroll_before) |before| applyNestedBoundaryScroll(model, before);
+    if (nested_scroll_before) |before| applyNestedCapturedScroll(before);
     if (model.pointer_released and !model.pointer_down) state.nested_scroll_active = false;
     const text_submission_changed =
         model.application_name_input.submission_count != state.last_text_submission_count;
@@ -354,6 +359,7 @@ pub fn build(model: *const Model) Frame {
         );
     }
     state.toast_state.update(model.frame_delta_seconds);
+    state.semantic_registry.reset();
     clay.beginLayout();
 
     const dialog_id = clay.ElementId.ID("DemoDialogPanel").id;
@@ -2640,6 +2646,7 @@ fn applySemanticScroll(model: *const Model) void {
 const NestedScrollSnapshot = struct {
     inner_y: f32,
     outer_y: f32,
+    pointer_delta: f32 = 0,
 };
 
 /// Clay only associates wheel input with the clipped content element. The
@@ -2680,6 +2687,50 @@ fn pointInsideBounds(x: f32, y: f32, bounds: clay.BoundingBox) bool {
         y >= bounds.y and y <= bounds.y + bounds.height;
 }
 
+fn previousSemanticControlClaimsPointer(model: *const Model) bool {
+    if (state.interaction_state.active_id != null) return true;
+    if (!model.pointer_pressed) return false;
+    for (state.semantic_registry.items()) |node| {
+        if (node.disabled or !semanticRoleCapturesPointer(node.role) or
+            node.bounds.width <= 0 or node.bounds.height <= 0)
+        {
+            continue;
+        }
+        if (model.pointer_x >= node.bounds.x and
+            model.pointer_x <= node.bounds.x + node.bounds.width and
+            model.pointer_y >= node.bounds.y and
+            model.pointer_y <= node.bounds.y + node.bounds.height)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn semanticRoleCapturesPointer(role: semantics.Role) bool {
+    return switch (role) {
+        .button,
+        .checkbox,
+        .switch_control,
+        .slider,
+        .text_field,
+        .navigation_item,
+        .tree_item,
+        .radio_button,
+        .combo_box,
+        .option,
+        .tab,
+        .menu_item,
+        .list_item,
+        .row,
+        .column_header,
+        .chip,
+        .spin_button,
+        => true,
+        else => false,
+    };
+}
+
 fn virtualListScrollBarOuterTarget(model: *const Model) ?f32 {
     const track_id = clay.ElementId.ID("VirtualListScrollBar");
     const track = clay.getElementData(track_id);
@@ -2696,14 +2747,16 @@ fn restorePrimaryScrollPosition(target_y: f32) void {
     if (outer.found) outer.scroll_position.y = target_y;
 }
 
-/// Clay routes a drag to the innermost scroll container. Once that container
-/// is actually at the requested endpoint, forward only the rejected part of
-/// the current pointer movement to its parent. Checking the endpoint avoids
-/// treating slow frames or Clay's drag-origin reset as a boundary.
+/// Pointer ownership is fixed on press. Leaving the visible list bounds does
+/// not hand the gesture to the parent card; ownership ends only on release.
 fn beginNestedBoundaryScroll(model: *const Model) ?NestedScrollSnapshot {
     if (model.pointer_pressed) {
+        const list = clay.getElementData(clay.ElementId.ID("RecordsVirtualList"));
+        const outer = clay.getElementData(clay.ElementId.ID("PrimaryCard"));
         state.nested_scroll_active = model.demo_navigation_index == 0 and
-            clay.pointerOver(clay.ElementId.ID("RecordsVirtualList")) and
+            list.found and outer.found and
+            pointInsideBounds(model.pointer_x, model.pointer_y, list.bounding_box) and
+            pointInsideBounds(model.pointer_x, model.pointer_y, outer.bounding_box) and
             !pointerInVirtualListScrollBar(model);
         state.nested_scroll_pointer_y = model.pointer_y;
     }
@@ -2712,64 +2765,33 @@ fn beginNestedBoundaryScroll(model: *const Model) ?NestedScrollSnapshot {
     {
         return null;
     }
-    if (!clay.pointerOver(clay.ElementId.ID("RecordsVirtualList"))) {
-        state.nested_scroll_active = false;
-        return null;
-    }
     const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
     const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
     if (!inner.found or !inner.config.vertical or !outer.found or !outer.config.vertical) return null;
-    return .{ .inner_y = inner.scroll_position.y, .outer_y = outer.scroll_position.y };
-}
-
-fn applyNestedBoundaryScroll(model: *const Model, before: NestedScrollSnapshot) void {
     const pointer_delta = model.pointer_y - state.nested_scroll_pointer_y;
     state.nested_scroll_pointer_y = model.pointer_y;
-    if (@abs(pointer_delta) < 0.01) return;
+    return .{
+        .inner_y = inner.scroll_position.y,
+        .outer_y = outer.scroll_position.y,
+        .pointer_delta = pointer_delta,
+    };
+}
 
+fn applyNestedCapturedScroll(before: NestedScrollSnapshot) void {
     const inner = clay.getScrollContainerData(clay.ElementId.ID("RecordsVirtualList"));
     const outer = clay.getScrollContainerData(clay.ElementId.ID("PrimaryCard"));
     if (!inner.found or !outer.found) return;
-    const inner_max = @max(
-        inner.content_dimensions.h - demo_virtual_list_height,
-        0,
-    );
-    const at_requested_endpoint = if (pointer_delta < 0)
-        inner.scroll_position.y <= -inner_max + 0.01
-    else
-        inner.scroll_position.y >= -0.01;
-    if (!at_requested_endpoint) return;
-
-    const inner_consumed = inner.scroll_position.y - before.inner_y;
-    const outer_consumed = outer.scroll_position.y - before.outer_y;
-    const remaining = remainingScrollDelta(
-        remainingScrollDelta(pointer_delta, inner_consumed),
-        outer_consumed,
-    );
-    if (@abs(remaining) < 0.01) return;
-    const outer_max = @max(
-        outer.content_dimensions.h - outer.scroll_container_dimensions.h,
-        0,
-    );
-    outer.scroll_position.y = @min(@max(outer.scroll_position.y + remaining, -outer_max), 0);
+    const inner_max = @max(inner.content_dimensions.h - demo_virtual_list_height, 0);
+    inner.scroll_position.y = @min(@max(
+        before.inner_y + before.pointer_delta,
+        -inner_max,
+    ), 0);
+    outer.scroll_position.y = before.outer_y;
 }
 
 fn pointerInVirtualListScrollBar(model: *const Model) bool {
     const track = clay.getElementData(clay.ElementId.ID("VirtualListScrollBar"));
     return track.found and pointInsideBounds(model.pointer_x, model.pointer_y, track.bounding_box);
-}
-
-fn remainingScrollDelta(pointer_delta: f32, consumed_delta: f32) f32 {
-    if (pointer_delta > 0 and consumed_delta >= 0) return @max(pointer_delta - consumed_delta, 0);
-    if (pointer_delta < 0 and consumed_delta <= 0) return @min(pointer_delta - consumed_delta, 0);
-    return 0;
-}
-
-test "nested boundary forwarding preserves inner scrolling" {
-    try std.testing.expectEqual(@as(f32, 0), remainingScrollDelta(-20, -20));
-    try std.testing.expectEqual(@as(f32, -5), remainingScrollDelta(-20, -15));
-    try std.testing.expectEqual(@as(f32, 5), remainingScrollDelta(20, 15));
-    try std.testing.expectEqual(@as(f32, 0), remainingScrollDelta(-20, 2));
 }
 
 fn ensureElementVisibleInScrollContainer(element_value: u32, container_value: u32) void {
@@ -3510,7 +3532,8 @@ test "responsive shell emits controls and text" {
     model.pointer_y = 0;
     for (0..120) |_| _ = build(&model);
 
-    // At the exact inner endpoint, only the unconsumed part reaches the card.
+    // Ownership remains with the list even after the pointer leaves its
+    // bounds and the list reaches its endpoint.
     const virtual_max_scroll = @max(
         virtual_list_scroll.content_dimensions.h - demo_virtual_list_height,
         0,
@@ -3526,7 +3549,7 @@ test "responsive shell emits controls and text" {
     model.pointer_pressed = true;
     _ = build(&model);
     model.pointer_pressed = false;
-    model.pointer_y -= 80;
+    model.pointer_y = boundary_list_data.bounding_box.y - 120;
     _ = build(&model);
     try std.testing.expectApproxEqAbs(
         -virtual_max_scroll,
@@ -3534,9 +3557,9 @@ test "responsive shell emits controls and text" {
         0.01,
     );
     try std.testing.expectApproxEqAbs(
-        outer_before_boundary_drag - 50,
+        outer_before_boundary_drag,
         primary_scroll.scroll_position.y,
-        1,
+        0.01,
     );
     model.pointer_down = false;
     model.pointer_released = true;
@@ -4101,6 +4124,33 @@ test "responsive shell emits controls and text" {
     model.pointer_down = false;
     model.pointer_released = true;
     _ = build(&model);
+
+    // A regular interactive control follows the same press ownership rule:
+    // moving outside it while held must neither scroll the parent nor click.
+    model.pointer_released = false;
+    model.pointer_x = 0;
+    model.pointer_y = 0;
+    outer.scroll_position.y = 0;
+    _ = build(&model);
+    const primary_button = clay.getElementData(clay.ElementId.ID("PrimaryAction"));
+    const primary_card = clay.getElementData(clay.ElementId.ID("PrimaryCard"));
+    try std.testing.expect(primary_button.found and primary_card.found);
+    const outer_before_button_drag = outer.scroll_position.y;
+    model.pointer_x = primary_button.bounding_box.x + primary_button.bounding_box.width * 0.5;
+    model.pointer_y = primary_button.bounding_box.y + primary_button.bounding_box.height * 0.5;
+    model.pointer_down = true;
+    model.pointer_pressed = true;
+    _ = build(&model);
+    model.pointer_pressed = false;
+    model.pointer_y = primary_card.bounding_box.y + primary_card.bounding_box.height + 100;
+    _ = build(&model);
+    try std.testing.expectApproxEqAbs(outer_before_button_drag, outer.scroll_position.y, 0.01);
+    model.pointer_down = false;
+    model.pointer_released = true;
+    const button_release_frame = build(&model);
+    for (button_release_frame.actions) |action| {
+        try std.testing.expect(action != .primary_button_pressed);
+    }
 }
 
 test "semantic actions reuse reducer-facing UI actions" {
