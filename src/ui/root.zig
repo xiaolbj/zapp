@@ -2800,7 +2800,8 @@ fn semanticRoleCapturesPointer(role: semantics.Role) bool {
 fn virtualListScrollBarOuterTarget(model: *const Model) ?f32 {
     const track_id = clay.ElementId.ID("VirtualListScrollBar");
     const track = clay.getElementData(track_id);
-    const active = state.virtual_list_state.scroll_bar_state.active_id == track_id.id;
+    const active = model.pointer_down and
+        state.virtual_list_state.scroll_bar_state.active_id == track_id.id;
     const pressing_track = model.pointer_pressed and track.found and
         pointInsideBounds(model.pointer_x, model.pointer_y, track.bounding_box);
     if (!active and !pressing_track) return null;
@@ -3461,8 +3462,15 @@ test "responsive shell emits controls and text" {
     const inner_after_list_wheel = virtual_list_scroll.scroll_position.y;
     const outer_before_followup_wheel = primary_scroll.scroll_position.y;
     // Real input has idle render frames between distinct wheel events. The
-    // inner target must not survive that gap and capture the outer event.
+    // inner target must not survive that gap and capture the outer event. Seed
+    // the lost-release state that previously froze both wheel and drag input.
+    state.virtual_list_state.scroll_bar_state.active_id =
+        clay.ElementId.ID("VirtualListScrollBar").id;
     _ = build(&model);
+    try std.testing.expectEqual(
+        @as(?u32, null),
+        state.virtual_list_state.scroll_bar_state.active_id,
+    );
     model.pointer_x = primary_data.bounding_box.x + 12;
     model.pointer_y = primary_data.bounding_box.y + 12;
     model.scroll_delta_y = -1;

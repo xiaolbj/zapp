@@ -36,6 +36,11 @@ const Metrics = struct {
 /// update model. Clicking the rail pages directly to that position; dragging
 /// the thumb can reach both exact endpoints.
 pub fn draw(state: *State, input: interaction.Input, config: Config) void {
+    const track_id = clay.ElementId.ID(config.id);
+    // Pointer-up is authoritative even if the platform did not deliver a
+    // distinct released edge while this widget was visible.
+    if (state.active_id == track_id.id and !input.down) state.active_id = null;
+
     const scroll = clay.getScrollContainerData(clay.ElementId.ID(config.scroll_id));
     if (!scroll.found or !scroll.config.vertical) return;
 
@@ -51,7 +56,6 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
         return;
     }
 
-    const track_id = clay.ElementId.ID(config.id);
     const track_data = clay.getElementData(track_id);
     const hovered = track_data.found and pointInside(input.x, input.y, track_data.bounding_box);
     if (input.pressed and hovered and track_data.found) {
@@ -67,8 +71,6 @@ pub fn draw(state: *State, input: interaction.Input, config: Config) void {
         const requested_top = input.y - track_data.bounding_box.y - state.grab_offset;
         scroll.scroll_position.y = scrollPositionForThumb(requested_top, metrics);
     }
-    if (state.active_id == track_id.id and input.released) state.active_id = null;
-
     const current = calculateMetrics(
         scroll.content_dimensions.h,
         scroll.scroll_container_dimensions.h,
